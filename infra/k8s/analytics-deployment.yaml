@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: analytics-service
+  namespace: marketplace
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: analytics-service
+  template:
+    metadata:
+      labels:
+        app: analytics-service
+    spec:
+      containers:
+        - name: analytics
+          image: gayrat/analytics-service:latest
+          ports:
+            - containerPort: 8010
+          env:
+            - name: HTTP_PORT
+              value: "8010"
+          envFrom:
+            - configMapRef:
+                name: marketplace-config
+            - secretRef:
+                name: marketplace-secrets
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8010
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: analytics-service
+  namespace: marketplace
+spec:
+  selector:
+    app: analytics-service
+  ports:
+    - port: 8010
+      targetPort: 8010

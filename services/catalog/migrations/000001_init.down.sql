@@ -1,0 +1,5 @@
+DROP TABLE IF EXISTS coupons;
+DROP TABLE IF EXISTS attributes;
+DROP TABLE IF EXISTS product_variants;
+DROP TABLE IF EXISTS products;
+DROP TABLE IF EXISTS categories;

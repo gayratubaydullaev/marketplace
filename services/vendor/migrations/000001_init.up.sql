@@ -1,0 +1,38 @@
+CREATE TABLE IF NOT EXISTS vendors (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL,
+    user_id UUID NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    slug VARCHAR(255) NOT NULL,
+    description TEXT,
+    translations JSONB DEFAULT '{}',
+    logo_url VARCHAR(500),
+    banner_url VARCHAR(500),
+    commission_rate DECIMAL(5,2),
+    stripe_account_id VARCHAR(255),
+    payme_merchant_id VARCHAR(255),
+    click_merchant_id VARCHAR(255),
+    uzum_merchant_id VARCHAR(255),
+    bank_details JSONB DEFAULT '{}',
+    kyc_documents JSONB DEFAULT '[]',
+    status VARCHAR(20) DEFAULT 'pending',
+    kyc_verified BOOLEAN DEFAULT FALSE,
+    rating DECIMAL(2,1) DEFAULT 0.0,
+    review_count INTEGER DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(tenant_id, slug)
+);
+CREATE TABLE IF NOT EXISTS vendor_payouts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL,
+    vendor_id UUID NOT NULL,
+    amount DECIMAL(14,2) NOT NULL,
+    commission_total DECIMAL(14,2) NOT NULL,
+    currency VARCHAR(3) DEFAULT 'UZS',
+    status VARCHAR(20) DEFAULT 'pending',
+    provider_transfer_id VARCHAR(255),
+    period_start DATE NOT NULL,
+    period_end DATE NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);

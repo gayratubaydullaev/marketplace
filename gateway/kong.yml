@@ -1,0 +1,124 @@
+_format_version: "3.0"
+_transform: true
+
+services:
+  - name: auth-service
+    url: http://host.docker.internal:8001
+  - name: catalog-service
+    url: http://host.docker.internal:8002
+  - name: search-service
+    url: http://host.docker.internal:8003
+  - name: cart-service
+    url: http://host.docker.internal:8004
+  - name: orders-service
+    url: http://host.docker.internal:8005
+  - name: payments-service
+    url: http://host.docker.internal:8006
+  - name: vendor-service
+    url: http://host.docker.internal:8007
+  - name: reviews-service
+    url: http://host.docker.internal:8008
+  - name: notifications-service
+    url: http://host.docker.internal:8009
+  - name: analytics-service
+    url: http://host.docker.internal:8010
+  - name: media-service
+    url: http://host.docker.internal:8011
+  - name: realtime-service
+    url: http://host.docker.internal:8012
+
+routes:
+  - name: auth
+    paths: [/v1/auth]
+    service: auth-service
+    strip_path: false
+  - name: jwks
+    paths: [/.well-known/jwks.json]
+    service: auth-service
+    strip_path: false
+  - name: product-reviews
+    paths:
+      - ~/v1/products/[^/]+/reviews
+    regex_priority: 200
+    service: reviews-service
+    strip_path: false
+  - name: products
+    paths: [/v1/products, /v1/categories, /v1/sitemap.xml, /v1/home]
+    service: catalog-service
+  - name: admin-catalog
+    paths: [/v1/admin/coupons, /v1/admin/gift-certificates, /v1/admin/hero-banners, /v1/admin/products]
+    service: catalog-service
+    strip_path: false
+  - name: admin-users
+    paths: [/v1/admin/users]
+    service: auth-service
+    strip_path: false
+  - name: search
+    paths: [/v1/search]
+    service: search-service
+  - name: cart
+    paths: [/v1/cart, /v1/addresses]
+    service: cart-service
+  - name: orders
+    paths: [/v1/orders]
+    service: orders-service
+  - name: payments
+    paths: [/v1/payments]
+    service: payments-service
+  - name: admin-reviews
+    paths: [/v1/admin/reviews]
+    service: reviews-service
+    strip_path: false
+  - name: vendors
+    paths: [/v1/vendors, /v1/vendor, /v1/tenant, /v1/admin]
+    service: vendor-service
+  - name: reviews
+    paths: [/v1/reviews]
+    service: reviews-service
+    strip_path: false
+  - name: notifications
+    paths: [/v1/notifications]
+    service: notifications-service
+  - name: analytics
+    paths: [/v1/analytics]
+    service: analytics-service
+  - name: media
+    paths: [/v1/media]
+    service: media-service
+  - name: realtime
+    paths: [/v1/realtime]
+    service: realtime-service
+
+plugins:
+  - name: cors
+    config:
+      origins:
+        - "*"
+      headers:
+        - Authorization
+        - Content-Type
+        - X-Tenant-ID
+        - X-Locale
+        - X-Guest-ID
+        - X-Request-ID
+        - X-Correlation-ID
+      credentials: true
+      methods: [GET, POST, PUT, PATCH, DELETE, OPTIONS]
+  - name: rate-limiting
+    config:
+      minute: 100
+      policy: local
+      limit_by: ip
+      fault_tolerant: true
+  - name: request-size-limiting
+    config:
+      allowed_payload_size: 10
+  - name: response-transformer
+    config:
+      add:
+        headers:
+          - "Strict-Transport-Security: max-age=31536000; includeSubDomains"
+          - "X-Content-Type-Options: nosniff"
+          - "X-Frame-Options: DENY"
+          - "Referrer-Policy: strict-origin-when-cross-origin"
+          - "Content-Security-Policy: default-src 'self'; frame-ancestors 'none'"

@@ -1,0 +1,18 @@
+go 1.24.0
+
+use (
+	./packages/go-common
+	./packages/proto
+	./services/auth
+	./services/catalog
+	./services/search
+	./services/cart
+	./services/orders
+	./services/payments
+	./services/vendor
+	./services/reviews
+	./services/notifications
+	./services/analytics
+	./services/media
+	./services/realtime
+)

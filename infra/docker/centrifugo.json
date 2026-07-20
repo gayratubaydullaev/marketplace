@@ -1,0 +1,19 @@
+{
+  "token_hmac_secret_key": "centrifugo-secret",
+  "api_key": "centrifugo-api-key",
+  "admin_password": "admin",
+  "admin_secret": "admin-secret",
+  "allowed_origins": ["*"],
+  "namespaces": [
+    {
+      "name": "orders",
+      "presence": true,
+      "history_size": 10,
+      "history_ttl": "300s"
+    },
+    {
+      "name": "notifications",
+      "presence": false
+    }
+  ]
+}

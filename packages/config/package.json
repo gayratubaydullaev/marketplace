@@ -1,0 +1,15 @@
+{
+  "name": "@gayrat/config",
+  "version": "0.1.0",
+  "private": true,
+  "files": [
+    "eslint.base.cjs",
+    "tsconfig.base.json",
+    "tailwind.preset.cjs"
+  ],
+  "exports": {
+    "./eslint": "./eslint.base.cjs",
+    "./tsconfig": "./tsconfig.base.json",
+    "./tailwind": "./tailwind.preset.cjs"
+  }
+}

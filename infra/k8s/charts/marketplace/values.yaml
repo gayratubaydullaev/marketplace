@@ -1,0 +1,52 @@
+namespace: marketplace
+imageRegistry: gayrat
+imageTag: latest
+imagePullPolicy: IfNotPresent
+
+defaults:
+  replicas: 2
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  hpa:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPU: 70
+
+secrets:
+  name: marketplace-secrets
+
+services:
+  auth:
+    port: 8001
+    replicas: 3
+    hpa:
+      minReplicas: 3
+      maxReplicas: 20
+  catalog:
+    port: 8002
+  search:
+    port: 8003
+  cart:
+    port: 8004
+  orders:
+    port: 8005
+  payments:
+    port: 8006
+  vendor:
+    port: 8007
+  reviews:
+    port: 8008
+  notifications:
+    port: 8009
+  analytics:
+    port: 8010
+  media:
+    port: 8011
+  realtime:
+    port: 8012

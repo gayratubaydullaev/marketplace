@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reviews-service
+  namespace: marketplace
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: reviews-service
+  template:
+    metadata:
+      labels:
+        app: reviews-service
+    spec:
+      containers:
+        - name: reviews
+          image: gayrat/reviews-service:latest
+          ports:
+            - containerPort: 8008
+          env:
+            - name: HTTP_PORT
+              value: "8008"
+          envFrom:
+            - configMapRef:
+                name: marketplace-config
+            - secretRef:
+                name: marketplace-secrets
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8008
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: reviews-service
+  namespace: marketplace
+spec:
+  selector:
+    app: reviews-service
+  ports:
+    - port: 8008
+      targetPort: 8008

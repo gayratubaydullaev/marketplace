@@ -1,0 +1,77 @@
+syntax = "proto3";
+
+package catalog;
+
+option go_package = "github.com/gayrat/marketplace/packages/proto/catalog";
+
+service CatalogService {
+  rpc GetProduct(GetProductRequest) returns (Product);
+  rpc ListProducts(ListProductsRequest) returns (ProductList);
+  rpc CreateProduct(CreateProductRequest) returns (Product);
+  rpc UpdateProduct(UpdateProductRequest) returns (Product);
+  rpc DeleteProduct(DeleteProductRequest) returns (Empty);
+  rpc UpdateInventory(UpdateInventoryRequest) returns (InventoryResponse);
+}
+
+message Empty {}
+
+message GetProductRequest {
+  string tenant_id = 1;
+  string id_or_slug = 2;
+}
+
+message ListProductsRequest {
+  string tenant_id = 1;
+  int32 page = 2;
+  int32 limit = 3;
+  string status = 4;
+}
+
+message CreateProductRequest {
+  string tenant_id = 1;
+  string category_id = 2;
+  string slug = 3;
+  string translations_json = 4;
+  double price = 5;
+  string currency = 6;
+}
+
+message UpdateProductRequest {
+  string tenant_id = 1;
+  string id = 2;
+  string patch_json = 3;
+}
+
+message DeleteProductRequest {
+  string tenant_id = 1;
+  string id = 2;
+}
+
+message UpdateInventoryRequest {
+  string tenant_id = 1;
+  string product_id = 2;
+  int32 delta = 3;
+}
+
+message InventoryResponse {
+  string product_id = 1;
+  int32 quantity = 2;
+}
+
+message Product {
+  string id = 1;
+  string tenant_id = 2;
+  string vendor_id = 3;
+  string name = 4;
+  string slug = 5;
+  double price = 6;
+  int32 inventory_quantity = 7;
+  string status = 8;
+  repeated string image_urls = 9;
+  string currency = 10;
+}
+
+message ProductList {
+  repeated Product items = 1;
+  int32 total = 2;
+}

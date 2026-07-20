@@ -1,0 +1,51 @@
+# OpenAPI — Auth (excerpt)
+
+openapi: 3.0.3
+info:
+  title: Gayrat Marketplace API
+  version: 1.0.0
+servers:
+  - url: http://localhost:8080/v1
+paths:
+  /auth/register:
+    post:
+      summary: Register customer
+      parameters:
+        - in: header
+          name: X-Tenant-ID
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string }
+                password: { type: string, minLength: 8 }
+                phone: { type: string, example: "+998901234567" }
+                locale: { type: string, enum: [uz, ru] }
+      responses:
+        "201":
+          description: Created
+  /auth/login:
+    post:
+      summary: Login
+      responses:
+        "200":
+          description: OK
+  /products:
+    get:
+      summary: List products
+      responses:
+        "200":
+          description: OK
+  /payments/intent:
+    post:
+      summary: Create payment intent (payme|click|uzum|stripe|bank_transfer)
+      responses:
+        "201":
+          description: Created

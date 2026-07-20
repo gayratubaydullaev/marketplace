@@ -1,0 +1,77 @@
+{{- range $name, $svc := .Values.services }}
+{{- $replicas := default $.Values.defaults.replicas $svc.replicas }}
+{{- $port := $svc.port }}
+{{- $hpa := merge (dict) $.Values.defaults.hpa (default dict $svc.hpa) }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}-service
+  namespace: {{ $.Values.namespace }}
+  labels:
+    app: {{ $name }}-service
+spec:
+  replicas: {{ $replicas }}
+  selector:
+    matchLabels:
+      app: {{ $name }}-service
+  template:
+    metadata:
+      labels:
+        app: {{ $name }}-service
+    spec:
+      containers:
+        - name: {{ $name }}
+          image: {{ $.Values.imageRegistry }}/{{ $name }}-service:{{ $.Values.imageTag }}
+          imagePullPolicy: {{ $.Values.imagePullPolicy }}
+          ports:
+            - containerPort: {{ $port }}
+          envFrom:
+            - secretRef:
+                name: {{ $.Values.secrets.name }}
+          env:
+            - name: HTTP_PORT
+              value: {{ $port | quote }}
+          resources:
+            {{- toYaml $.Values.defaults.resources | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: {{ $port }}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}-service
+  namespace: {{ $.Values.namespace }}
+spec:
+  selector:
+    app: {{ $name }}-service
+  ports:
+    - port: {{ $port }}
+      targetPort: {{ $port }}
+{{- if $hpa.enabled }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ $name }}-service
+  namespace: {{ $.Values.namespace }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ $name }}-service
+  minReplicas: {{ $hpa.minReplicas }}
+  maxReplicas: {{ $hpa.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ $hpa.targetCPU }}
+{{- end }}
+{{- end }}

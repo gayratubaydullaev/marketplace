@@ -1,0 +1,80 @@
+CREATE TABLE IF NOT EXISTS categories (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL,
+    parent_id UUID,
+    slug VARCHAR(255) NOT NULL,
+    translations JSONB NOT NULL DEFAULT '{}',
+    attributes_schema JSONB DEFAULT '[]',
+    sort_order INTEGER DEFAULT 0,
+    status VARCHAR(20) DEFAULT 'active',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(tenant_id, slug)
+);
+CREATE TABLE IF NOT EXISTS products (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL,
+    vendor_id UUID,
+    category_id UUID NOT NULL,
+    slug VARCHAR(500) NOT NULL,
+    translations JSONB NOT NULL DEFAULT '{}',
+    sku VARCHAR(100),
+    price DECIMAL(14,2) NOT NULL,
+    compare_at_price DECIMAL(14,2),
+    cost_price DECIMAL(14,2),
+    currency VARCHAR(3) DEFAULT 'UZS',
+    inventory_quantity INTEGER DEFAULT 0,
+    inventory_policy VARCHAR(20) DEFAULT 'deny',
+    weight DECIMAL(10,2),
+    weight_unit VARCHAR(10) DEFAULT 'kg',
+    status VARCHAR(20) DEFAULT 'draft',
+    is_featured BOOLEAN DEFAULT FALSE,
+    seo JSONB DEFAULT '{}',
+    attributes JSONB DEFAULT '{}',
+    images JSONB DEFAULT '[]',
+    metadata JSONB DEFAULT '{}',
+    rating DECIMAL(2,1) DEFAULT 0.0,
+    review_count INTEGER DEFAULT 0,
+    sales_count INTEGER DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(tenant_id, slug)
+);
+CREATE TABLE IF NOT EXISTS product_variants (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL,
+    product_id UUID NOT NULL,
+    sku VARCHAR(100) NOT NULL,
+    title VARCHAR(255),
+    attributes JSONB DEFAULT '{}',
+    price DECIMAL(14,2) NOT NULL,
+    compare_at_price DECIMAL(14,2),
+    inventory_quantity INTEGER DEFAULT 0,
+    image_url VARCHAR(500),
+    status VARCHAR(20) DEFAULT 'active',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(tenant_id, sku)
+);
+CREATE TABLE IF NOT EXISTS attributes (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL,
+    slug VARCHAR(100) NOT NULL,
+    translations JSONB NOT NULL DEFAULT '{}',
+    type VARCHAR(30) DEFAULT 'text',
+    options JSONB DEFAULT '[]',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(tenant_id, slug)
+);
+CREATE TABLE IF NOT EXISTS coupons (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL,
+    code VARCHAR(50) NOT NULL,
+    type VARCHAR(20) NOT NULL CHECK (type IN ('percent', 'fixed')),
+    value DECIMAL(14,2) NOT NULL,
+    min_order DECIMAL(14,2) DEFAULT 0,
+    max_uses INTEGER,
+    used_count INTEGER DEFAULT 0,
+    starts_at TIMESTAMPTZ,
+    ends_at TIMESTAMPTZ,
+    status VARCHAR(20) DEFAULT 'active',
+    UNIQUE(tenant_id, code)
+);

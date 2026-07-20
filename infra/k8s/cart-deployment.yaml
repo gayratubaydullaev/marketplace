@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cart-service
+  namespace: marketplace
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: cart-service
+  template:
+    metadata:
+      labels:
+        app: cart-service
+    spec:
+      containers:
+        - name: cart
+          image: gayrat/cart-service:latest
+          ports:
+            - containerPort: 8004
+          env:
+            - name: HTTP_PORT
+              value: "8004"
+          envFrom:
+            - configMapRef:
+                name: marketplace-config
+            - secretRef:
+                name: marketplace-secrets
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8004
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cart-service
+  namespace: marketplace
+spec:
+  selector:
+    app: cart-service
+  ports:
+    - port: 8004
+      targetPort: 8004

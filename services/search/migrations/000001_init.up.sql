@@ -1,0 +1,1 @@
+CREATE TABLE IF NOT EXISTS search_queries (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id UUID NOT NULL, query TEXT NOT NULL, locale VARCHAR(5) DEFAULT 'uz', results_count INTEGER DEFAULT 0, user_id UUID, created_at TIMESTAMPTZ DEFAULT NOW());

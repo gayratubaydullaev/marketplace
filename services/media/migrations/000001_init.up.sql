@@ -1,0 +1,1 @@
+CREATE TABLE IF NOT EXISTS media_files (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id UUID NOT NULL, uploader_id UUID, bucket VARCHAR(100) NOT NULL, object_key VARCHAR(500) NOT NULL, url VARCHAR(1000) NOT NULL, content_type VARCHAR(100), size_bytes BIGINT, variants JSONB DEFAULT '{}', created_at TIMESTAMPTZ DEFAULT NOW());
