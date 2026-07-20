@@ -15,7 +15,7 @@ jobs:
           go-version: "1.24.x"
       - name: Download modules
         run: |
-          cd packages/go-common && go mod tidy
+          (cd packages/go-common && go mod tidy)
           for s in auth catalog search cart orders payments vendor reviews notifications analytics media realtime; do
             (cd services/$s && go mod tidy)
           done
@@ -26,7 +26,7 @@ jobs:
           done
       - name: Test
         run: |
-          cd packages/go-common && go test ./...
+          (cd packages/go-common && go test ./...)
           for s in auth catalog search cart orders payments vendor reviews notifications analytics media realtime; do
             (cd services/$s && go test ./...)
           done
