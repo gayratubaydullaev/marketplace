@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 
 	"github.com/gayrat/marketplace/packages/go-common/httpx"
 	"github.com/gayrat/marketplace/packages/go-common/middleware"
@@ -27,7 +26,7 @@ func mustJSON(v any) []byte {
 }
 
 func (h *PaymentHandler) ProvidersList(c *gin.Context) {
-	httpx.OK(c, gin.H{"providers": []string{"payme", "click", "uzum", "stripe", "bank_transfer"}, "currency": "UZS", "sandbox": h.Sandbox})
+	httpx.OK(c, gin.H{"providers": []string{"payme", "click", "uzum", "stripe", "paypal", "bank_transfer"}, "currency": "UZS", "sandbox": h.Sandbox})
 }
 
 func (h *PaymentHandler) Intent(c *gin.Context) {
@@ -35,6 +34,7 @@ func (h *PaymentHandler) Intent(c *gin.Context) {
 		OrderID        string `json:"order_id" binding:"required"`
 		Provider       string `json:"provider" binding:"required"`
 		IdempotencyKey string `json:"idempotency_key"`
+		Metadata       map[string]any `json:"metadata"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		httpx.BadRequest(c, err.Error())
@@ -96,7 +96,14 @@ func (h *PaymentHandler) Intent(c *gin.Context) {
 	if !h.Sandbox && redirect != "" {
 		sandboxRedirect = redirect
 	}
-	meta := mustJSON(gin.H{"redirect_url": sandboxRedirect, "sandbox": h.Sandbox})
+	metaValues := gin.H{"redirect_url": sandboxRedirect, "sandbox": h.Sandbox}
+	for key, value := range body.Metadata {
+		metaValues[key] = value
+	}
+	if accountID := service.StripeConnectAccountID(body.Metadata); accountID != "" {
+		metaValues["stripe_connected_account_id"] = accountID
+	}
+	meta := mustJSON(metaValues)
 	if _, err = h.Service.Repo.DB.Exec(`INSERT INTO payments (id,tenant_id,order_id,user_id,amount,currency,provider,provider_payment_id,status,idempotency_key,metadata) VALUES ($1,$2,$3,$4,$5,'UZS',$6,$7,'pending',$8,$9)`, id, tenantID, body.OrderID, userID, order.Total, body.Provider, providerID, idem, meta); err != nil {
 		httpx.BadRequest(c, err.Error())
 		return
@@ -140,7 +147,15 @@ func (h *PaymentHandler) Webhook(c *gin.Context) {
 		return
 	}
 	payload, _ := io.ReadAll(c.Request.Body)
-	providerID, status, err := provider.VerifyWebhook(payload, c.GetHeader("X-Signature"))
+	credential := c.GetHeader("X-Signature")
+	if c.Param("provider") == "stripe" {
+		credential = c.GetHeader("Stripe-Signature")
+	} else if auth := c.GetHeader("Authorization"); auth != "" {
+		credential = auth
+	} else if auth := c.GetHeader("X-Auth"); auth != "" {
+		credential = auth
+	}
+	providerID, status, err := provider.VerifyWebhook(payload, credential)
 	if err != nil {
 		httpx.Unauthorized(c, err.Error())
 		return
@@ -230,7 +245,5 @@ func (h *PaymentHandler) GetStatus(c *gin.Context) {
 	}
 	httpx.OK(c, gin.H{"id": payment.ID, "status": payment.Status, "order_id": payment.OrderID, "provider": payment.Provider, "amount": payment.Amount})
 }
-
-func Sandbox() bool { return os.Getenv("PAYMENTS_SANDBOX") != "false" }
 
 var _ = model.Payment{}

@@ -235,6 +235,56 @@ func (r *Catalog) UpdateProduct(id, tenantID string, body map[string]any) error 
 	return err
 }
 
+func (r *Catalog) BulkEditProducts(tenantID string, body model.BulkEditRequest) (int, error) {
+	sets := make([]string, 0, 3)
+	args := make([]any, 0, 5)
+	if body.Price != nil {
+		sets = append(sets, "price=$"+strconv.Itoa(len(args)+1))
+		args = append(args, *body.Price)
+	}
+	if body.Status != nil {
+		sets = append(sets, "status=$"+strconv.Itoa(len(args)+1))
+		args = append(args, *body.Status)
+	}
+	if body.CategoryID != nil {
+		sets = append(sets, "category_id=$"+strconv.Itoa(len(args)+1))
+		args = append(args, *body.CategoryID)
+	}
+	if len(sets) == 0 {
+		return 0, nil
+	}
+	sets = append(sets, "updated_at=NOW()")
+	args = append(args, tenantID, body.IDs)
+	query := `UPDATE products SET ` + strings.Join(sets, ",") +
+		` WHERE tenant_id=$` + strconv.Itoa(len(args)-1) + ` AND id = ANY($` + strconv.Itoa(len(args)) + `::uuid[])`
+	result, err := r.db.Exec(query, args...)
+	if err != nil {
+		return 0, err
+	}
+	updated, err := result.RowsAffected()
+	return int(updated), err
+}
+
+func (r *Catalog) ProductStatuses(tenantID string, ids []string) (map[string]string, error) {
+	rows, err := r.db.Queryx(
+		`SELECT id::text, status FROM products WHERE tenant_id=$1 AND id = ANY($2::uuid[])`,
+		tenantID, ids,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	statuses := make(map[string]string, len(ids))
+	for rows.Next() {
+		var id, status string
+		if err := rows.Scan(&id, &status); err != nil {
+			return nil, err
+		}
+		statuses[id] = status
+	}
+	return statuses, rows.Err()
+}
+
 func (r *Catalog) ArchiveProduct(id, tenantID string) error {
 	_, err := r.db.Exec(`UPDATE products SET status='archived', updated_at=NOW() WHERE id=$1 AND tenant_id=$2`, id, tenantID)
 	return err

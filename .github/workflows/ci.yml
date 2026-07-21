@@ -8,6 +8,9 @@ on:
 jobs:
   go:
     runs-on: ubuntu-latest
+    env:
+      # CI must never call live payment providers.
+      PAYMENTS_SANDBOX: "true"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -24,11 +27,22 @@ jobs:
           for s in auth catalog search cart orders payments vendor reviews notifications analytics media realtime; do
             (cd services/$s && go build -o /tmp/$s ./cmd/server)
           done
+      - name: Validate payment-provider mode
+        env:
+          STRIPE_SECRET: ${{ secrets.STRIPE_SECRET }}
+          PAYME_SECRET: ${{ secrets.PAYME_SECRET }}
+        run: |
+          if [[ "$PAYMENTS_SANDBOX" == "false" ]] && { [[ -z "${STRIPE_SECRET:-}" ]] || [[ -z "${PAYME_SECRET:-}" ]]; }; then
+            echo "Live payments require STRIPE_SECRET and PAYME_SECRET" >&2
+            exit 1
+          fi
       - name: Test
         run: |
           (cd packages/go-common && go test ./...)
           for s in auth catalog search cart orders payments vendor reviews notifications analytics media realtime; do
-            (cd services/$s && go test ./...)
+            if find "services/$s" -name '*_test.go' | grep -q .; then
+              (cd services/$s && go test ./...)
+            fi
           done
 
   frontend:

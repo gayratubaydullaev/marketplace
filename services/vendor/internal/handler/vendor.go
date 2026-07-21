@@ -39,6 +39,18 @@ func (h *VendorHandler) Suspend(c *gin.Context)        { setStatus(c, h.Service.
 func (h *VendorHandler) SetCommission(c *gin.Context)  { setCommission(c, h.Service.Repo.DB) }
 func (h *VendorHandler) SwitchMode(c *gin.Context)     { switchMode(c, h.Service.Repo.DB) }
 func (h *VendorHandler) RunPayouts(c *gin.Context)     { runPayouts(c, h.Service.Repo.DB) }
+func (h *VendorHandler) ListPendingKYC(c *gin.Context) { listPendingKYC(c, h.Service.Repo.DB) }
+func (h *VendorHandler) SetKYCStatus(c *gin.Context)   { setKYCStatus(c, h.Service.Repo.DB) }
+func (h *VendorHandler) ListCommissionTiers(c *gin.Context) { listCommissionTiers(c, h.Service.Repo.DB) }
+func (h *VendorHandler) CreateCommissionTier(c *gin.Context) { createCommissionTier(c, h.Service.Repo.DB) }
+func (h *VendorHandler) UpdateCommissionTier(c *gin.Context) { updateCommissionTier(c, h.Service.Repo.DB) }
+func (h *VendorHandler) DeleteCommissionTier(c *gin.Context) { deleteCommissionTier(c, h.Service.Repo.DB) }
+func (h *VendorHandler) ListCategoryCommissions(c *gin.Context) { listCategoryCommissions(c, h.Service.Repo.DB) }
+func (h *VendorHandler) SetCategoryCommission(c *gin.Context) { setCategoryCommission(c, h.Service.Repo.DB) }
+func (h *VendorHandler) DeleteCategoryCommission(c *gin.Context) { deleteCategoryCommission(c, h.Service.Repo.DB) }
+func (h *VendorHandler) MarkPayoutProcessing(c *gin.Context) { transitionPayout(c, h.Service.Repo.DB, "processing") }
+func (h *VendorHandler) CompletePayout(c *gin.Context) { transitionPayout(c, h.Service.Repo.DB, "completed") }
+func (h *VendorHandler) FailPayout(c *gin.Context) { transitionPayout(c, h.Service.Repo.DB, "failed") }
 
 func apply(c *gin.Context, database *sqlx.DB, producer *kafkax.Producer) {
 	var body struct {
@@ -75,7 +87,7 @@ func apply(c *gin.Context, database *sqlx.DB, producer *kafkax.Producer) {
 }
 func listVendors(c *gin.Context, database *sqlx.DB) {
 	var items []Vendor
-	err := database.Select(&items, `SELECT id, tenant_id, user_id, name, slug, description, translations, logo_url, banner_url, commission_rate, status, kyc_verified, rating, review_count, created_at FROM vendors WHERE tenant_id=$1 AND status='active' ORDER BY rating DESC`, middleware.GetTenantID(c))
+	err := database.Select(&items, `SELECT id, tenant_id, user_id, name, slug, description, translations, logo_url, banner_url, commission_rate, status, kyc_verified, kyc_status, rating, review_count, created_at FROM vendors WHERE tenant_id=$1 AND status='active' ORDER BY rating DESC`, middleware.GetTenantID(c))
 	if err != nil {
 		httpx.Internal(c, err.Error())
 		return
@@ -84,7 +96,7 @@ func listVendors(c *gin.Context, database *sqlx.DB) {
 }
 func listAllVendors(c *gin.Context, database *sqlx.DB) {
 	var items []Vendor
-	err := database.Select(&items, `SELECT id, tenant_id, user_id, name, slug, description, translations, logo_url, banner_url, commission_rate, status, kyc_verified, rating, review_count, created_at FROM vendors WHERE tenant_id=$1 ORDER BY created_at DESC`, middleware.GetTenantID(c))
+	err := database.Select(&items, `SELECT id, tenant_id, user_id, name, slug, description, translations, logo_url, banner_url, commission_rate, status, kyc_verified, kyc_status, rating, review_count, created_at FROM vendors WHERE tenant_id=$1 ORDER BY created_at DESC`, middleware.GetTenantID(c))
 	if err != nil {
 		httpx.Internal(c, err.Error())
 		return
@@ -101,7 +113,7 @@ func tenantMode(c *gin.Context, database *sqlx.DB) {
 }
 func getVendor(c *gin.Context, database *sqlx.DB) {
 	var v Vendor
-	err := database.Get(&v, `SELECT id, tenant_id, user_id, name, slug, description, translations, logo_url, banner_url, commission_rate, status, kyc_verified, rating, review_count, created_at FROM vendors WHERE tenant_id=$1 AND slug=$2`, middleware.GetTenantID(c), c.Param("slug"))
+	err := database.Get(&v, `SELECT id, tenant_id, user_id, name, slug, description, translations, logo_url, banner_url, commission_rate, status, kyc_verified, kyc_status, rating, review_count, created_at FROM vendors WHERE tenant_id=$1 AND slug=$2`, middleware.GetTenantID(c), c.Param("slug"))
 	if err != nil {
 		httpx.NotFound(c, "vendor not found")
 		return
@@ -117,7 +129,7 @@ func getVendor(c *gin.Context, database *sqlx.DB) {
 	httpx.OK(c, gin.H{
 		"id": v.ID, "tenant_id": v.TenantID, "user_id": v.UserID, "name": v.Name, "slug": v.Slug,
 		"description": v.Description, "translations": v.Translations, "logo_url": v.LogoURL, "banner_url": v.BannerURL,
-		"commission_rate": v.CommissionRate, "status": v.Status, "kyc_verified": v.KYCVerified,
+		"commission_rate": v.CommissionRate, "status": v.Status, "kyc_verified": v.KYCVerified, "kyc_status": v.KYCStatus,
 		"rating": v.Rating, "review_count": v.ReviewCount, "created_at": v.CreatedAt, "policies": policies,
 	})
 }
@@ -287,7 +299,11 @@ func setStatus(c *gin.Context, database *sqlx.DB, status string, kyc bool) {
 			return
 		}
 	}
-	_, err := database.Exec(`UPDATE vendors SET status=$1, kyc_verified=$2, updated_at=NOW() WHERE id=$3 AND tenant_id=$4`, status, kyc, c.Param("id"), middleware.GetTenantID(c))
+	kycStatus := "pending"
+	if kyc {
+		kycStatus = "approved"
+	}
+	_, err := database.Exec(`UPDATE vendors SET status=$1, kyc_verified=$2, kyc_status=$3, updated_at=NOW() WHERE id=$4 AND tenant_id=$5`, status, kyc, kycStatus, c.Param("id"), middleware.GetTenantID(c))
 	if err != nil {
 		httpx.BadRequest(c, err.Error())
 		return
@@ -302,9 +318,207 @@ func setCommission(c *gin.Context, database *sqlx.DB) {
 		httpx.BadRequest(c, err.Error())
 		return
 	}
-	_, _ = database.Exec(`UPDATE vendors SET commission_rate=$1 WHERE id=$2`, body.Rate, c.Param("id"))
+	if body.Rate < 0 || body.Rate > 100 {
+		httpx.BadRequest(c, "rate must be between 0 and 100")
+		return
+	}
+	_, err := database.Exec(`UPDATE vendors SET commission_rate=$1, updated_at=NOW() WHERE id=$2 AND tenant_id=$3`, body.Rate, c.Param("id"), middleware.GetTenantID(c))
+	if err != nil {
+		httpx.Internal(c, err.Error())
+		return
+	}
 	httpx.OK(c, gin.H{"commission_rate": body.Rate})
 }
+
+func listPendingKYC(c *gin.Context, database *sqlx.DB) {
+	var items []Vendor
+	if err := database.Select(&items, `SELECT id, tenant_id, user_id, name, slug, description, translations, logo_url, banner_url, commission_rate, status, kyc_verified, kyc_status, rating, review_count, created_at FROM vendors WHERE tenant_id=$1 AND kyc_status='pending' ORDER BY created_at ASC`, middleware.GetTenantID(c)); err != nil {
+		httpx.Internal(c, err.Error())
+		return
+	}
+	httpx.OK(c, gin.H{"items": items})
+}
+
+func setKYCStatus(c *gin.Context, database *sqlx.DB) {
+	var body struct {
+		Status string `json:"status" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		httpx.BadRequest(c, err.Error())
+		return
+	}
+	if body.Status != "pending" && body.Status != "approved" && body.Status != "rejected" {
+		httpx.BadRequest(c, "status must be pending, approved, or rejected")
+		return
+	}
+	verified := body.Status == "approved"
+	result, err := database.Exec(`UPDATE vendors SET kyc_status=$1, kyc_verified=$2, updated_at=NOW() WHERE id=$3 AND tenant_id=$4`,
+		body.Status, verified, c.Param("id"), middleware.GetTenantID(c))
+	if err != nil {
+		httpx.Internal(c, err.Error())
+		return
+	}
+	affected, _ := result.RowsAffected()
+	if affected == 0 {
+		httpx.NotFound(c, "vendor not found")
+		return
+	}
+	httpx.OK(c, gin.H{"id": c.Param("id"), "kyc_status": body.Status, "kyc_verified": verified})
+}
+
+type commissionTierRequest struct {
+	MinVolume float64  `json:"min_volume"`
+	MaxVolume *float64 `json:"max_volume"`
+	Rate      float64  `json:"rate"`
+}
+
+func validateCommissionTier(body commissionTierRequest) string {
+	if body.MinVolume < 0 || body.Rate < 0 || body.Rate > 100 {
+		return "min_volume must be >= 0 and rate must be between 0 and 100"
+	}
+	if body.MaxVolume != nil && *body.MaxVolume <= body.MinVolume {
+		return "max_volume must be greater than min_volume"
+	}
+	return ""
+}
+
+func listCommissionTiers(c *gin.Context, database *sqlx.DB) {
+	rows, err := database.Queryx(`SELECT id, tenant_id, min_volume, max_volume, rate FROM commission_tiers WHERE tenant_id=$1 ORDER BY min_volume`, middleware.GetTenantID(c))
+	if err != nil {
+		httpx.Internal(c, err.Error())
+		return
+	}
+	defer rows.Close()
+	httpx.OK(c, gin.H{"items": maps(rows)})
+}
+
+func createCommissionTier(c *gin.Context, database *sqlx.DB) {
+	var body commissionTierRequest
+	if err := c.ShouldBindJSON(&body); err != nil {
+		httpx.BadRequest(c, err.Error())
+		return
+	}
+	if message := validateCommissionTier(body); message != "" {
+		httpx.BadRequest(c, message)
+		return
+	}
+	var id string
+	if err := database.Get(&id, `INSERT INTO commission_tiers (tenant_id, min_volume, max_volume, rate) VALUES ($1,$2,$3,$4) RETURNING id::text`,
+		middleware.GetTenantID(c), body.MinVolume, body.MaxVolume, body.Rate); err != nil {
+		httpx.BadRequest(c, err.Error())
+		return
+	}
+	httpx.Created(c, gin.H{"id": id})
+}
+
+func updateCommissionTier(c *gin.Context, database *sqlx.DB) {
+	var body commissionTierRequest
+	if err := c.ShouldBindJSON(&body); err != nil {
+		httpx.BadRequest(c, err.Error())
+		return
+	}
+	if message := validateCommissionTier(body); message != "" {
+		httpx.BadRequest(c, message)
+		return
+	}
+	result, err := database.Exec(`UPDATE commission_tiers SET min_volume=$1, max_volume=$2, rate=$3, updated_at=NOW() WHERE id=$4 AND tenant_id=$5`,
+		body.MinVolume, body.MaxVolume, body.Rate, c.Param("id"), middleware.GetTenantID(c))
+	if err != nil {
+		httpx.BadRequest(c, err.Error())
+		return
+	}
+	affected, _ := result.RowsAffected()
+	if affected == 0 {
+		httpx.NotFound(c, "commission tier not found")
+		return
+	}
+	httpx.OK(c, gin.H{"id": c.Param("id"), "updated": true})
+}
+
+func deleteCommissionTier(c *gin.Context, database *sqlx.DB) {
+	result, err := database.Exec(`DELETE FROM commission_tiers WHERE id=$1 AND tenant_id=$2`, c.Param("id"), middleware.GetTenantID(c))
+	if err != nil {
+		httpx.Internal(c, err.Error())
+		return
+	}
+	affected, _ := result.RowsAffected()
+	if affected == 0 {
+		httpx.NotFound(c, "commission tier not found")
+		return
+	}
+	c.Status(204)
+}
+
+func listCategoryCommissions(c *gin.Context, database *sqlx.DB) {
+	rows, err := database.Queryx(`SELECT id, tenant_id, category_id, rate FROM category_commissions WHERE tenant_id=$1 ORDER BY category_id`, middleware.GetTenantID(c))
+	if err != nil {
+		httpx.Internal(c, err.Error())
+		return
+	}
+	defer rows.Close()
+	httpx.OK(c, gin.H{"items": maps(rows)})
+}
+
+func setCategoryCommission(c *gin.Context, database *sqlx.DB) {
+	var body struct {
+		Rate float64 `json:"rate" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		httpx.BadRequest(c, err.Error())
+		return
+	}
+	if body.Rate < 0 || body.Rate > 100 {
+		httpx.BadRequest(c, "rate must be between 0 and 100")
+		return
+	}
+	_, err := database.Exec(`INSERT INTO category_commissions (tenant_id, category_id, rate) VALUES ($1,$2,$3)
+		ON CONFLICT (tenant_id, category_id) DO UPDATE SET rate=EXCLUDED.rate, updated_at=NOW()`,
+		middleware.GetTenantID(c), c.Param("categoryID"), body.Rate)
+	if err != nil {
+		httpx.BadRequest(c, err.Error())
+		return
+	}
+	httpx.OK(c, gin.H{"category_id": c.Param("categoryID"), "rate": body.Rate})
+}
+
+func deleteCategoryCommission(c *gin.Context, database *sqlx.DB) {
+	result, err := database.Exec(`DELETE FROM category_commissions WHERE tenant_id=$1 AND category_id=$2`, middleware.GetTenantID(c), c.Param("categoryID"))
+	if err != nil {
+		httpx.Internal(c, err.Error())
+		return
+	}
+	affected, _ := result.RowsAffected()
+	if affected == 0 {
+		httpx.NotFound(c, "category commission not found")
+		return
+	}
+	c.Status(204)
+}
+
+func transitionPayout(c *gin.Context, database *sqlx.DB, target string) {
+	allowedFrom := map[string][]string{
+		"processing": {"pending"},
+		"completed":  {"pending", "processing"},
+		"failed":     {"pending", "processing"},
+	}
+	result, err := database.Exec(`UPDATE vendor_payouts SET status=$1 WHERE id=$2 AND tenant_id=$3 AND status = ANY($4)`,
+		target, c.Param("id"), middleware.GetTenantID(c), allowedFrom[target])
+	if err != nil {
+		httpx.Internal(c, err.Error())
+		return
+	}
+	affected, _ := result.RowsAffected()
+	if affected == 0 {
+		httpx.BadRequest(c, "payout not found or cannot transition to "+target)
+		return
+	}
+	response := gin.H{"id": c.Param("id"), "status": target}
+	if target == "completed" && os.Getenv("PAYMENTS_SANDBOX") != "false" {
+		response["ledger_note"] = "paid_sandbox"
+	}
+	httpx.OK(c, response)
+}
+
 func switchMode(c *gin.Context, database *sqlx.DB) {
 	var body struct {
 		Mode string `json:"mode" binding:"required"`
@@ -339,7 +553,13 @@ func switchMode(c *gin.Context, database *sqlx.DB) {
 		httpx.Internal(c, err.Error())
 		return
 	}
-	httpx.OK(c, gin.H{"mode": body.Mode, "migrated": true})
+	notes := []string{"Tenant mode was updated without deleting vendor data."}
+	if body.Mode == "single_store" {
+		notes = append(notes, "Product vendor assignments were cleared; vendor records, KYC, commissions, and payouts remain for audit.")
+	} else {
+		notes = append(notes, "Existing products remain unassigned; assign a vendor before treating them as marketplace inventory.")
+	}
+	httpx.OK(c, gin.H{"mode": body.Mode, "migrated": true, "migration_notes": notes})
 }
 
 func updateTenantSettings(c *gin.Context, database *sqlx.DB) {
@@ -396,6 +616,11 @@ func runPayouts(c *gin.Context, database *sqlx.DB) {
 	}
 	created := 0
 	var totalAmount, totalCommission float64
+	sandbox := os.Getenv("PAYMENTS_SANDBOX") != "false"
+	splitStatus := "paid"
+	if sandbox {
+		splitStatus = "paid_sandbox"
+	}
 	for _, r := range rows {
 		if r.Amount <= 0 {
 			continue
@@ -406,15 +631,15 @@ func runPayouts(c *gin.Context, database *sqlx.DB) {
 		}
 		payoutID := uuid.NewString()
 		if _, err := tx.Exec(`INSERT INTO vendor_payouts (id, tenant_id, vendor_id, amount, commission_total, currency, status, period_start, period_end)
-			VALUES ($1,$2,$3,$4,$5,'UZS','paid_sandbox', CURRENT_DATE - 7, CURRENT_DATE)`,
+			VALUES ($1,$2,$3,$4,$5,'UZS','completed', CURRENT_DATE - 7, CURRENT_DATE)`,
 			payoutID, tenantID, r.VendorID, r.Amount, r.Commission); err != nil {
 			httpx.Internal(c, err.Error())
 			return
 		}
-		res, err := tx.Exec(`UPDATE payment_splits SET status='paid_sandbox', payout_id=$1
-			WHERE vendor_id=$2 AND tenant_id=$3 AND status='pending'
+		res, err := tx.Exec(`UPDATE payment_splits SET status=$1, payout_id=$2
+			WHERE vendor_id=$3 AND tenant_id=$4 AND status='pending'
 			  AND payment_id IN (SELECT id FROM payments WHERE status='succeeded')`,
-			payoutID, r.VendorID, tenantID)
+			splitStatus, payoutID, r.VendorID, tenantID)
 		if err != nil {
 			httpx.Internal(c, err.Error())
 			return
@@ -430,11 +655,17 @@ func runPayouts(c *gin.Context, database *sqlx.DB) {
 		httpx.Internal(c, err.Error())
 		return
 	}
+	payoutStatus := "completed"
+	ledgerNote := ""
+	if sandbox {
+		ledgerNote = "paid_sandbox"
+	}
 	httpx.OK(c, gin.H{
 		"payouts_created":  created,
-		"status":           "paid_sandbox",
+		"status":           payoutStatus,
 		"total_amount":     totalAmount,
 		"total_commission": totalCommission,
 		"source":           "payment_splits",
+		"ledger_note":      ledgerNote,
 	})
 }

@@ -17,6 +17,7 @@ export function Header({ locale }: { locale: string }) {
   const items = useCart((s) => s.items);
   const wishCount = useWishlist((s) => s.items.length);
   const syncToServer = useCart((s) => s.syncToServer);
+  const syncWishlistToServer = useWishlist((s) => s.syncToServer);
   const [showVendors, setShowVendors] = useState(true);
   const [loggedIn, setLoggedIn] = useState(false);
   const count = items.reduce((a, i) => a + i.quantity, 0);
@@ -27,14 +28,17 @@ export function Header({ locale }: { locale: string }) {
       .catch(() => setShowVendors(true));
     const syncAuth = () => setLoggedIn(Boolean(localStorage.getItem("access_token")));
     syncAuth();
-    if (localStorage.getItem("access_token")) syncToServer().catch(() => undefined);
+    if (localStorage.getItem("access_token")) {
+      syncToServer().catch(() => undefined);
+      syncWishlistToServer().catch(() => undefined);
+    }
     window.addEventListener("focus", syncAuth);
     window.addEventListener("storage", syncAuth);
     return () => {
       window.removeEventListener("focus", syncAuth);
       window.removeEventListener("storage", syncAuth);
     };
-  }, [syncToServer]);
+  }, [syncToServer, syncWishlistToServer]);
 
   function logout() {
     localStorage.removeItem("access_token");

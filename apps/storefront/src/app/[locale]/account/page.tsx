@@ -102,6 +102,7 @@ export default function AccountPage() {
   const tn = useTranslations("nav");
   const locale = useLocale();
   const wishlistCount = useWishlist((s) => s.items.length);
+  const syncWishlistToServer = useWishlist((s) => s.syncToServer);
   const cartCount = useCart((s) => s.items.reduce((n, i) => n + i.quantity, 0));
 
   const [bootstrapping, setBootstrapping] = useState(true);
@@ -168,6 +169,7 @@ export default function AccountPage() {
       }>(path, { method: "POST", body: JSON.stringify({ email, password, locale }) });
       localStorage.setItem("access_token", data.tokens.access_token);
       localStorage.setItem("refresh_token", data.tokens.refresh_token);
+      await syncWishlistToServer().catch(() => undefined);
       setUser(data.user);
       setProfile({
         first_name: data.user.first_name || "",

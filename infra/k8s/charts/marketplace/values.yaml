@@ -21,6 +21,22 @@ defaults:
 secrets:
   name: marketplace-secrets
 
+ingress:
+  enabled: true
+  className: nginx
+  host: api.gayrat.uz
+  gatewayPort: 8000
+  annotations: {}
+  tls:
+    - hosts: [api.gayrat.uz]
+      secretName: marketplace-api-tls
+
+externalSecrets:
+  enabled: false
+  storeName: vault-backend
+  storeKind: ClusterSecretStore
+  vaultPath: secret/gayrat/marketplace
+
 services:
   auth:
     port: 8001

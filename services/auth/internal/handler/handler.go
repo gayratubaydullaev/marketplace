@@ -49,12 +49,20 @@ func (h *Handler) Login(c *gin.Context) {
 func (h *Handler) Refresh(c *gin.Context) {
 	var body struct {
 		RefreshToken string `json:"refresh_token" binding:"required"`
+		Fingerprint  string `json:"fingerprint"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		httpx.BadRequest(c, err.Error())
 		return
 	}
-	tokens, err := h.svc.Refresh(body.RefreshToken)
+	fp := body.Fingerprint
+	if fp == "" {
+		fp = c.GetHeader("X-Device-Fingerprint")
+	}
+	if fp == "" {
+		fp = c.ClientIP()
+	}
+	tokens, err := h.svc.Refresh(body.RefreshToken, fp)
 	if err != nil {
 		httpx.Unauthorized(c, err.Error())
 		return

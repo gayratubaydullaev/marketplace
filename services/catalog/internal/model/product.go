@@ -106,6 +106,13 @@ type BulkCreateRequest struct {
 	Products []BulkProductRequest `json:"products"`
 }
 
+type BulkEditRequest struct {
+	IDs        []string `json:"ids" binding:"required,min=1,max=10000"`
+	Price      *float64 `json:"price"`
+	Status     *string  `json:"status"`
+	CategoryID *string  `json:"category_id"`
+}
+
 type AttachImagesRequest struct {
 	URLs []string `json:"urls" binding:"required"`
 }

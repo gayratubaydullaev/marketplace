@@ -4,16 +4,19 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"net"
 	"net/http"
 	"os"
 
 	catalogpb "github.com/gayrat/marketplace/packages/proto/gen/catalog"
 	"github.com/gayrat/marketplace/services/catalog/internal/model"
 	"github.com/gayrat/marketplace/services/catalog/internal/repository"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/encoding"
 )
 
-// Server exposes CatalogService RPCs over JSON HTTP on GRPC_PORT (default 9002).
-// Full protobuf wire format requires protoc; this stub keeps the same method surface.
+// Server exposes CatalogService RPCs through both the legacy JSON HTTP listener
+// and native gRPC with an explicitly selected JSON codec.
 type Server struct {
 	repo *repository.Catalog
 }
@@ -113,12 +116,29 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-// ListenAndServe starts the JSON RPC listener (proto surface) in a goroutine.
+type jsonCodec struct{}
+
+func (jsonCodec) Name() string { return "json" }
+func (jsonCodec) Marshal(v any) ([]byte, error) {
+	return json.Marshal(v)
+}
+func (jsonCodec) Unmarshal(data []byte, v any) error {
+	return json.Unmarshal(data, v)
+}
+
+// ListenAndServe starts legacy JSON HTTP RPC on GRPC_PORT (9002) and native
+// gRPC JSON RPC on GRPC_NATIVE_PORT (9003). Native callers must set the
+// `json` content subtype (e.g. grpc.CallContentSubtype("json")).
 func ListenAndServe(repo *repository.Catalog) {
-	port := os.Getenv("GRPC_PORT")
-	if port == "" {
-		port = "9002"
+	httpPort := os.Getenv("GRPC_PORT")
+	if httpPort == "" {
+		httpPort = "9002"
 	}
+	nativePort := os.Getenv("GRPC_NATIVE_PORT")
+	if nativePort == "" {
+		nativePort = "9003"
+	}
+	encoding.RegisterCodec(jsonCodec{})
 	srv := New(repo)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/catalog.CatalogService/GetProduct", func(w http.ResponseWriter, r *http.Request) {
@@ -165,9 +185,22 @@ func ListenAndServe(repo *repository.Catalog) {
 	})
 
 	go func() {
-		log.Printf("catalog-service proto RPC (JSON) on :%s", port)
-		if err := http.ListenAndServe(":"+port, mux); err != nil {
+		log.Printf("catalog-service legacy JSON RPC on :%s", httpPort)
+		if err := http.ListenAndServe(":"+httpPort, mux); err != nil {
 			log.Printf("catalog proto RPC: %v", err)
+		}
+	}()
+	go func() {
+		listener, err := net.Listen("tcp", ":"+nativePort)
+		if err != nil {
+			log.Printf("catalog native gRPC listen: %v", err)
+			return
+		}
+		grpcServer := grpc.NewServer()
+		catalogpb.RegisterCatalogServiceServer(grpcServer, srv)
+		log.Printf("catalog-service native gRPC (JSON codec) on :%s", nativePort)
+		if err := grpcServer.Serve(listener); err != nil {
+			log.Printf("catalog native gRPC: %v", err)
 		}
 	}()
 }

@@ -57,10 +57,16 @@ export default async function ProductPage({
   let product: Product | null = null;
   let variants: Variant[] = [];
   let related: Product[] = [];
+  let catalogJsonLd: Record<string, unknown> | null = null;
   try {
-    const data = await api<{ product: Product; variants?: Variant[] }>(`/v1/products/${slug}`);
+    const data = await api<{
+      product: Product;
+      variants?: Variant[];
+      json_ld?: Record<string, unknown>;
+    }>(`/v1/products/${slug}`);
     product = data.product;
     variants = data.variants || [];
+    catalogJsonLd = data.json_ld || null;
     const rel = await api<{ items: Product[] }>(`/v1/products/${slug}/related`).catch(() => ({
       items: [] as Product[],
     }));
@@ -94,7 +100,7 @@ export default async function ProductPage({
   const images = Array.isArray(product.images)
     ? product.images.filter((image): image is string => typeof image === "string")
     : [];
-  const jsonLd = {
+  const fallbackJsonLd = {
     "@context": "https://schema.org",
     "@type": "Product",
     name,
@@ -110,10 +116,14 @@ export default async function ProductPage({
           : "https://schema.org/OutOfStock",
     },
   };
+  const jsonLd = catalogJsonLd || fallbackJsonLd;
 
   return (
     <div className="w-full min-w-0 max-w-full pb-[calc(var(--sticky-action-h)+1rem)] md:pb-10 lg:pb-14">
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, "\\u003c") }}
+      />
 
       <nav className="mb-4 flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-night/45 sm:mb-6 sm:text-sm lg:mb-8" aria-label="Breadcrumb">
         <Link href={`/${locale}`} className="hover:text-teal">

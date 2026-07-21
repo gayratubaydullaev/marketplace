@@ -13,9 +13,27 @@ import (
 )
 
 var transitions = map[string][]string{
-	"pending": {"confirmed", "cancelled"}, "confirmed": {"processing", "cancelled", "refunded"},
-	"processing": {"shipped", "cancelled", "returned"}, "shipped": {"delivered", "returned"},
-	"delivered": {"completed", "returned"}, "completed": {}, "cancelled": {}, "refunded": {}, "returned": {"refunded"},
+	"pending":   {"confirmed", "cancelled"},
+	"confirmed": {"processing", "refunded"},
+	"processing": {"shipped", "returned"},
+	"shipped":    {"delivered"},
+	"delivered":  {"completed"},
+	"completed":  {},
+	"cancelled":  {},
+	"refunded":   {},
+	"returned":   {},
+}
+
+// ValidateStatusTransition enforces the order state machine from FR-5.3:
+// pending → confirmed → processing → shipped → delivered → completed, with
+// cancelled, refunded, and returned terminal branches.
+func ValidateStatusTransition(current, next string) error {
+	for _, allowed := range transitions[current] {
+		if allowed == next {
+			return nil
+		}
+	}
+	return fmt.Errorf("cannot transition %s -> %s", current, next)
 }
 
 type OrderService struct {
@@ -242,18 +260,14 @@ func (s *OrderService) Transition(ctx context.Context, id, tenantID, status stri
 	if err := s.Repo.DB.QueryRow(`SELECT status,user_id,tenant_id FROM orders WHERE id=$1 AND tenant_id=$2`, id, tenantID).Scan(&current, &userID, &orderTenant); err != nil {
 		return err
 	}
-	valid := false
-	for _, next := range transitions[current] {
-		valid = valid || next == status
-	}
-	if !valid {
-		return fmt.Errorf("cannot transition %s -> %s", current, status)
+	if err := ValidateStatusTransition(current, status); err != nil {
+		return err
 	}
 	fulfillment := map[string]string{"shipped": "shipped", "delivered": "fulfilled", "completed": "fulfilled", "cancelled": "cancelled"}[status]
 	if fulfillment != "" {
-		_, _ = s.Repo.DB.Exec(`UPDATE orders SET status=$1,fulfillment_status=$2,updated_at=NOW() WHERE id=$3`, status, fulfillment, id)
+		_, _ = s.Repo.DB.Exec(`UPDATE orders SET status=$1,fulfillment_status=$2,updated_at=NOW() WHERE id=$3 AND tenant_id=$4`, status, fulfillment, id, tenantID)
 	} else {
-		_, _ = s.Repo.DB.Exec(`UPDATE orders SET status=$1,updated_at=NOW() WHERE id=$2`, status, id)
+		_, _ = s.Repo.DB.Exec(`UPDATE orders SET status=$1,updated_at=NOW() WHERE id=$2 AND tenant_id=$3`, status, id, tenantID)
 	}
 	topic := "order.status_updated"
 	if status == "shipped" {

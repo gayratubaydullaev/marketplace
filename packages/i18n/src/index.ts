@@ -1,14 +1,11 @@
-export const locales = [
-  "uz", "ru", "en", "tr", "ar", "kk", "ky", "tg", "de", "fr",
-  "es", "it", "pt", "zh", "ko", "ja", "hi", "fa", "he", "id",
-] as const;
+export const locales = ["uz", "ru", "en", "ar"] as const;
 export type Locale = (typeof locales)[number];
 /** Locales with routed storefront pages + message packs ready */
 export const routingLocales = ["uz", "ru", "en", "ar"] as const;
 export type RoutingLocale = (typeof routingLocales)[number];
 export const defaultLocale: Locale = "uz";
 
-export const rtlLocales = new Set<Locale>(["ar", "he", "fa"]);
+export const rtlLocales = new Set<Locale>(["ar"]);
 
 export function isRTL(locale: string): boolean {
   return rtlLocales.has(locale as Locale);

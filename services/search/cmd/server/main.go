@@ -57,9 +57,9 @@ func main() {
 		v1.GET("", func(c *gin.Context) { search(c, database, esURL) })
 		v1.GET("/suggest", func(c *gin.Context) { suggest(c, database, esURL) })
 		v1.GET("/facets", func(c *gin.Context) { facets(c, database) })
-		v1.POST("/reindex", func(c *gin.Context) { reindex(c, database, esURL) })
-		v1.GET("/analytics", func(c *gin.Context) { searchAnalytics(c, database) })
-		v1.GET("/synonyms", func(c *gin.Context) { listSynonyms(c, database) })
+		v1.POST("/reindex", middleware.JWT(tokenMgr, false), middleware.RequireRoles(commonauth.RoleTenantAdmin, commonauth.RoleSuperAdmin, commonauth.RoleManager), func(c *gin.Context) { reindex(c, database, esURL) })
+		v1.GET("/analytics", middleware.JWT(tokenMgr, false), middleware.RequireRoles(commonauth.RoleTenantAdmin, commonauth.RoleSuperAdmin, commonauth.RoleManager, commonauth.RoleModerator), func(c *gin.Context) { searchAnalytics(c, database) })
+		v1.GET("/synonyms", middleware.JWT(tokenMgr, false), middleware.RequireRoles(commonauth.RoleTenantAdmin, commonauth.RoleManager), func(c *gin.Context) { listSynonyms(c, database) })
 		v1.POST("/synonyms", middleware.JWT(tokenMgr, false), middleware.RequireRoles(commonauth.RoleTenantAdmin, commonauth.RoleManager), func(c *gin.Context) { upsertSynonym(c, database) })
 		v1.DELETE("/synonyms/:term", middleware.JWT(tokenMgr, false), middleware.RequireRoles(commonauth.RoleTenantAdmin, commonauth.RoleManager), func(c *gin.Context) { deleteSynonym(c, database) })
 	}

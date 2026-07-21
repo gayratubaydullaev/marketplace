@@ -96,6 +96,9 @@ export function ProductCard({
                 src={img}
                 alt={name}
                 loading="lazy"
+                width={600}
+                height={800}
+                sizes="(max-width: 639px) 50vw, (max-width: 1023px) 33vw, (max-width: 1279px) 25vw, 20vw"
                 className={`h-full w-full object-cover transition duration-300 group-hover:scale-[1.03] ${
                   outOfStock ? "opacity-50" : ""
                 }`}

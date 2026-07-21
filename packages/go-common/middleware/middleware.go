@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -22,9 +23,45 @@ const (
 	CtxTenantKey = "tenant_id"
 )
 
+// CORSAllowlist returns origins from CORS_ORIGINS (comma-separated) or localhost defaults.
+func CORSAllowlist() []string {
+	raw := strings.TrimSpace(os.Getenv("CORS_ORIGINS"))
+	if raw == "" {
+		return []string{
+			"http://localhost:3000",
+			"http://localhost:3001",
+			"http://localhost:3002",
+		}
+	}
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" && p != "*" {
+			out = append(out, p)
+		}
+	}
+	if len(out) == 0 {
+		return []string{"http://localhost:3000"}
+	}
+	return out
+}
+
 func CORS() gin.HandlerFunc {
+	allowed := CORSAllowlist()
+	allowSet := map[string]struct{}{}
+	for _, o := range allowed {
+		allowSet[o] = struct{}{}
+	}
 	return func(c *gin.Context) {
-		c.Header("Access-Control-Allow-Origin", "*")
+		origin := c.GetHeader("Origin")
+		if origin != "" {
+			if _, ok := allowSet[origin]; ok {
+				c.Header("Access-Control-Allow-Origin", origin)
+				c.Header("Access-Control-Allow-Credentials", "true")
+				c.Header("Vary", "Origin")
+			}
+		}
 		c.Header("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS")
 		c.Header("Access-Control-Allow-Headers", "Authorization,Content-Type,X-Tenant-ID,X-Locale,X-Guest-ID,X-Request-ID,X-Correlation-ID,Idempotency-Key")
 		if c.Request.Method == http.MethodOptions {

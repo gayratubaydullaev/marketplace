@@ -56,6 +56,10 @@ export default function AnalyticsPage() {
       })),
     [data.top_products]
   );
+  const overviewChartData = useMemo(
+    () => [{ name: "Current total", revenue: data.revenue ?? 0, orders: data.orders ?? 0 }],
+    [data.orders, data.revenue]
+  );
 
   function exportCsv() {
     const rows = [
@@ -104,6 +108,20 @@ export default function AnalyticsPage() {
       <p className="mt-4 text-sm text-slate-500">
         Realtime: carts {rt.active_carts ?? "—"} · orders/hour {rt.orders_last_hour ?? "—"}
       </p>
+      <h2 className="mt-8 text-xl font-bold">Revenue and orders</h2>
+      <div className="mt-4 h-72 rounded border bg-white p-4">
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={overviewChartData}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+            <YAxis yAxisId="revenue" tick={{ fontSize: 11 }} />
+            <YAxis yAxisId="orders" orientation="right" tick={{ fontSize: 11 }} />
+            <Tooltip />
+            <Bar yAxisId="revenue" dataKey="revenue" name="Revenue (UZS)" fill="#0f766e" />
+            <Bar yAxisId="orders" dataKey="orders" name="Orders" fill="#f59e0b" />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
       <h2 className="mt-8 text-xl font-bold">Top products revenue</h2>
       <div className="mt-4 h-72 rounded border bg-white p-4">
         {chartData.length > 0 ? (

@@ -43,6 +43,14 @@ func main() {
 		carts.POST("/merge", middleware.JWT(tokens, false), cart.MergeGuest)
 	}
 
+	wishlist := v1.Group("/wishlist", middleware.JWT(tokens, false))
+	{
+		wishlist.GET("", cart.GetWishlist)
+		wishlist.POST("/items", cart.AddWishlistItem)
+		wishlist.DELETE("/items/:id", cart.RemoveWishlistItem)
+		wishlist.POST("/merge", cart.MergeWishlist)
+	}
+
 	addresses := v1.Group("/addresses", middleware.JWT(tokens, false))
 	addresses.GET("", cart.ListAddresses)
 	addresses.POST("", cart.CreateAddress)

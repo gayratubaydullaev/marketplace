@@ -2,10 +2,6 @@ package service
 
 import (
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"math"
 	"os"
@@ -18,65 +14,22 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
-type Provider interface {
-	Name() string
-	CreateIntent(float64, string, string) (string, string, error)
-	VerifyWebhook([]byte, string) (string, string, error)
-}
-type HMACProvider struct{ NameValue, MerchantID, Secret, RedirectTemplate string }
-
-func (p HMACProvider) Name() string { return p.NameValue }
-func (p HMACProvider) CreateIntent(amount float64, currency, orderID string) (string, string, error) {
-	id := p.NameValue + "_" + uuid.NewString()[:12]
-	return id, fmt.Sprintf(p.RedirectTemplate, p.MerchantID, amount, orderID, id), nil
-}
-func (p HMACProvider) VerifyWebhook(payload []byte, signature string) (string, string, error) {
-	mac := hmac.New(sha256.New, []byte(p.Secret))
-	mac.Write(payload)
-	expected := hex.EncodeToString(mac.Sum(nil))
-	if signature != "" && signature != "sandbox" && !hmac.Equal([]byte(expected), []byte(signature)) {
-		return "", "", fmt.Errorf("invalid signature")
-	}
-	var body map[string]any
-	_ = json.Unmarshal(payload, &body)
-	id, _ := body["id"].(string)
-	if id == "" {
-		id = fmt.Sprint(body["click_trans_id"])
-	}
-	if id == "" {
-		id, _ = body["provider_payment_id"].(string)
-	}
-	status := "succeeded"
-	if s, ok := body["status"].(string); ok && s != "" {
-		status = s
-	}
-	return id, status, nil
-}
-
-type BankTransferProvider struct{}
-
-func (BankTransferProvider) Name() string { return "bank_transfer" }
-func (BankTransferProvider) CreateIntent(float64, string, string) (string, string, error) {
-	return "bank_" + uuid.NewString()[:8], "", nil
-}
-func (BankTransferProvider) VerifyWebhook([]byte, string) (string, string, error) {
-	return "bank_manual", "pending", nil
-}
-
 func Providers() map[string]Provider {
-	env := func(k, d string) string {
-		if v := os.Getenv(k); v != "" {
-			return v
-		}
-		return d
-	}
 	return map[string]Provider{
-		"payme":         HMACProvider{"payme", env("PAYME_MERCHANT_ID", "gayrat-payme"), env("PAYME_SECRET", "payme-sandbox-secret"), "https://checkout.paycom.uz/%s?amount=%.0f&order=%s&transaction=%s"},
-		"click":         HMACProvider{"click", env("CLICK_MERCHANT_ID", "gayrat-click"), env("CLICK_SECRET", "click-sandbox-secret"), "https://my.click.uz/services/pay?service_id=%s&amount=%.0f&transaction_param=%s&payment_id=%s"},
-		"uzum":          HMACProvider{"uzum", env("UZUM_MERCHANT_ID", "gayrat-uzum"), env("UZUM_SECRET", "uzum-sandbox-secret"), "https://www.uzumbank.uz/pay/%s?amount=%.0f&order=%s&id=%s"},
-		"stripe":        HMACProvider{"stripe", "stripe", env("STRIPE_SECRET", "sk_test_dev"), "https://checkout.stripe.com/pay/%s?amount=%.0f&order=%s&pi=%s"},
+		"payme":         PaymeProvider{MerchantID: envOr("PAYME_MERCHANT_ID", "gayrat-payme"), Secret: envOr("PAYME_SECRET", "payme-sandbox-secret")},
+		"click":         ClickProvider{MerchantID: envOr("CLICK_MERCHANT_ID", "gayrat-click"), Secret: envOr("CLICK_SECRET", "click-sandbox-secret")},
+		"uzum":          UzumProvider{MerchantID: envOr("UZUM_MERCHANT_ID", "gayrat-uzum"), Secret: envOr("UZUM_SECRET", "uzum-sandbox-secret")},
+		"stripe":        StripeProvider{Secret: envOr("STRIPE_SECRET", "sk_test_dev"), WebhookSecret: os.Getenv("STRIPE_WEBHOOK_SECRET")},
+		"paypal":        PayPalProvider{ClientID: os.Getenv("PAYPAL_CLIENT_ID"), ClientSecret: os.Getenv("PAYPAL_CLIENT_SECRET")},
 		"bank_transfer": BankTransferProvider{},
 	}
+}
+
+func envOr(key, fallback string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return fallback
 }
 
 type PaymentService struct {

@@ -6,7 +6,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/EXAMPLE/gayrat.git
+    repoURL: https://github.com/gayratubaydullaev/marketplace.git
     targetRevision: HEAD
     path: infra/k8s/charts/marketplace
   destination:

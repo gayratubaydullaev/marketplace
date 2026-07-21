@@ -2,13 +2,16 @@ package service
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"net"
+	"net/http"
 	"net/smtp"
 	"os"
 	"strings"
 	"time"
 
+	commonsms "github.com/gayrat/marketplace/packages/go-common/sms"
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 )
@@ -37,6 +40,58 @@ type LogPushTransport struct{}
 func (LogPushTransport) SendPush(to, title, body string) error {
 	log.Printf("[notify/push] to=%s title=%s body=%s", to, title, body)
 	return nil
+}
+
+// FCMTransport sends via Firebase Legacy HTTP API (FCM_SERVER_KEY).
+type FCMTransport struct {
+	ServerKey string
+}
+
+func (f FCMTransport) SendPush(to, title, body string) error {
+	if f.ServerKey == "" {
+		return fmt.Errorf("FCM_SERVER_KEY not set")
+	}
+	payload := fmt.Sprintf(`{"to":%q,"notification":{"title":%q,"body":%q}}`, to, title, body)
+	req, err := http.NewRequest(http.MethodPost, "https://fcm.googleapis.com/fcm/send", strings.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "key="+f.ServerKey)
+	req.Header.Set("Content-Type", "application/json")
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		b, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("fcm status %d: %s", resp.StatusCode, string(b))
+	}
+	return nil
+}
+
+// SMSFromEnv returns Twilio/Eskiz via go-common/sms or log.
+func SMSFromEnv() SMSTransport {
+	return smsBridge{inner: smsFromEnv()}
+}
+
+type smsBridge struct{ inner interface{ Send(to, body string) error } }
+
+func (s smsBridge) SendSMS(to, body string) error {
+	return s.inner.Send(to, body)
+}
+
+func smsFromEnv() interface{ Send(to, body string) error } {
+	return commonsms.FromEnv()
+}
+
+// PushFromEnv returns FCM or log.
+func PushFromEnv() PushTransport {
+	if key := os.Getenv("FCM_SERVER_KEY"); key != "" {
+		return FCMTransport{ServerKey: key}
+	}
+	return LogPushTransport{}
 }
 
 type LogTransport struct{}

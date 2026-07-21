@@ -1,5 +1,7 @@
 package model
 
+import "time"
+
 type Cart struct {
 	ID                  string  `db:"id" json:"id"`
 	TenantID            string  `db:"tenant_id" json:"tenant_id"`
@@ -36,4 +38,13 @@ type Address struct {
 	Apartment  *string `db:"apartment" json:"apartment"`
 	PostalCode *string `db:"postal_code" json:"postal_code"`
 	IsDefault  bool    `db:"is_default" json:"is_default"`
+}
+
+type WishlistItem struct {
+	ID         string    `db:"id" json:"id"`
+	WishlistID string    `db:"wishlist_id" json:"wishlist_id"`
+	TenantID   string    `db:"tenant_id" json:"tenant_id"`
+	ProductID  string    `db:"product_id" json:"product_id"`
+	VariantID  *string   `db:"variant_id" json:"variant_id"`
+	CreatedAt  time.Time `db:"created_at" json:"created_at"`
 }

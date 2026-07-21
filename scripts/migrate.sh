@@ -23,4 +23,6 @@ psql "$DB" -v ON_ERROR_STOP=0 -f "$ROOT/infra/docker/migrate_v3.sql" >/dev/null 
 psql "$DB" -v ON_ERROR_STOP=0 -f "$ROOT/infra/docker/migrate_v4_rls.sql" >/dev/null || true
 # FX rates, locale extras, citus prep markers
 psql "$DB" -v ON_ERROR_STOP=0 -f "$ROOT/infra/docker/migrate_v5_prod.sql" >/dev/null || true
+# Strict RLS (no NULL-tenant bypass) + audit_logs
+psql "$DB" -v ON_ERROR_STOP=0 -f "$ROOT/infra/docker/migrate_v6_rls_strict.sql" >/dev/null || true
 echo "Done."

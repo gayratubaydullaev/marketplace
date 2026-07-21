@@ -131,7 +131,15 @@ export function ProductGallery({
                 aria-current={i === active}
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={img} alt="" loading="lazy" className="h-full w-full object-cover" />
+                <img
+                  src={img}
+                  alt=""
+                  loading="lazy"
+                  width={96}
+                  height={96}
+                  sizes="96px"
+                  className="h-full w-full object-cover"
+                />
               </button>
             ))}
           </div>
@@ -162,6 +170,11 @@ export function ProductGallery({
                 <img
                   src={src}
                   alt={name}
+                  loading={active === 0 ? "eager" : "lazy"}
+                  fetchPriority={active === 0 ? "high" : "auto"}
+                  width={1200}
+                  height={1500}
+                  sizes="(max-width: 1023px) 100vw, 56vw"
                   className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.03]"
                 />
                 <span className="pointer-events-none absolute inset-x-0 bottom-0 hidden bg-gradient-to-t from-night/50 to-transparent px-5 pb-4 pt-16 text-xs font-semibold text-paper/95 opacity-0 transition duration-300 group-hover:opacity-100 lg:block">
@@ -242,7 +255,15 @@ export function ProductGallery({
                   aria-current={i === active}
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={img} alt="" loading="lazy" className="h-full w-full object-cover" />
+                  <img
+                    src={img}
+                    alt=""
+                    loading="lazy"
+                    width={96}
+                    height={96}
+                    sizes="96px"
+                    className="h-full w-full object-cover"
+                  />
                 </button>
               ))}
             </div>
@@ -306,6 +327,10 @@ export function ProductGallery({
             <img
               src={src}
               alt={name}
+              loading="lazy"
+              width={1600}
+              height={2000}
+              sizes="100vw"
               className="relative z-[1] max-h-[min(78dvh,900px)] max-w-full object-contain"
             />
           </div>
@@ -325,7 +350,15 @@ export function ProductGallery({
                     }`}
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={img} alt="" className="h-full w-full object-cover" />
+                    <img
+                      src={img}
+                      alt=""
+                      loading="lazy"
+                      width={96}
+                      height={96}
+                      sizes="96px"
+                      className="h-full w-full object-cover"
+                    />
                   </button>
                 ))}
               </div>

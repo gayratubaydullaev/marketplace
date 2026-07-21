@@ -18,6 +18,7 @@ type Vendor struct {
 	CommissionRate *float64        `db:"commission_rate" json:"commission_rate"`
 	Status         string          `db:"status" json:"status"`
 	KYCVerified    bool            `db:"kyc_verified" json:"kyc_verified"`
+	KYCStatus      string          `db:"kyc_status" json:"kyc_status"`
 	Rating         float64         `db:"rating" json:"rating"`
 	ReviewCount    int             `db:"review_count" json:"review_count"`
 	CreatedAt      time.Time       `db:"created_at" json:"created_at"`

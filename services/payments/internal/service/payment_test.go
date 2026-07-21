@@ -8,6 +8,7 @@ import (
 )
 
 func TestHMACProviderVerifySandbox(t *testing.T) {
+	t.Setenv("PAYMENTS_SANDBOX", "true")
 	p := HMACProvider{NameValue: "payme", Secret: "payme-sandbox-secret"}
 	body := []byte(`{"id":"payme_abc","status":"succeeded"}`)
 	mac := hmac.New(sha256.New, []byte(p.Secret))

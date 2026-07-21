@@ -47,6 +47,15 @@ func main() {
 		v1.GET("/realtime", middleware.RequireRoles(commonauth.RoleTenantAdmin), func(c *gin.Context) {
 			realtime(c, database, rdb)
 		})
+		v1.GET("/geo", middleware.RequireRoles(commonauth.RoleSuperAdmin, commonauth.RoleTenantAdmin, commonauth.RoleManager), func(c *gin.Context) {
+			geoAnalytics(c, database)
+		})
+		v1.GET("/traffic", middleware.RequireRoles(commonauth.RoleSuperAdmin, commonauth.RoleTenantAdmin, commonauth.RoleManager), func(c *gin.Context) {
+			trafficAnalytics(c, database)
+		})
+		v1.GET("/revenue-per-minute", middleware.RequireRoles(commonauth.RoleSuperAdmin, commonauth.RoleTenantAdmin, commonauth.RoleManager), func(c *gin.Context) {
+			revenuePerMinute(c, database)
+		})
 		v1.POST("/events", func(c *gin.Context) {
 			var body map[string]any
 			_ = c.ShouldBindJSON(&body)
@@ -134,7 +143,7 @@ func overview(c *gin.Context, database *sqlx.DB, chURL string) {
 
 func vendorOverview(c *gin.Context, database *sqlx.DB) {
 	if database == nil {
-		httpx.OK(c, gin.H{"revenue": 0, "commission": 0, "orders": 0, "currency": "UZS", "top_products": []any{}})
+		httpx.OK(c, gin.H{"sales": 0, "revenue": 0, "commission": 0, "orders": 0, "currency": "UZS", "top_products": []any{}})
 		return
 	}
 	claims := middleware.GetClaims(c)
@@ -157,9 +166,85 @@ func vendorOverview(c *gin.Context, database *sqlx.DB) {
 		FROM order_items WHERE vendor_id=$1 GROUP BY product_id, title ORDER BY sold DESC LIMIT 10`, vendorID)
 
 	httpx.OK(c, gin.H{
-		"revenue": revenue, "commission": commission, "orders": orders, "currency": "UZS",
+		"sales": revenue + commission, "revenue": revenue, "commission": commission, "orders": orders, "currency": "UZS",
 		"top_products": top,
 	})
+}
+
+func geoAnalytics(c *gin.Context, database *sqlx.DB) {
+	type region struct {
+		Region string  `db:"region" json:"region"`
+		Orders int     `db:"orders" json:"orders"`
+		Revenue float64 `db:"revenue" json:"revenue"`
+	}
+	rows := []region{}
+	if database != nil {
+		// shipping_address is JSONB in the canonical Postgres schema. NULL and
+		// older malformed addresses are grouped as "Unknown" instead of failing.
+		_ = database.Select(&rows, `
+			SELECT COALESCE(NULLIF(shipping_address->>'region',''), 'Unknown') AS region,
+				COUNT(*) AS orders, COALESCE(SUM(total),0) AS revenue
+			FROM orders
+			WHERE tenant_id=$1
+			GROUP BY 1
+			ORDER BY revenue DESC, orders DESC
+			LIMIT 10`, middleware.GetTenantID(c))
+	}
+	httpx.OK(c, gin.H{"regions": rows, "currency": "UZS"})
+}
+
+func trafficAnalytics(c *gin.Context, database *sqlx.DB) {
+	response := gin.H{"source": "unavailable", "searches": 0, "unique_queries": 0}
+	if database == nil {
+		httpx.OK(c, response)
+		return
+	}
+
+	var table string
+	_ = database.Get(&table, `SELECT COALESCE(to_regclass('search_queries')::text, '')`)
+	if table != "" {
+		var searches, unique int
+		_ = database.QueryRow(`
+			SELECT COUNT(*), COUNT(DISTINCT query)
+			FROM search_queries WHERE tenant_id=$1
+				AND created_at >= NOW() - INTERVAL '24 hours'`,
+			middleware.GetTenantID(c),
+		).Scan(&searches, &unique)
+		response = gin.H{"source": "search_queries", "searches": searches, "unique_queries": unique, "window": "24h"}
+	} else {
+		_ = database.Get(&table, `SELECT COALESCE(to_regclass('events')::text, '')`)
+		if table != "" {
+			var events int
+			_ = database.Get(&events, `SELECT COUNT(*) FROM events WHERE tenant_id=$1`, middleware.GetTenantID(c))
+			response = gin.H{"source": "events", "events": events, "window": "all_time"}
+		}
+	}
+	httpx.OK(c, response)
+}
+
+func revenuePerMinute(c *gin.Context, database *sqlx.DB) {
+	type bucket struct {
+		Minute  time.Time `db:"minute" json:"minute"`
+		Revenue float64   `db:"revenue" json:"revenue"`
+		Orders  int       `db:"orders" json:"orders"`
+	}
+	rows := []bucket{}
+	if database != nil {
+		_ = database.Select(&rows, `
+			SELECT minutes.minute,
+				COALESCE(SUM(o.total),0) AS revenue,
+				COUNT(o.id) AS orders
+			FROM generate_series(
+				date_trunc('minute', NOW()) - INTERVAL '59 minutes',
+				date_trunc('minute', NOW()),
+				INTERVAL '1 minute'
+			) AS minutes(minute)
+			LEFT JOIN orders o ON date_trunc('minute', o.created_at) = minutes.minute
+				AND o.tenant_id=$1 AND o.status NOT IN ('cancelled', 'refunded')
+			GROUP BY minutes.minute
+			ORDER BY minutes.minute`, middleware.GetTenantID(c))
+	}
+	httpx.OK(c, gin.H{"buckets": rows, "currency": "UZS", "window_minutes": 60, "source": "postgres_orders"})
 }
 
 func insertCH(chURL string, body map[string]any) error {

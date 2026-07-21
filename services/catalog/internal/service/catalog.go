@@ -79,10 +79,10 @@ func (s *Catalog) ImportCSV(tenantID string, input io.Reader) ([]string, error) 
 }
 
 var productStatusFSM = map[string][]string{
-	"draft":          {"pending_review", "active", "archived"},
+	"draft":          {"pending_review", "archived"},
 	"pending_review": {"active", "rejected", "draft"},
 	"rejected":       {"draft", "pending_review"},
-	"active":         {"out_of_stock", "archived", "draft"},
+	"active":         {"out_of_stock", "archived"},
 	"out_of_stock":   {"active", "archived"},
 	"archived":       {"draft"},
 }
@@ -102,4 +102,9 @@ func validateStatusTransition(from, to string) bool {
 
 func ValidateStatusTransition(from, to string) bool {
 	return validateStatusTransition(from, to)
+}
+
+func IsProductStatus(status string) bool {
+	_, ok := productStatusFSM[status]
+	return ok
 }

@@ -21,13 +21,23 @@ services:
       - ./loki-config.yml:/etc/loki/config.yml:ro
       - loki-data:/loki
 
+  jaeger:
+    image: jaegertracing/all-in-one:1.57
+    ports:
+      - "16686:16686"
+      - "4317:4317"
+      - "4318:4318"
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+
   grafana:
     image: grafana/grafana:11.1.4
     depends_on:
       - prometheus
       - loki
+      - jaeger
     ports:
-      - "3001:3000"
+      - "3010:3000"
     environment:
       GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD: admin

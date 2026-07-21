@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"os"
 	"time"
 
 	commonauth "github.com/gayrat/marketplace/packages/go-common/auth"
@@ -33,7 +34,11 @@ func (h *Handler) token(c *gin.Context) {
 	t := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"sub": claims.UserID, "exp": now.Add(time.Hour).Unix(), "iat": now.Unix(), "channels": []string{"orders:#" + claims.UserID, "notifications:#" + claims.UserID}})
 	signed, err := t.SignedString([]byte(h.secret))
 	if err != nil { httpx.Internal(c, err.Error()); return }
-	httpx.OK(c, gin.H{"token": signed, "url": "ws://localhost:8100/connection/websocket"})
+	wsURL := os.Getenv("CENTRIFUGO_WS_URL")
+	if wsURL == "" {
+		wsURL = "ws://localhost:8100/connection/websocket"
+	}
+	httpx.OK(c, gin.H{"token": signed, "url": wsURL})
 }
 
 func (h *Handler) publish(c *gin.Context) {

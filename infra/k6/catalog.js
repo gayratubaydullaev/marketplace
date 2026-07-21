@@ -1,13 +1,8 @@
 import http from "k6/http";
 import { check, sleep } from "k6";
+import { profileFromEnv } from "./profiles.js";
 
-export const options = {
-  vus: 100,
-  duration: "2m",
-  thresholds: {
-    http_req_duration: ["p(95)<300"],
-  },
-};
+export const options = profileFromEnv().options;
 
 const CATALOG = __ENV.CATALOG_BASE || "http://localhost:8002";
 const TENANT = "00000000-0000-0000-0000-000000000001";

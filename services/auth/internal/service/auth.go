@@ -13,6 +13,7 @@ import (
 	"time"
 
 	commonauth "github.com/gayrat/marketplace/packages/go-common/auth"
+	"github.com/gayrat/marketplace/packages/go-common/sms"
 	"github.com/gayrat/marketplace/packages/go-common/tenant"
 	"github.com/gayrat/marketplace/services/auth/internal/model"
 	"github.com/gayrat/marketplace/services/auth/internal/repository"
@@ -132,7 +133,7 @@ func (s *AuthService) recordLoginFail(tenantID, email string) {
 	}
 }
 
-func (s *AuthService) Refresh(refreshToken string) (*commonauth.TokenPair, error) {
+func (s *AuthService) Refresh(refreshToken, fingerprint string) (*commonauth.TokenPair, error) {
 	claims, err := s.tokens.Parse(refreshToken)
 	if err != nil {
 		return nil, errors.New("invalid refresh token")
@@ -142,16 +143,30 @@ func (s *AuthService) Refresh(refreshToken string) (*commonauth.TokenPair, error
 	if err != nil || !ok {
 		return nil, errors.New("refresh token revoked or expired")
 	}
+	if fingerprint != "" && s.rdb != nil {
+		stored, _ := s.rdb.Get(context.Background(), "refreshfp:"+hash).Result()
+		if stored != "" && stored != fingerprint {
+			_ = s.repo.RevokeRefreshToken(hash)
+			return nil, errors.New("refresh fingerprint mismatch")
+		}
+	}
 	u, err := s.repo.FindByID(claims.UserID)
 	if err != nil || u == nil {
 		return nil, errors.New("user not found")
 	}
 	_ = s.repo.RevokeRefreshToken(hash)
-	return s.issueTokens(u)
+	if s.rdb != nil {
+		_ = s.rdb.Del(context.Background(), "refreshfp:"+hash).Err()
+	}
+	return s.issueTokensWithFingerprint(u, fingerprint)
 }
 
 func (s *AuthService) Logout(refreshToken string) error {
-	return s.repo.RevokeRefreshToken(hashToken(refreshToken))
+	hash := hashToken(refreshToken)
+	if s.rdb != nil {
+		_ = s.rdb.Del(context.Background(), "refreshfp:"+hash).Err()
+	}
+	return s.repo.RevokeRefreshToken(hash)
 }
 
 func (s *AuthService) Me(userID string) (*model.User, error) {
@@ -239,8 +254,10 @@ func (s *AuthService) SendOTP(phone string) (string, error) {
 	if s.rdb != nil {
 		_ = s.rdb.Set(context.Background(), "otp:"+normalized, code, 5*time.Minute).Err()
 	}
-	// Production: dispatch via SMS provider; never return code outside development.
-	if os.Getenv("APP_ENV") == "production" {
+	msg := fmt.Sprintf("Gayrat code: %s", code)
+	_ = sms.FromEnv().Send(normalized, msg)
+	// Never return code in production.
+	if os.Getenv("APP_ENV") == "production" || os.Getenv("APP_ENV") == "prod" {
 		return "", nil
 	}
 	return code, nil
@@ -372,11 +389,19 @@ func (s *AuthService) AnonymizeUser(userID string) error {
 }
 
 func (s *AuthService) issueTokens(u *model.User) (*commonauth.TokenPair, error) {
-	pair, err := s.tokens.Issue(u.ID, u.TenantID, u.Email, commonauth.Role(u.Role), "")
+	return s.issueTokensWithFingerprint(u, "")
+}
+
+func (s *AuthService) issueTokensWithFingerprint(u *model.User, fingerprint string) (*commonauth.TokenPair, error) {
+	pair, err := s.tokens.Issue(u.ID, u.TenantID, u.Email, commonauth.Role(u.Role), fingerprint)
 	if err != nil {
 		return nil, err
 	}
-	_ = s.repo.SaveRefreshToken(u.ID, hashToken(pair.RefreshToken), time.Now().Add(7*24*time.Hour))
+	hash := hashToken(pair.RefreshToken)
+	_ = s.repo.SaveRefreshToken(u.ID, hash, time.Now().Add(7*24*time.Hour))
+	if fingerprint != "" && s.rdb != nil {
+		_ = s.rdb.Set(context.Background(), "refreshfp:"+hash, fingerprint, 7*24*time.Hour).Err()
+	}
 	return pair, nil
 }
 

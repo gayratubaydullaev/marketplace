@@ -56,7 +56,9 @@ func (h *Handler) Register(r *gin.Engine) {
 	v1.PUT("/categories/:id", middleware.JWT(h.TokenMgr, false), middleware.RequireRoles(commonauth.RoleTenantAdmin), h.updateCategory)
 	v1.DELETE("/categories/:id", middleware.JWT(h.TokenMgr, false), middleware.RequireRoles(commonauth.RoleTenantAdmin), h.deleteCategory)
 
-	admin := v1.Group("/admin", middleware.JWT(h.TokenMgr, false), middleware.RequireRoles(commonauth.RoleTenantAdmin, commonauth.RoleManager))
+	v1.POST("/admin/products/bulk-edit", middleware.JWT(h.TokenMgr, false), middleware.RequireRoles(commonauth.RoleTenantAdmin, commonauth.RoleSuperAdmin, commonauth.RoleManager), h.bulkEditProducts)
+
+	admin := v1.Group("/admin", middleware.JWT(h.TokenMgr, false), middleware.RequireRoles(commonauth.RoleTenantAdmin, commonauth.RoleSuperAdmin, commonauth.RoleManager))
 	{
 		admin.GET("/coupons", h.listCoupons)
 		admin.POST("/coupons", h.createCoupon)
@@ -143,7 +145,7 @@ func (h *Handler) getProductByID(c *gin.Context) {
 		return
 	}
 	variants, _ := h.repo().ListVariants(product.ID)
-	httpx.OK(c, gin.H{"product": product, "variants": variants})
+	httpx.OK(c, gin.H{"product": product, "variants": variants, "json_ld": service.ProductJSONLD(product)})
 }
 
 func (h *Handler) listProducts(c *gin.Context) {
@@ -233,7 +235,7 @@ func (h *Handler) getProduct(c *gin.Context) {
 		return
 	}
 	variants, _ := h.repo().ListVariants(product.ID)
-	httpx.OK(c, gin.H{"product": product, "variants": variants})
+	httpx.OK(c, gin.H{"product": product, "variants": variants, "json_ld": service.ProductJSONLD(product)})
 }
 
 func (h *Handler) relatedProducts(c *gin.Context) {
@@ -254,6 +256,10 @@ func (h *Handler) createProduct(c *gin.Context) {
 	}
 	if body.Status == "" {
 		body.Status = "draft"
+	}
+	if body.Status != "draft" {
+		httpx.BadRequest(c, "new products must start in draft status")
+		return
 	}
 	if body.SEO == nil {
 		body.SEO = json.RawMessage(`{}`)
@@ -289,6 +295,25 @@ func (h *Handler) updateProduct(c *gin.Context) {
 		return
 	}
 	id, tenantID := c.Param("id"), middleware.GetTenantID(c)
+	if status, ok := body["status"].(string); ok {
+		if !service.IsProductStatus(status) {
+			httpx.BadRequest(c, "unknown product status")
+			return
+		}
+		product, err := h.repo().GetProductByID(tenantID, id)
+		if repository.IsNoRows(err) {
+			httpx.NotFound(c, "product not found")
+			return
+		}
+		if err != nil {
+			httpx.Internal(c, err.Error())
+			return
+		}
+		if status != product.Status && !service.ValidateStatusTransition(product.Status, status) {
+			httpx.BadRequest(c, "cannot transition "+product.Status+" -> "+status)
+			return
+		}
+	}
 	if err := h.repo().UpdateProduct(id, tenantID, body); err != nil {
 		httpx.BadRequest(c, err.Error())
 		return
@@ -298,8 +323,21 @@ func (h *Handler) updateProduct(c *gin.Context) {
 }
 
 func (h *Handler) archiveProduct(c *gin.Context) {
-	id := c.Param("id")
-	if err := h.repo().ArchiveProduct(id, middleware.GetTenantID(c)); err != nil {
+	id, tenantID := c.Param("id"), middleware.GetTenantID(c)
+	product, err := h.repo().GetProductByID(tenantID, id)
+	if repository.IsNoRows(err) {
+		httpx.NotFound(c, "product not found")
+		return
+	}
+	if err != nil {
+		httpx.Internal(c, err.Error())
+		return
+	}
+	if product.Status != "archived" && !service.ValidateStatusTransition(product.Status, "archived") {
+		httpx.BadRequest(c, "cannot transition "+product.Status+" -> archived")
+		return
+	}
+	if err := h.repo().ArchiveProduct(id, tenantID); err != nil {
 		httpx.Internal(c, err.Error())
 		return
 	}
@@ -360,6 +398,54 @@ func (h *Handler) bulkCreate(c *gin.Context) {
 		h.publish(c, "product.created", id, gin.H{"id": id})
 	}
 	httpx.OK(c, gin.H{"created": len(ids)})
+}
+
+func (h *Handler) bulkEditProducts(c *gin.Context) {
+	var body model.BulkEditRequest
+	if err := c.ShouldBindJSON(&body); err != nil {
+		httpx.BadRequest(c, err.Error())
+		return
+	}
+	if body.Price == nil && body.Status == nil && body.CategoryID == nil {
+		httpx.BadRequest(c, "one of price, status, or category_id is required")
+		return
+	}
+	if body.Price != nil && *body.Price < 0 {
+		httpx.BadRequest(c, "price must be non-negative")
+		return
+	}
+	tenantID := middleware.GetTenantID(c)
+	if body.Status != nil {
+		if !service.IsProductStatus(*body.Status) {
+			httpx.BadRequest(c, "unknown product status")
+			return
+		}
+		statuses, err := h.repo().ProductStatuses(tenantID, body.IDs)
+		if err != nil {
+			httpx.Internal(c, err.Error())
+			return
+		}
+		if len(statuses) != len(body.IDs) {
+			httpx.BadRequest(c, "one or more products not found")
+			return
+		}
+		for _, id := range body.IDs {
+			from := statuses[id]
+			if from != *body.Status && !service.ValidateStatusTransition(from, *body.Status) {
+				httpx.BadRequest(c, "cannot transition "+from+" -> "+*body.Status+" for product "+id)
+				return
+			}
+		}
+	}
+	updated, err := h.repo().BulkEditProducts(tenantID, body)
+	if err != nil {
+		httpx.BadRequest(c, err.Error())
+		return
+	}
+	for _, id := range body.IDs {
+		h.publish(c, "product.updated", id, gin.H{"id": id, "tenant_id": tenantID, "bulk_edit": true})
+	}
+	httpx.OK(c, gin.H{"updated": updated})
 }
 
 func (h *Handler) importCSV(c *gin.Context) {

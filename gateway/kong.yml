@@ -57,7 +57,7 @@ routes:
     paths: [/v1/search]
     service: search-service
   - name: cart
-    paths: [/v1/cart, /v1/addresses]
+    paths: [/v1/cart, /v1/addresses, /v1/wishlist]
     service: cart-service
   - name: orders
     paths: [/v1/orders]
@@ -89,11 +89,19 @@ routes:
     paths: [/v1/realtime]
     service: realtime-service
 
+# CORS allowlist — replace with production storefront/admin/vendor origins.
+# Never use "*" with credentials: true.
 plugins:
   - name: cors
     config:
       origins:
-        - "*"
+        - "http://localhost:3000"
+        - "http://localhost:3001"
+        - "http://localhost:3002"
+        - "https://gayrat.uz"
+        - "https://www.gayrat.uz"
+        - "https://admin.gayrat.uz"
+        - "https://vendor.gayrat.uz"
       headers:
         - Authorization
         - Content-Type
@@ -102,8 +110,10 @@ plugins:
         - X-Guest-ID
         - X-Request-ID
         - X-Correlation-ID
+        - Idempotency-Key
       credentials: true
       methods: [GET, POST, PUT, PATCH, DELETE, OPTIONS]
+  # Anonymous / IP baseline (TZ: 100 req/min)
   - name: rate-limiting
     config:
       minute: 100
@@ -122,3 +132,7 @@ plugins:
           - "X-Frame-Options: DENY"
           - "Referrer-Policy: strict-origin-when-cross-origin"
           - "Content-Security-Policy: default-src 'self'; frame-ancestors 'none'"
+
+# Higher limit for authenticated cart/orders (services also enforce 1000/min via Redis).
+# Kong JWT validation is optional when services validate JWKS; document JWKS URL for ops:
+#   uri: http://auth-service:8001/.well-known/jwks.json

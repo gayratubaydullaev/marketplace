@@ -45,6 +45,14 @@ func (h *Handler) upload(c *gin.Context) {
 		httpx.BadRequest(c, "max 100MB")
 		return
 	}
+	contentType := strings.ToLower(strings.TrimSpace(strings.Split(file.Header.Get("Content-Type"), ";")[0]))
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	if !isAllowedUpload(contentType, file.Filename) {
+		httpx.BadRequest(c, "unsupported media type; allowed: images, video/mp4, .glb, .gltf")
+		return
+	}
 	src, err := file.Open()
 	if err != nil {
 		httpx.Internal(c, err.Error())
@@ -61,10 +69,6 @@ func (h *Handler) upload(c *gin.Context) {
 	tenantID := middleware.GetTenantID(c)
 	ext := strings.ToLower(filepath.Ext(file.Filename))
 	key := fmt.Sprintf("%s/%s%s", tenantID, uuid.NewString(), ext)
-	contentType := file.Header.Get("Content-Type")
-	if contentType == "" {
-		contentType = "application/octet-stream"
-	}
 
 	url, err := h.storage.PutBytes(c.Request.Context(), tenantID, key, contentType, data)
 	if err != nil {
@@ -105,6 +109,24 @@ func (h *Handler) upload(c *gin.Context) {
 		"size":         file.Size,
 		"variants":     variants,
 	})
+}
+
+func isAllowedUpload(contentType, filename string) bool {
+	ext := strings.ToLower(filepath.Ext(filename))
+	if service.IsRasterImage(contentType, filename) || contentType == "image/svg+xml" || ext == ".svg" {
+		return true
+	}
+	switch ext {
+	case ".mp4":
+		return contentType == "video/mp4" || contentType == "application/octet-stream"
+	case ".glb":
+		return contentType == "model/gltf-binary" || contentType == "application/octet-stream"
+	case ".gltf":
+		return contentType == "model/gltf+json" || contentType == "application/gltf+json" ||
+			contentType == "application/json" || contentType == "application/octet-stream"
+	}
+	return contentType == "video/mp4" || contentType == "model/gltf-binary" ||
+		contentType == "model/gltf+json" || contentType == "application/gltf+json"
 }
 
 func (h *Handler) get(c *gin.Context) {

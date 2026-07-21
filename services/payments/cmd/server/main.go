@@ -43,7 +43,7 @@ func main() {
 	producer := kafkax.NewProducer(cfg.KafkaBrokers)
 	defer producer.Close()
 	tokens := commonauth.NewManager(cfg.JWTSecret, cfg.JWTAccessTTLMinutes, cfg.JWTRefreshTTLDays)
-	payments := &handler.PaymentHandler{Service: service.New(repository.NewPaymentRepository(database), producer), Providers: service.Providers(), Sandbox: handler.Sandbox()}
+	payments := &handler.PaymentHandler{Service: service.New(repository.NewPaymentRepository(database), producer), Providers: service.Providers(), Sandbox: service.Sandbox()}
 	r := gin.New()
 	r.Use(gin.Recovery(), middleware.CORS(), middleware.Tenant(), middleware.TenantDB(database), middleware.Metrics(cfg.ServiceName))
 	middleware.MountMetrics(r)
