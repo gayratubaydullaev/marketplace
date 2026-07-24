@@ -11,7 +11,7 @@
     "dev:vendor": "pnpm --filter @gayrat/vendor dev"
   },
   "devDependencies": {
-    "turbo": "^2.5.0",
+    "turbo": "^2.10.6",
     "typescript": "^5.8.2"
   }
 }
