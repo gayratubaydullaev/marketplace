@@ -21,9 +21,9 @@ import (
 const (
 	CtxClaimsKey = "claims"
 	CtxTenantKey = "tenant_id"
+	CtxDBKey     = "sqlx_db"
 )
 
-// CORSAllowlist returns origins from CORS_ORIGINS (comma-separated) or localhost defaults.
 func CORSAllowlist() []string {
 	raw := strings.TrimSpace(os.Getenv("CORS_ORIGINS"))
 	if raw == "" {
@@ -72,6 +72,33 @@ func CORS() gin.HandlerFunc {
 	}
 }
 
+// SecurityHeaders mirrors Kong response-transformer defaults.
+func SecurityHeaders() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Header("X-Content-Type-Options", "nosniff")
+		c.Header("X-Frame-Options", "DENY")
+		c.Header("Referrer-Policy", "strict-origin-when-cross-origin")
+		c.Header("Content-Security-Policy", "default-src 'self'; frame-ancestors 'none'")
+		if os.Getenv("APP_ENV") == "production" || os.Getenv("APP_ENV") == "prod" {
+			c.Header("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+		}
+		c.Next()
+	}
+}
+
+// MaxBodyBytes rejects oversized JSON bodies (default 10 MiB, Kong-aligned).
+func MaxBodyBytes(n int64) gin.HandlerFunc {
+	if n <= 0 {
+		n = 10 << 20
+	}
+	return func(c *gin.Context) {
+		if c.Request.Body != nil {
+			c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, n)
+		}
+		c.Next()
+	}
+}
+
 // CorrelationID attaches X-Request-ID / X-Correlation-ID for tracing.
 func CorrelationID() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -107,6 +134,7 @@ func Tenant() gin.HandlerFunc {
 func TenantDB(database *sqlx.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if database != nil {
+			c.Set(CtxDBKey, database)
 			_ = db.SetTenant(database, GetTenantID(c))
 		}
 		c.Next()
@@ -134,8 +162,18 @@ func JWT(manager *auth.Manager, optional bool) gin.HandlerFunc {
 			httpx.Unauthorized(c, "invalid or expired token")
 			return
 		}
+		// Authenticated requests must not spoof tenant via header.
+		if hdr := c.GetHeader("X-Tenant-ID"); hdr != "" && hdr != claims.TenantID {
+			httpx.Forbidden(c, "tenant header does not match token")
+			return
+		}
 		c.Set(CtxClaimsKey, claims)
 		c.Set(CtxTenantKey, claims.TenantID)
+		if v, ok := c.Get(CtxDBKey); ok {
+			if database, ok := v.(*sqlx.DB); ok && database != nil {
+				_ = db.SetTenant(database, claims.TenantID)
+			}
+		}
 		c.Next()
 	}
 }

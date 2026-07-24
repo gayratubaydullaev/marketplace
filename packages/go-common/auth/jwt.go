@@ -9,6 +9,7 @@ import (
 	"errors"
 	"math/big"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -150,18 +151,33 @@ func (m *Manager) sign(claims Claims) (string, error) {
 
 func (m *Manager) Parse(tokenStr string) (*Claims, error) {
 	token, err := jwt.ParseWithClaims(tokenStr, &Claims{}, func(t *jwt.Token) (interface{}, error) {
-		switch t.Method.(type) {
+		alg, _ := t.Header["alg"].(string)
+		if alg == "" || strings.EqualFold(alg, "none") {
+			return nil, errors.New("rejected unsigned token")
+		}
+		switch method := t.Method.(type) {
 		case *jwt.SigningMethodRSA:
+			if method.Name != "RS256" {
+				return nil, errors.New("unexpected RSA signing method")
+			}
 			if m.publicKey == nil {
 				return nil, errors.New("RS256 public key not configured")
 			}
+			// Alg confusion: never accept HMAC when this manager is RS256-primary.
 			return m.publicKey, nil
 		case *jwt.SigningMethodHMAC:
+			if method.Name != "HS256" {
+				return nil, errors.New("unexpected HMAC signing method")
+			}
+			// When RS256 keys are configured, reject HS256 tokens (classic alg confusion).
+			if m.privateKey != nil || m.publicKey != nil {
+				return nil, errors.New("HS256 rejected: RS256 required")
+			}
 			return m.secret, nil
 		default:
 			return nil, errors.New("unexpected signing method")
 		}
-	})
+	}, jwt.WithValidMethods([]string{"RS256", "HS256"}))
 	if err != nil {
 		return nil, err
 	}

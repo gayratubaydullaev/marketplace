@@ -38,7 +38,7 @@ func main() {
 	}
 
 	r := gin.New()
-	r.Use(gin.Recovery(), middleware.CorrelationID(), middleware.CORS(), middleware.Tenant(), middleware.TenantDB(database), middleware.AuditLogger(database), middleware.Metrics(cfg.ServiceName))
+	r.Use(gin.Recovery(), middleware.CorrelationID(), middleware.CORS(), middleware.SecurityHeaders(), middleware.MaxBodyBytes(0), middleware.Tenant(), middleware.TenantDB(database), middleware.AuditLogger(database), middleware.Metrics(cfg.ServiceName))
 	if rdb != nil {
 		r.Use(middleware.RateLimit(rdb, 100, 1000))
 	}

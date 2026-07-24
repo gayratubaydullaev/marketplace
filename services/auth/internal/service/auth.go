@@ -99,7 +99,7 @@ func (s *AuthService) Login(tenantID string, req model.LoginRequest) (*model.Use
 	email := strings.ToLower(req.Email)
 	if s.rdb != nil {
 		fails, _ := s.rdb.Get(context.Background(), "loginfail:"+tenantID+":"+email).Int()
-		if fails >= 10 {
+		if fails >= 5 {
 			return nil, nil, errors.New("account temporarily locked — too many failed logins")
 		}
 	}

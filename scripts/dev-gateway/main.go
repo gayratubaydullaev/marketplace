@@ -45,11 +45,9 @@ var routes = []struct {
 }
 
 func resolveTarget(path string) string {
-	// Product review subpaths live on the reviews service, not catalog.
 	if strings.HasPrefix(path, "/v1/products/") && strings.Contains(path, "/reviews") {
 		return "http://127.0.0.1:8008"
 	}
-
 	type hit struct {
 		prefix, target string
 	}
@@ -81,17 +79,46 @@ func stripUpstreamCORS(h http.Header) {
 	}
 }
 
+func corsAllowlist() map[string]struct{} {
+	allowed := map[string]struct{}{
+		"http://localhost:3000":    {},
+		"http://localhost:3001":    {},
+		"http://localhost:3002":    {},
+		"https://gayrat.uz":        {},
+		"https://www.gayrat.uz":    {},
+		"https://admin.gayrat.uz":  {},
+		"https://vendor.gayrat.uz": {},
+	}
+	if raw := os.Getenv("CORS_ORIGINS"); raw != "" {
+		allowed = map[string]struct{}{}
+		for _, p := range strings.Split(raw, ",") {
+			p = strings.TrimSpace(p)
+			if p != "" && p != "*" {
+				allowed[p] = struct{}{}
+			}
+		}
+	}
+	return allowed
+}
+
 func writeCORS(w http.ResponseWriter, r *http.Request) {
 	origin := r.Header.Get("Origin")
-	if origin == "" {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-	} else {
-		w.Header().Set("Access-Control-Allow-Origin", origin)
-		w.Header().Set("Access-Control-Allow-Credentials", "true")
-		w.Header().Add("Vary", "Origin")
+	if origin != "" {
+		if _, ok := corsAllowlist()[origin]; ok {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+			w.Header().Add("Vary", "Origin")
+		}
 	}
 	w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Tenant-ID, X-Locale, X-Guest-ID, X-Request-ID, X-Correlation-ID, Idempotency-Key")
 	w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS")
+}
+
+func writeSecurityHeaders(w http.ResponseWriter) {
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("X-Frame-Options", "DENY")
+	w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+	w.Header().Set("Content-Security-Policy", "default-src 'self'; frame-ancestors 'none'")
 }
 
 func main() {
@@ -102,16 +129,23 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		writeCORS(w, r)
+		writeSecurityHeaders(w)
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"status":"ok","gateway":"dev"}`))
 	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeCORS(w, r)
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("X-Frame-Options", "DENY")
+		writeSecurityHeaders(w)
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
+		}
+		if r.ContentLength > 10<<20 {
+			http.Error(w, `{"error":"payload too large"}`, http.StatusRequestEntityTooLarge)
+			return
+		}
+		if r.Body != nil {
+			r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
 		}
 		target := resolveTarget(r.URL.Path)
 		if target == "" {
@@ -121,7 +155,6 @@ func main() {
 		u, _ := url.Parse(target)
 		proxy := httputil.NewSingleHostReverseProxy(u)
 		proxy.ModifyResponse = func(resp *http.Response) error {
-			// Gateway owns CORS — drop duplicates from Gin services.
 			stripUpstreamCORS(resp.Header)
 			return nil
 		}
