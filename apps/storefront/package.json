@@ -11,7 +11,7 @@
   "dependencies": {
     "@gayrat/i18n": "workspace:*",
     "@tanstack/react-query": "^5.69.0",
-    "next": "^15.2.4",
+    "next": "^16.2.11",
     "next-intl": "^4.0.2",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
