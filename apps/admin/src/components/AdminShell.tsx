@@ -32,6 +32,7 @@ function useAdminNavGroups(): NavGroup[] {
       label: t("navGroupCommerce"),
       items: [
         { href: "/orders", label: t("navOrders") },
+        { href: "/returns", label: t("navReturns") },
         { href: "/vendors", label: t("navVendors") },
         { href: "/customers", label: t("navCustomers") },
         { href: "/reviews", label: t("navReviews") },

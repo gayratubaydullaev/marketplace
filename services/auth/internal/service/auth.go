@@ -7,7 +7,10 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log"
 	"math/big"
+	"net/smtp"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -301,6 +304,79 @@ func (s *AuthService) VerifyOTP(tenantID, phone, code string) (*model.User, *com
 	}
 	pair, err := s.issueTokens(u)
 	return u, pair, err
+}
+
+func (s *AuthService) SendEmailOTP(tenantID, email string) (string, error) {
+	email = strings.ToLower(strings.TrimSpace(email))
+	if email == "" {
+		return "", errors.New("email required")
+	}
+	if s.rdb == nil {
+		return "", errors.New("email otp unavailable")
+	}
+	n, _ := rand.Int(rand.Reader, big.NewInt(900000))
+	code := fmt.Sprintf("%06d", n.Int64()+100000)
+	if err := s.rdb.Set(context.Background(), "otpemail:"+tenantID+":"+email, code, 5*time.Minute).Err(); err != nil {
+		return "", err
+	}
+	if err := sendOTPEmail(email, code); err != nil {
+		return "", err
+	}
+	if os.Getenv("APP_ENV") == "production" || os.Getenv("APP_ENV") == "prod" {
+		return "", nil
+	}
+	return code, nil
+}
+
+func (s *AuthService) VerifyEmailOTP(tenantID, email, code string) (*model.User, *commonauth.TokenPair, error) {
+	email = strings.ToLower(strings.TrimSpace(email))
+	if s.rdb == nil {
+		return nil, nil, errors.New("email otp unavailable")
+	}
+	key := "otpemail:" + tenantID + ":" + email
+	stored, err := s.rdb.Get(context.Background(), key).Result()
+	if err != nil || stored != code {
+		return nil, nil, errors.New("invalid otp")
+	}
+	_ = s.rdb.Del(context.Background(), key).Err()
+	u, err := s.repo.FindByEmail(tenantID, email)
+	if err != nil {
+		return nil, nil, err
+	}
+	if u == nil {
+		u = &model.User{ID: uuid.NewString(), TenantID: tenantID, Email: email, Role: string(commonauth.RoleCustomer), Locale: "uz", EmailVerified: true, Status: "active"}
+		if err := s.repo.Create(u); err != nil {
+			return nil, nil, err
+		}
+	} else {
+		u.EmailVerified = true
+		if err := s.repo.Update(u); err != nil {
+			return nil, nil, err
+		}
+	}
+	pair, err := s.issueTokens(u)
+	return u, pair, err
+}
+
+func sendOTPEmail(to, code string) error {
+	raw := os.Getenv("SMTP_URL")
+	if raw == "" {
+		log.Printf("email OTP for %s: %s", to, code)
+		return nil
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return errors.New("invalid SMTP_URL")
+	}
+	from := "no-reply@gayrat.uz"
+	var auth smtp.Auth
+	if u.User != nil {
+		from = u.User.Username()
+		password, _ := u.User.Password()
+		auth = smtp.PlainAuth("", from, password, strings.Split(u.Host, ":")[0])
+	}
+	message := []byte("To: " + to + "\r\nSubject: Your Gayrat verification code\r\n\r\nYour verification code is: " + code + "\r\n")
+	return smtp.SendMail(u.Host, auth, from, []string{to}, message)
 }
 
 func (s *AuthService) RequestEmailVerification(userID string) (string, error) {

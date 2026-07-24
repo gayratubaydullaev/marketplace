@@ -2,7 +2,12 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/url"
 	"os"
+	"strings"
+	"time"
 
 	commonauth "github.com/gayrat/marketplace/packages/go-common/auth"
 	"github.com/gayrat/marketplace/packages/go-common/httpx"
@@ -308,6 +313,7 @@ func setStatus(c *gin.Context, database *sqlx.DB, status string, kyc bool) {
 		httpx.BadRequest(c, err.Error())
 		return
 	}
+	middleware.WriteAudit(c, "vendor_"+status, "vendor", c.Param("id"), nil, gin.H{"status": status})
 	httpx.OK(c, gin.H{"status": status})
 }
 func setCommission(c *gin.Context, database *sqlx.DB) {
@@ -363,6 +369,7 @@ func setKYCStatus(c *gin.Context, database *sqlx.DB) {
 		httpx.NotFound(c, "vendor not found")
 		return
 	}
+	middleware.WriteAudit(c, "set_kyc", "vendor", c.Param("id"), nil, gin.H{"kyc_status": body.Status})
 	httpx.OK(c, gin.H{"id": c.Param("id"), "kyc_status": body.Status, "kyc_verified": verified})
 }
 
@@ -514,8 +521,9 @@ func transitionPayout(c *gin.Context, database *sqlx.DB, target string) {
 	}
 	response := gin.H{"id": c.Param("id"), "status": target}
 	if target == "completed" && os.Getenv("PAYMENTS_SANDBOX") != "false" {
-		response["ledger_note"] = "paid_sandbox"
+		response["ledger_note"] = "sandbox_settlement"
 	}
+	middleware.WriteAudit(c, "transition_payout", "vendor_payout", c.Param("id"), nil, response)
 	httpx.OK(c, response)
 }
 
@@ -559,6 +567,7 @@ func switchMode(c *gin.Context, database *sqlx.DB) {
 	} else {
 		notes = append(notes, "Existing products remain unassigned; assign a vendor before treating them as marketplace inventory.")
 	}
+	middleware.WriteAudit(c, "switch_mode", "tenant", tenantID, nil, gin.H{"mode": body.Mode})
 	httpx.OK(c, gin.H{"mode": body.Mode, "migrated": true, "migration_notes": notes})
 }
 
@@ -617,10 +626,9 @@ func runPayouts(c *gin.Context, database *sqlx.DB) {
 	created := 0
 	var totalAmount, totalCommission float64
 	sandbox := os.Getenv("PAYMENTS_SANDBOX") != "false"
-	splitStatus := "paid"
-	if sandbox {
-		splitStatus = "paid_sandbox"
-	}
+	splitStatus := "settled"
+	type payoutAttempt struct{ ID, VendorID string; Amount float64 }
+	var attempts []payoutAttempt
 	for _, r := range rows {
 		if r.Amount <= 0 {
 			continue
@@ -631,7 +639,7 @@ func runPayouts(c *gin.Context, database *sqlx.DB) {
 		}
 		payoutID := uuid.NewString()
 		if _, err := tx.Exec(`INSERT INTO vendor_payouts (id, tenant_id, vendor_id, amount, commission_total, currency, status, period_start, period_end)
-			VALUES ($1,$2,$3,$4,$5,'UZS','completed', CURRENT_DATE - 7, CURRENT_DATE)`,
+			VALUES ($1,$2,$3,$4,$5,'UZS','pending', CURRENT_DATE - 7, CURRENT_DATE)`,
 			payoutID, tenantID, r.VendorID, r.Amount, r.Commission); err != nil {
 			httpx.Internal(c, err.Error())
 			return
@@ -648,6 +656,7 @@ func runPayouts(c *gin.Context, database *sqlx.DB) {
 			continue
 		}
 		created++
+		attempts = append(attempts, payoutAttempt{payoutID, r.VendorID, r.Amount})
 		totalAmount += r.Amount
 		totalCommission += r.Commission
 	}
@@ -655,11 +664,23 @@ func runPayouts(c *gin.Context, database *sqlx.DB) {
 		httpx.Internal(c, err.Error())
 		return
 	}
-	payoutStatus := "completed"
+	for _, attempt := range attempts {
+		if sandbox {
+			_, _ = database.Exec(`UPDATE vendor_payouts SET ledger_note='sandbox_settlement' WHERE id=$1`, attempt.ID)
+			continue
+		}
+		if transferID, err := attemptStripeTransfer(database, attempt.VendorID, attempt.Amount); err != nil {
+			_, _ = database.Exec(`UPDATE vendor_payouts SET ledger_note=$1 WHERE id=$2`, "stripe transfer failed: "+err.Error(), attempt.ID)
+		} else {
+			_, _ = database.Exec(`UPDATE vendor_payouts SET status='completed', stripe_transfer_id=$1, ledger_note=NULL WHERE id=$2`, transferID, attempt.ID)
+		}
+	}
+	payoutStatus := "pending"
 	ledgerNote := ""
 	if sandbox {
-		ledgerNote = "paid_sandbox"
+		ledgerNote = "sandbox_settlement"
 	}
+	middleware.WriteAudit(c, "run_payouts", "vendor_payout", "", nil, gin.H{"payouts_created": created, "status": payoutStatus})
 	httpx.OK(c, gin.H{
 		"payouts_created":  created,
 		"status":           payoutStatus,
@@ -668,4 +689,33 @@ func runPayouts(c *gin.Context, database *sqlx.DB) {
 		"source":           "payment_splits",
 		"ledger_note":      ledgerNote,
 	})
+}
+
+func attemptStripeTransfer(database *sqlx.DB, vendorID string, amount float64) (string, error) {
+	secret := os.Getenv("STRIPE_SECRET")
+	if secret == "" {
+		return "", fmt.Errorf("STRIPE_SECRET is not configured")
+	}
+	var accountID string
+	if err := database.Get(&accountID, `SELECT stripe_account_id FROM vendors WHERE id=$1`, vendorID); err != nil || accountID == "" {
+		return "", fmt.Errorf("vendor has no Stripe Connect account")
+	}
+	values := url.Values{"amount": {fmt.Sprintf("%d", int64(amount*100))}, "currency": {"uzs"}, "destination": {accountID}}
+	req, err := http.NewRequest(http.MethodPost, "https://api.stripe.com/v1/transfers", strings.NewReader(values.Encode()))
+	if err != nil {
+		return "", err
+	}
+	req.SetBasicAuth(secret, "")
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	var result struct{ ID string `json:"id"` }
+	_ = json.NewDecoder(resp.Body).Decode(&result)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 || result.ID == "" {
+		return "", fmt.Errorf("Stripe transfer rejected (%d)", resp.StatusCode)
+	}
+	return result.ID, nil
 }

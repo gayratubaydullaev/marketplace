@@ -109,6 +109,7 @@ func (h *PaymentHandler) Intent(c *gin.Context) {
 		httpx.BadRequest(c, err.Error())
 		return
 	}
+	middleware.WriteAudit(c, "create_intent", "payment", id, nil, gin.H{"order_id": body.OrderID, "provider": body.Provider, "amount": order.Total})
 	httpx.Created(c, gin.H{"id": id, "provider": body.Provider, "provider_payment_id": providerID, "amount": order.Total, "currency": "UZS", "redirect_url": sandboxRedirect, "sandbox": h.Sandbox})
 }
 
@@ -138,6 +139,7 @@ func (h *PaymentHandler) Confirm(c *gin.Context) {
 		httpx.Internal(c, err.Error())
 		return
 	}
+	middleware.WriteAudit(c, "mark_paid", "payment", payment.ID, nil, gin.H{"order_id": payment.OrderID})
 	httpx.OK(c, gin.H{"status": "succeeded", "order_id": payment.OrderID})
 }
 
@@ -171,6 +173,7 @@ func (h *PaymentHandler) Webhook(c *gin.Context) {
 			httpx.Internal(c, err.Error())
 			return
 		}
+		middleware.WriteAudit(c, "mark_paid", "payment", payment.ID, nil, gin.H{"order_id": payment.OrderID})
 		httpx.OK(c, gin.H{"status": "succeeded", "order_id": payment.OrderID})
 		return
 	}

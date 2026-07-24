@@ -69,6 +69,10 @@ routes:
     paths: [/v1/admin/reviews]
     service: reviews-service
     strip_path: false
+  - name: admin-returns
+    paths: [/v1/admin/returns]
+    service: orders-service
+    strip_path: false
   - name: vendors
     paths: [/v1/vendors, /v1/vendor, /v1/tenant, /v1/admin]
     service: vendor-service
@@ -88,7 +92,6 @@ routes:
   - name: realtime
     paths: [/v1/realtime]
     service: realtime-service
-
 # CORS allowlist — replace with production storefront/admin/vendor origins.
 # Never use "*" with credentials: true.
 plugins:

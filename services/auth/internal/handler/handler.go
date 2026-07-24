@@ -29,6 +29,7 @@ func (h *Handler) Register(c *gin.Context) {
 		httpx.Conflict(c, err.Error())
 		return
 	}
+	middleware.WriteAudit(c, "register", "user", u.ID, nil, u)
 	httpx.Created(c, gin.H{"user": u, "tokens": tokens})
 }
 
@@ -43,6 +44,7 @@ func (h *Handler) Login(c *gin.Context) {
 		httpx.Unauthorized(c, err.Error())
 		return
 	}
+	middleware.WriteAudit(c, "login", "user", u.ID, nil, gin.H{"email": u.Email})
 	httpx.OK(c, gin.H{"user": u, "tokens": tokens})
 }
 
@@ -161,6 +163,34 @@ func (h *Handler) VerifyOTP(c *gin.Context) {
 	httpx.OK(c, gin.H{"user": u, "tokens": tokens})
 }
 
+func (h *Handler) SendEmailOTP(c *gin.Context) {
+	var req model.EmailOTPRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpx.BadRequest(c, err.Error())
+		return
+	}
+	code, err := h.svc.SendEmailOTP(middleware.GetTenantID(c), req.Email)
+	if err != nil {
+		httpx.BadRequest(c, err.Error())
+		return
+	}
+	httpx.OK(c, gin.H{"message": "otp sent", "dev_code": code})
+}
+
+func (h *Handler) VerifyEmailOTP(c *gin.Context) {
+	var req model.EmailOTPVerifyRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpx.BadRequest(c, err.Error())
+		return
+	}
+	u, tokens, err := h.svc.VerifyEmailOTP(middleware.GetTenantID(c), req.Email, req.Code)
+	if err != nil {
+		httpx.Unauthorized(c, err.Error())
+		return
+	}
+	httpx.OK(c, gin.H{"user": u, "tokens": tokens})
+}
+
 func (h *Handler) OAuth(c *gin.Context) {
 	provider := c.Param("provider")
 	var req model.OAuthRequest
@@ -229,5 +259,6 @@ func (h *Handler) DeleteGDPR(c *gin.Context) {
 		httpx.Internal(c, err.Error())
 		return
 	}
+	middleware.WriteAudit(c, "delete_gdpr", "user", claims.UserID, nil, gin.H{"status": "anonymized"})
 	httpx.OK(c, gin.H{"status": "anonymized", "user_id": claims.UserID})
 }

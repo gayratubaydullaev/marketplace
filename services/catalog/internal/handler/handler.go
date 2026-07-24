@@ -281,6 +281,7 @@ func (h *Handler) createProduct(c *gin.Context) {
 		return
 	}
 	h.publish(c, "product.created", id, gin.H{"id": id, "tenant_id": tenantID, "slug": body.Slug})
+	middleware.WriteAudit(c, "create_product", "product", id, nil, body)
 	httpx.Created(c, gin.H{"id": id})
 }
 
@@ -319,6 +320,7 @@ func (h *Handler) updateProduct(c *gin.Context) {
 		return
 	}
 	h.publish(c, "product.updated", id, gin.H{"id": id, "tenant_id": tenantID})
+	middleware.WriteAudit(c, "update_product", "product", id, nil, body)
 	httpx.OK(c, gin.H{"id": id, "updated": true})
 }
 
@@ -445,6 +447,7 @@ func (h *Handler) bulkEditProducts(c *gin.Context) {
 	for _, id := range body.IDs {
 		h.publish(c, "product.updated", id, gin.H{"id": id, "tenant_id": tenantID, "bulk_edit": true})
 	}
+	middleware.WriteAudit(c, "bulk_edit_product", "product", "", nil, gin.H{"ids": body.IDs, "updated": updated})
 	httpx.OK(c, gin.H{"updated": updated})
 }
 
@@ -598,6 +601,7 @@ func (h *Handler) moderateProduct(c *gin.Context) {
 		return
 	}
 	h.publish(c, "product.moderated", productID, gin.H{"id": productID, "tenant_id": tenantID, "status": body.Status})
+	middleware.WriteAudit(c, "moderate_product", "product", productID, gin.H{"status": product.Status}, gin.H{"status": body.Status, "reason": body.Reason})
 	httpx.OK(c, gin.H{"id": productID, "status": body.Status, "reason": body.Reason})
 }
 

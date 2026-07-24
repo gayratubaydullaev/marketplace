@@ -34,6 +34,10 @@ export default function ProductsPage() {
   const [page, setPage] = useState(1);
   const [msg, setMsg] = useState("");
   const [ok, setOk] = useState("");
+  const [selected, setSelected] = useState<string[]>([]);
+  const [bulkStatus, setBulkStatus] = useState("");
+  const [bulkPrice, setBulkPrice] = useState("");
+  const [bulkCategoryId, setBulkCategoryId] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
 
   async function load() {
@@ -60,6 +64,10 @@ export default function ProductsPage() {
   }, [items, q]);
 
   const pageItems = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  useEffect(() => {
+    setSelected((current) => current.filter((id) => filtered.some((product) => product.id === id)));
+  }, [filtered]);
 
   async function create() {
     setMsg("");
@@ -136,6 +144,28 @@ export default function ProductsPage() {
     setOk("Bulk sample created");
   }
 
+  async function bulkEdit() {
+    if (selected.length === 0) {
+      setMsg("Select at least one product");
+      return;
+    }
+    const body: { ids: string[]; status?: string; price?: number; category_id?: string } = { ids: selected };
+    if (bulkStatus) body.status = bulkStatus;
+    if (bulkPrice !== "") body.price = Number(bulkPrice);
+    if (bulkCategoryId) body.category_id = bulkCategoryId;
+    if (!body.status && body.price === undefined && !body.category_id) {
+      setMsg("Choose a status, price, or category");
+      return;
+    }
+    await api("/v1/admin/products/bulk-edit", { method: "POST", body: JSON.stringify(body) });
+    setSelected([]);
+    setBulkStatus("");
+    setBulkPrice("");
+    setBulkCategoryId("");
+    setOk(`Updated ${body.ids.length} products`);
+    await load();
+  }
+
   return (
     <div>
       <PageHeader title={t("pageProductsTitle")} description={t("pageProductsDesc")}
@@ -206,6 +236,22 @@ export default function ProductsPage() {
       <Msg text={msg} />
       <Msg text={ok} tone="ok" />
 
+      {selected.length > 0 && (
+        <div className="mt-4 flex flex-wrap items-center gap-2 rounded-2xl border border-teal/20 bg-teal/5 p-3">
+          <span className="text-sm font-semibold">{selected.length} selected</span>
+          <Select value={bulkStatus} onChange={(e) => setBulkStatus(e.target.value)}>
+            <option value="">Set status</option>
+            {["active", "draft", "archived", "pending_review"].map((value) => <option key={value} value={value}>{value}</option>)}
+          </Select>
+          <Input type="number" placeholder="Set price" value={bulkPrice} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setBulkPrice(e.target.value)} />
+          <Select value={bulkCategoryId} onChange={(e) => setBulkCategoryId(e.target.value)}>
+            <option value="">Set category</option>
+            {categories.map((category) => <option key={category.id} value={category.id}>{category.translations?.uz?.name || category.slug}</option>)}
+          </Select>
+          <Button onClick={() => bulkEdit().catch((e) => setMsg(errMsg(e)))}>{t("bulkApply")}</Button>
+        </div>
+      )}
+
       {pageItems.length === 0 ? (
         <div className="mt-6">
           <EmptyState text="No products" />
@@ -215,6 +261,7 @@ export default function ProductsPage() {
           <TableShell>
             <thead>
               <tr className="border-b bg-slate-50/80 text-xs uppercase tracking-wide text-slate-500">
+                <th className="px-4 py-3"><input type="checkbox" aria-label="Select page" checked={pageItems.length > 0 && pageItems.every((product) => selected.includes(product.id))} onChange={(e) => setSelected((current) => e.target.checked ? Array.from(new Set([...current, ...pageItems.map((product) => product.id)])) : current.filter((id) => !pageItems.some((product) => product.id === id)))} /></th>
                 <th className="px-4 py-3">Name</th>
                 <th className="px-4 py-3">Price</th>
                 <th className="px-4 py-3">Stock</th>
@@ -225,6 +272,7 @@ export default function ProductsPage() {
             <tbody>
               {pageItems.map((p) => (
                 <tr key={p.id} className="border-b last:border-0 hover:bg-slate-50/60">
+                  <td className="px-4 py-3"><input type="checkbox" aria-label={`Select ${p.slug}`} checked={selected.includes(p.id)} onChange={(e) => setSelected((current) => e.target.checked ? [...current, p.id] : current.filter((id) => id !== p.id))} /></td>
                   <td className="px-4 py-3">
                     <Link href={`/products/${p.id}`} className="font-medium text-teal hover:underline">
                       {p.translations?.uz?.name || p.slug}

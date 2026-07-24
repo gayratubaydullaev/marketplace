@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
+	"os"
 	"time"
 
 	"github.com/gayrat/marketplace/packages/go-common/commerce"
@@ -297,7 +299,39 @@ func (s *OrderService) Refund(ctx context.Context, id, tenantID string) error {
 	); err != nil {
 		return err
 	}
+	if _, err := s.Repo.DB.Exec(
+		`UPDATE payments SET status='refunded', updated_at=NOW() WHERE order_id=$1 AND status='succeeded'`,
+		id,
+	); err != nil {
+		return err
+	}
+	if os.Getenv("PAYMENTS_SANDBOX") == "false" {
+		log.Printf("live PSP refund must be triggered for order %s", id)
+	}
 	return s.Producer.Publish(ctx, "order.refunded", id, map[string]any{
 		"order_id": id, "tenant_id": tenantID, "user_id": userID, "payment_status": "refunded",
 	})
+}
+
+func (s *OrderService) SetTracking(ctx context.Context, id, tenantID, carrier, number, trackingURL string) error {
+	var status string
+	if err := s.Repo.DB.Get(&status, `SELECT status FROM orders WHERE id=$1 AND tenant_id=$2`, id, tenantID); err != nil {
+		return err
+	}
+	if status == "processing" {
+		_, err := s.Repo.DB.Exec(`UPDATE orders SET tracking_carrier=$1, tracking_number=$2, tracking_url=$3, status='shipped', fulfillment_status='shipped', shipped_at=NOW(), updated_at=NOW() WHERE id=$4 AND tenant_id=$5`, carrier, number, nullableString(trackingURL), id, tenantID)
+		if err == nil {
+			_ = s.Producer.Publish(ctx, "order.shipped", id, map[string]any{"order_id": id, "status": "shipped", "tenant_id": tenantID})
+		}
+		return err
+	}
+	_, err := s.Repo.DB.Exec(`UPDATE orders SET tracking_carrier=$1, tracking_number=$2, tracking_url=$3, updated_at=NOW() WHERE id=$4 AND tenant_id=$5`, carrier, number, nullableString(trackingURL), id, tenantID)
+	return err
+}
+
+func nullableString(v string) any {
+	if v == "" {
+		return nil
+	}
+	return v
 }

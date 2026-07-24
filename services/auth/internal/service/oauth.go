@@ -5,11 +5,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"crypto/rsa"
+	"math/big"
 	"net/http"
 	"net/url"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/golang-jwt/jwt/v5"
 )
 
 type oauthIdentity struct {
@@ -120,41 +124,35 @@ func verifyGoogleIDToken(idToken string) (*oauthIdentity, error) {
 	}, nil
 }
 
-// verifyAppleIDToken validates JWT claims (aud/iss/exp) without full JWKS crypto in scaffold;
-// production should verify signature against Apple JWKS (https://appleid.apple.com/auth/keys).
 func verifyAppleIDToken(idToken string) (*oauthIdentity, error) {
 	if idToken == "" {
 		return nil, fmt.Errorf("missing apple id token")
 	}
-	parts := strings.Split(idToken, ".")
-	if len(parts) < 2 {
-		return nil, fmt.Errorf("invalid apple token format")
-	}
-	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil {
-		payload, err = base64.URLEncoding.DecodeString(parts[1])
-		if err != nil {
-			return nil, fmt.Errorf("invalid apple token payload")
-		}
-	}
 	var claims struct {
 		Iss   string `json:"iss"`
 		Aud   string `json:"aud"`
-		Exp   int64  `json:"exp"`
 		Email string `json:"email"`
 		Sub   string `json:"sub"`
+		jwt.RegisteredClaims
 	}
-	if err := json.Unmarshal(payload, &claims); err != nil {
-		return nil, err
+	token, err := jwt.ParseWithClaims(idToken, &claims, func(token *jwt.Token) (any, error) {
+		if token.Method.Alg() != jwt.SigningMethodRS256.Alg() {
+			return nil, fmt.Errorf("unexpected apple signing method")
+		}
+		kid, _ := token.Header["kid"].(string)
+		if kid == "" {
+			return nil, fmt.Errorf("apple token missing kid")
+		}
+		return appleJWKSKey(kid)
+	})
+	if err != nil || !token.Valid {
+		return nil, fmt.Errorf("invalid apple token")
 	}
 	if claims.Iss != "https://appleid.apple.com" {
 		return nil, fmt.Errorf("invalid apple issuer")
 	}
 	if expected := os.Getenv("APPLE_OAUTH_CLIENT_ID"); expected != "" && claims.Aud != expected {
 		return nil, fmt.Errorf("apple audience mismatch")
-	}
-	if claims.Exp > 0 && time.Now().Unix() > claims.Exp {
-		return nil, fmt.Errorf("apple token expired")
 	}
 	email := claims.Email
 	if email == "" && claims.Sub != "" {
@@ -163,26 +161,45 @@ func verifyAppleIDToken(idToken string) (*oauthIdentity, error) {
 	if email == "" {
 		return nil, fmt.Errorf("apple token missing email")
 	}
-	// Optional live JWKS check when APPLE_VERIFY_JWKS=1
-	if os.Getenv("APPLE_VERIFY_JWKS") == "1" {
-		if err := pingAppleJWKS(); err != nil {
-			return nil, err
-		}
-	}
 	return &oauthIdentity{Email: strings.ToLower(email)}, nil
 }
 
-func pingAppleJWKS() error {
+func appleJWKSKey(kid string) (*rsa.PublicKey, error) {
 	client := &http.Client{Timeout: 8 * time.Second}
 	resp, err := client.Get("https://appleid.apple.com/auth/keys")
 	if err != nil {
-		return fmt.Errorf("apple jwks: %w", err)
+		return nil, fmt.Errorf("apple jwks: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("apple jwks unavailable")
+		return nil, fmt.Errorf("apple jwks unavailable")
 	}
-	return nil
+	var keys struct {
+		Keys []struct {
+			Kid string `json:"kid"`
+			Kty string `json:"kty"`
+			N   string `json:"n"`
+			E   string `json:"e"`
+		} `json:"keys"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&keys); err != nil {
+		return nil, err
+	}
+	for _, key := range keys.Keys {
+		if key.Kid != kid || key.Kty != "RSA" {
+			continue
+		}
+		n, err := base64.RawURLEncoding.DecodeString(key.N)
+		if err != nil {
+			return nil, err
+		}
+		e, err := base64.RawURLEncoding.DecodeString(key.E)
+		if err != nil {
+			return nil, err
+		}
+		return &rsa.PublicKey{N: new(big.Int).SetBytes(n), E: int(new(big.Int).SetBytes(e).Int64())}, nil
+	}
+	return nil, fmt.Errorf("apple jwks key not found")
 }
 
 func verifyFacebookAccessToken(accessToken string) (*oauthIdentity, error) {

@@ -38,7 +38,7 @@ func main() {
 	}
 
 	r := gin.New()
-	r.Use(gin.Recovery(), middleware.CorrelationID(), middleware.CORS(), middleware.Tenant(), middleware.TenantDB(database), middleware.Metrics(cfg.ServiceName))
+	r.Use(gin.Recovery(), middleware.CorrelationID(), middleware.CORS(), middleware.Tenant(), middleware.TenantDB(database), middleware.AuditLogger(database), middleware.Metrics(cfg.ServiceName))
 	if rdb != nil {
 		r.Use(middleware.RateLimit(rdb, 100, 1000))
 	}
@@ -65,6 +65,8 @@ func main() {
 			v1.POST("/reset-password", h.ResetPassword)
 			v1.POST("/otp/send", h.SendOTP)
 			v1.POST("/otp/verify", h.VerifyOTP)
+			v1.POST("/otp/email/send", h.SendEmailOTP)
+			v1.POST("/otp/email/verify", h.VerifyEmailOTP)
 			v1.POST("/oauth/:provider", h.OAuth)
 			v1.POST("/request-email-verification", middleware.JWT(tokenMgr, false), h.RequestEmailVerification)
 			v1.POST("/verify-email", h.VerifyEmail)

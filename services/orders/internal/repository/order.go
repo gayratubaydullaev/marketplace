@@ -15,7 +15,7 @@ func NewOrderRepository(db *sqlx.DB) *OrderRepository {
 
 func (r *OrderRepository) List(tenantID, userID string, customerOnly bool) ([]model.Order, error) {
 	var orders []model.Order
-	q := `SELECT id, tenant_id, user_id, guest_email, order_number, status, COALESCE(payment_status,'unpaid') AS payment_status, COALESCE(fulfillment_status,'unfulfilled') AS fulfillment_status, currency, subtotal, discount, shipping_cost, COALESCE(tax_total,0) AS tax_total, total, coupon_code, shipping_address, notes, created_at FROM orders WHERE tenant_id=$1`
+	q := `SELECT id, tenant_id, user_id, guest_email, order_number, status, COALESCE(payment_status,'unpaid') AS payment_status, COALESCE(fulfillment_status,'unfulfilled') AS fulfillment_status, currency, subtotal, discount, shipping_cost, COALESCE(tax_total,0) AS tax_total, total, coupon_code, shipping_address, notes, tracking_carrier, tracking_number, tracking_url, shipped_at, created_at FROM orders WHERE tenant_id=$1`
 	args := []any{tenantID}
 	if customerOnly {
 		q += ` AND user_id=$2`
@@ -27,7 +27,7 @@ func (r *OrderRepository) List(tenantID, userID string, customerOnly bool) ([]mo
 
 func (r *OrderRepository) Get(id, tenantID string) (model.Order, []model.OrderItem, error) {
 	var order model.Order
-	err := r.DB.Get(&order, `SELECT id, tenant_id, user_id, guest_email, order_number, status, COALESCE(payment_status,'unpaid') AS payment_status, COALESCE(fulfillment_status,'unfulfilled') AS fulfillment_status, currency, subtotal, discount, shipping_cost, COALESCE(tax_total,0) AS tax_total, total, coupon_code, shipping_address, notes, created_at FROM orders WHERE id=$1 AND tenant_id=$2`, id, tenantID)
+	err := r.DB.Get(&order, `SELECT id, tenant_id, user_id, guest_email, order_number, status, COALESCE(payment_status,'unpaid') AS payment_status, COALESCE(fulfillment_status,'unfulfilled') AS fulfillment_status, currency, subtotal, discount, shipping_cost, COALESCE(tax_total,0) AS tax_total, total, coupon_code, shipping_address, notes, tracking_carrier, tracking_number, tracking_url, shipped_at, created_at FROM orders WHERE id=$1 AND tenant_id=$2`, id, tenantID)
 	if err != nil {
 		return order, nil, err
 	}

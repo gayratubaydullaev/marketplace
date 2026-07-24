@@ -16,6 +16,7 @@ var routes = []struct {
 }{
 	{"/v1/admin/users", "http://127.0.0.1:8001"},
 	{"/v1/admin/reviews", "http://127.0.0.1:8008"},
+	{"/v1/admin/returns", "http://127.0.0.1:8005"},
 	{"/v1/admin/coupons", "http://127.0.0.1:8002"},
 	{"/v1/admin/gift-certificates", "http://127.0.0.1:8002"},
 	{"/v1/admin/hero-banners", "http://127.0.0.1:8002"},
@@ -29,6 +30,7 @@ var routes = []struct {
 	{"/v1/search", "http://127.0.0.1:8003"},
 	{"/v1/cart", "http://127.0.0.1:8004"},
 	{"/v1/addresses", "http://127.0.0.1:8004"},
+	{"/v1/wishlist", "http://127.0.0.1:8004"},
 	{"/v1/orders", "http://127.0.0.1:8005"},
 	{"/v1/payments", "http://127.0.0.1:8006"},
 	{"/v1/vendors", "http://127.0.0.1:8007"},

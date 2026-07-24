@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Button } from "@gayrat/ui";
+import { Button, Input } from "@gayrat/ui";
 import { api, errMsg } from "@/lib/api";
 import { Msg, PageHeader, StatusBadge } from "@/components/ui";
 
@@ -30,6 +30,7 @@ export default function OrderDetailPage() {
   const id = String(params.id || "");
   const [data, setData] = useState<OrderPayload>({});
   const [tracking, setTracking] = useState<Tracking | null>(null);
+  const [trackingForm, setTrackingForm] = useState({ carrier: "", tracking_number: "" });
   const [msg, setMsg] = useState("");
   const [ok, setOk] = useState("");
 
@@ -37,7 +38,10 @@ export default function OrderDetailPage() {
     const d = await api<OrderPayload>(`/v1/orders/${id}`);
     setData(d);
     api<Tracking>(`/v1/orders/${id}/tracking`)
-      .then(setTracking)
+      .then((result) => {
+        setTracking(result);
+        setTrackingForm({ carrier: result.carrier || "", tracking_number: result.tracking_number || "" });
+      })
       .catch(() => setTracking(null));
   }
 
@@ -67,6 +71,14 @@ export default function OrderDetailPage() {
     setOk("");
     await api(`/v1/orders/${id}/cancel`, { method: "POST", body: "{}" });
     setOk("Cancelled");
+    await load();
+  }
+
+  async function saveTracking() {
+    setMsg("");
+    setOk("");
+    await api(`/v1/orders/${id}/tracking`, { method: "PUT", body: JSON.stringify(trackingForm) });
+    setOk("Tracking updated");
     await load();
   }
 
@@ -142,14 +154,15 @@ export default function OrderDetailPage() {
         </section>
       )}
 
-      {tracking && (
-        <section className="mt-6 rounded-xl border bg-white p-4">
-          <h2 className="font-semibold">Tracking</h2>
-          <p className="mt-2 text-sm">
-            {tracking.carrier} · {tracking.tracking_number} · {tracking.status}
-          </p>
-        </section>
-      )}
+      <section className="mt-6 rounded-xl border bg-white p-4">
+        <h2 className="font-semibold">Tracking</h2>
+        {tracking && <p className="mt-2 text-sm text-slate-600">{tracking.carrier} · {tracking.tracking_number} · {tracking.status}</p>}
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Input placeholder="Carrier" value={trackingForm.carrier} onChange={(e) => setTrackingForm({ ...trackingForm, carrier: e.target.value })} />
+          <Input placeholder="Tracking number" value={trackingForm.tracking_number} onChange={(e) => setTrackingForm({ ...trackingForm, tracking_number: e.target.value })} />
+          <Button onClick={() => saveTracking().catch((e) => setMsg(errMsg(e)))}>Save tracking</Button>
+        </div>
+      </section>
 
       <ul className="mt-6 space-y-2">
         {(data.items || []).map((it, i) => (

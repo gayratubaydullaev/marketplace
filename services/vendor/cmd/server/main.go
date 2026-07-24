@@ -23,7 +23,7 @@ func main() {
 	vendors := &handler.VendorHandler{Service: service.NewVendorService(repository.NewVendorRepository(database), producer)}
 
 	r := gin.New()
-	r.Use(gin.Recovery(), middleware.CORS(), middleware.Tenant(), middleware.TenantDB(database), middleware.Metrics(cfg.ServiceName))
+	r.Use(gin.Recovery(), middleware.CORS(), middleware.Tenant(), middleware.TenantDB(database), middleware.AuditLogger(database), middleware.Metrics(cfg.ServiceName))
 	middleware.MountMetrics(r)
 	r.GET("/health", func(c *gin.Context) { c.JSON(200, gin.H{"status": "ok"}) })
 	v1 := r.Group("/v1")

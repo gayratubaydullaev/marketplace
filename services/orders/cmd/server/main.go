@@ -23,7 +23,7 @@ func main() {
 	orders := &handler.OrderHandler{Service: service.NewOrderService(repository.NewOrderRepository(database), producer)}
 
 	r := gin.New()
-	r.Use(gin.Recovery(), middleware.CORS(), middleware.Tenant(), middleware.TenantDB(database), middleware.Metrics(cfg.ServiceName))
+	r.Use(gin.Recovery(), middleware.CORS(), middleware.Tenant(), middleware.TenantDB(database), middleware.AuditLogger(database), middleware.Metrics(cfg.ServiceName))
 	middleware.MountMetrics(r)
 	r.GET("/health", func(c *gin.Context) { c.JSON(200, gin.H{"status": "ok"}) })
 	v1 := r.Group("/v1/orders")
@@ -34,6 +34,12 @@ func main() {
 	v1.POST("/:id/status", middleware.JWT(tokens, false), middleware.RequireRoles(commonauth.RoleTenantAdmin, commonauth.RoleManager, commonauth.RoleVendor), orders.Status)
 	v1.POST("/:id/refund", middleware.JWT(tokens, false), middleware.RequireRoles(commonauth.RoleTenantAdmin, commonauth.RoleManager), orders.Refund)
 	v1.GET("/:id/tracking", middleware.JWT(tokens, true), orders.Tracking)
+	v1.PUT("/:id/tracking", middleware.JWT(tokens, false), middleware.RequireRoles(commonauth.RoleTenantAdmin, commonauth.RoleManager, commonauth.RoleVendor), orders.SetTracking)
+	v1.POST("/:id/returns", middleware.JWT(tokens, false), middleware.RequireRoles(commonauth.RoleCustomer), orders.CreateReturn)
+	v1.GET("/:id/returns", middleware.JWT(tokens, false), orders.Returns)
+	admin := r.Group("/v1/admin/returns", middleware.JWT(tokens, false), middleware.RequireRoles(commonauth.RoleTenantAdmin, commonauth.RoleManager))
+	admin.GET("", orders.AdminReturns)
+	admin.POST("/:id/:action", orders.ProcessReturn)
 	log.Printf("orders-service on :%s", cfg.HTTPPort)
 	log.Fatal(r.Run(":" + cfg.HTTPPort))
 }

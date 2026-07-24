@@ -23,7 +23,23 @@ type Order struct {
 	CouponCode        *string         `db:"coupon_code" json:"coupon_code"`
 	ShippingAddress   json.RawMessage `db:"shipping_address" json:"shipping_address"`
 	Notes             *string         `db:"notes" json:"notes"`
+	TrackingCarrier   *string         `db:"tracking_carrier" json:"tracking_carrier,omitempty"`
+	TrackingNumber    *string         `db:"tracking_number" json:"tracking_number,omitempty"`
+	TrackingURL       *string         `db:"tracking_url" json:"tracking_url,omitempty"`
+	ShippedAt         *time.Time      `db:"shipped_at" json:"shipped_at,omitempty"`
 	CreatedAt         time.Time       `db:"created_at" json:"created_at"`
+}
+
+type OrderReturn struct {
+	ID        string     `db:"id" json:"id"`
+	TenantID  string     `db:"tenant_id" json:"tenant_id"`
+	OrderID   string     `db:"order_id" json:"order_id"`
+	UserID    *string    `db:"user_id" json:"user_id,omitempty"`
+	Reason    string     `db:"reason" json:"reason"`
+	Status    string     `db:"status" json:"status"`
+	AdminNote *string    `db:"admin_note" json:"admin_note,omitempty"`
+	CreatedAt time.Time  `db:"created_at" json:"created_at"`
+	UpdatedAt time.Time  `db:"updated_at" json:"updated_at"`
 }
 
 type OrderItem struct {

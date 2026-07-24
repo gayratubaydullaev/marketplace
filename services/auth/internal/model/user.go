@@ -62,6 +62,15 @@ type OTPVerifyRequest struct {
 	Code  string `json:"code" binding:"required"`
 }
 
+type EmailOTPRequest struct {
+	Email string `json:"email" binding:"required,email"`
+}
+
+type EmailOTPVerifyRequest struct {
+	Email string `json:"email" binding:"required,email"`
+	Code  string `json:"code" binding:"required,len=6"`
+}
+
 type OAuthRequest struct {
 	Provider    string `json:"provider" binding:"required"`
 	AccessToken string `json:"access_token" binding:"required"`
