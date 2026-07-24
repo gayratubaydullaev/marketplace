@@ -32,7 +32,7 @@ func main() {
 	v1 := r.Group("/v1")
 	{
 		v1.GET("/products/:id/reviews", func(c *gin.Context) {
-			rows, err := database.Queryx(`SELECT id, rating, title, body, media, vendor_reply, helpful_count, verified_purchase, created_at FROM reviews WHERE product_id=$1 AND status='approved' ORDER BY created_at DESC`, c.Param("id"))
+			rows, err := database.Queryx(`SELECT id, rating, title, body, media, vendor_reply, helpful_count, verified_purchase, created_at FROM reviews WHERE tenant_id=$1 AND product_id=$2 AND status='approved' ORDER BY created_at DESC`, middleware.GetTenantID(c), c.Param("id"))
 			if err != nil {
 				httpx.Internal(c, err.Error())
 				return
@@ -93,7 +93,7 @@ func main() {
 			httpx.Created(c, gin.H{"id": id, "status": status})
 		})
 		v1.POST("/reviews/:id/helpful", middleware.JWT(tokenMgr, false), func(c *gin.Context) {
-			_, _ = database.Exec(`UPDATE reviews SET helpful_count = helpful_count + 1 WHERE id=$1`, c.Param("id"))
+			_, _ = database.Exec(`UPDATE reviews SET helpful_count = helpful_count + 1 WHERE id=$1 AND tenant_id=$2`, c.Param("id"), middleware.GetTenantID(c))
 			httpx.OK(c, gin.H{"ok": true})
 		})
 		v1.POST("/reviews/:id/reply", middleware.JWT(tokenMgr, false), middleware.RequireRoles(commonauth.RoleVendor, commonauth.RoleTenantAdmin), func(c *gin.Context) {
@@ -104,7 +104,28 @@ func main() {
 				httpx.BadRequest(c, err.Error())
 				return
 			}
-			_, _ = database.Exec(`UPDATE reviews SET vendor_reply=$1 WHERE id=$2`, body.Reply, c.Param("id"))
+			claims := middleware.GetClaims(c)
+			tenantID := middleware.GetTenantID(c)
+			var vendorID *string
+			if err := database.Get(&vendorID, `SELECT vendor_id::text FROM reviews WHERE id=$1 AND tenant_id=$2`, c.Param("id"), tenantID); err != nil {
+				httpx.NotFound(c, "review not found")
+				return
+			}
+			if claims.Role == commonauth.RoleVendor {
+				if claims.VendorID == "" || vendorID == nil || *vendorID != claims.VendorID {
+					httpx.Forbidden(c, "not your review")
+					return
+				}
+			}
+			res, err := database.Exec(`UPDATE reviews SET vendor_reply=$1 WHERE id=$2 AND tenant_id=$3`, body.Reply, c.Param("id"), tenantID)
+			if err != nil {
+				httpx.Internal(c, err.Error())
+				return
+			}
+			if n, _ := res.RowsAffected(); n == 0 {
+				httpx.NotFound(c, "review not found")
+				return
+			}
 			httpx.OK(c, gin.H{"ok": true})
 		})
 		v1.POST("/admin/reviews/:id/moderate", middleware.JWT(tokenMgr, false), middleware.RequireRoles(commonauth.RoleModerator, commonauth.RoleTenantAdmin), func(c *gin.Context) {
@@ -112,7 +133,15 @@ func main() {
 				Status string `json:"status" binding:"required"`
 			}
 			_ = c.ShouldBindJSON(&body)
-			_, _ = database.Exec(`UPDATE reviews SET status=$1 WHERE id=$2`, body.Status, c.Param("id"))
+			res, err := database.Exec(`UPDATE reviews SET status=$1 WHERE id=$2 AND tenant_id=$3`, body.Status, c.Param("id"), middleware.GetTenantID(c))
+			if err != nil {
+				httpx.Internal(c, err.Error())
+				return
+			}
+			if n, _ := res.RowsAffected(); n == 0 {
+				httpx.NotFound(c, "review not found")
+				return
+			}
 			httpx.OK(c, gin.H{"status": body.Status})
 		})
 		v1.GET("/admin/reviews", middleware.JWT(tokenMgr, false), middleware.RequireRoles(commonauth.RoleModerator, commonauth.RoleTenantAdmin), func(c *gin.Context) {

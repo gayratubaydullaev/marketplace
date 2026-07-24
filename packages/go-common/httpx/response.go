@@ -44,6 +44,10 @@ func Conflict(c *gin.Context, msg string) {
 	Fail(c, http.StatusConflict, "conflict", msg)
 }
 
+func TooManyRequests(c *gin.Context, msg string) {
+	Fail(c, http.StatusTooManyRequests, "rate_limited", msg)
+}
+
 func Internal(c *gin.Context, msg string) {
 	Fail(c, http.StatusInternalServerError, "internal_error", msg)
 }

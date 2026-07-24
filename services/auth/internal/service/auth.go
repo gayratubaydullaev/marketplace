@@ -247,10 +247,42 @@ func (s *AuthService) ResetPassword(token, newPassword string) error {
 	return nil
 }
 
+func (s *AuthService) throttleOTP(key string, perMinute, perHour int64) error {
+	if s.rdb == nil {
+		return nil
+	}
+	ctx := context.Background()
+	minKey, hourKey := key+":m", key+":h"
+	nMin, err := s.rdb.Incr(ctx, minKey).Result()
+	if err != nil {
+		return nil
+	}
+	if nMin == 1 {
+		_ = s.rdb.Expire(ctx, minKey, time.Minute).Err()
+	}
+	if nMin > perMinute {
+		return errors.New("otp rate limit exceeded")
+	}
+	nHour, err := s.rdb.Incr(ctx, hourKey).Result()
+	if err != nil {
+		return nil
+	}
+	if nHour == 1 {
+		_ = s.rdb.Expire(ctx, hourKey, time.Hour).Err()
+	}
+	if nHour > perHour {
+		return errors.New("otp rate limit exceeded")
+	}
+	return nil
+}
+
 func (s *AuthService) SendOTP(phone string) (string, error) {
 	normalized, ok := tenant.NormalizeUZPhone(phone)
 	if !ok {
 		return "", errors.New("invalid Uzbekistan phone")
+	}
+	if err := s.throttleOTP("otp:send:"+normalized, 1, 5); err != nil {
+		return "", err
 	}
 	n, _ := rand.Int(rand.Reader, big.NewInt(900000))
 	code := fmt.Sprintf("%06d", n.Int64()+100000)
@@ -313,6 +345,9 @@ func (s *AuthService) SendEmailOTP(tenantID, email string) (string, error) {
 	}
 	if s.rdb == nil {
 		return "", errors.New("email otp unavailable")
+	}
+	if err := s.throttleOTP("otpemail:send:"+tenantID+":"+email, 1, 5); err != nil {
+		return "", err
 	}
 	n, _ := rand.Int(rand.Reader, big.NewInt(900000))
 	code := fmt.Sprintf("%06d", n.Int64()+100000)

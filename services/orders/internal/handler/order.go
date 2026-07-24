@@ -72,7 +72,7 @@ func (h *OrderHandler) Get(c *gin.Context) {
 		httpx.NotFound(c, "order not found")
 		return
 	}
-	if !canViewOrder(c, order) {
+	if !h.canViewOrder(c, order) {
 		httpx.NotFound(c, "order not found")
 		return
 	}
@@ -82,16 +82,58 @@ func (h *OrderHandler) Get(c *gin.Context) {
 	httpx.OK(c, gin.H{"order": order, "items": items})
 }
 
-func canViewOrder(c *gin.Context, order model.Order) bool {
+func (h *OrderHandler) guestOwnsOrder(orderID, guestID string) bool {
+	if guestID == "" {
+		return false
+	}
+	var stored string
+	if err := h.Service.Repo.DB.Get(&stored, `SELECT COALESCE(metadata->>'guest_id','') FROM orders WHERE id=$1`, orderID); err != nil {
+		return false
+	}
+	return stored != "" && stored == guestID
+}
+
+func (h *OrderHandler) vendorOwnsOrder(orderID, vendorID string) bool {
+	if vendorID == "" {
+		return false
+	}
+	var n int
+	if err := h.Service.Repo.DB.Get(&n, `SELECT COUNT(1) FROM order_items WHERE order_id=$1 AND vendor_id::text=$2`, orderID, vendorID); err != nil {
+		return false
+	}
+	return n > 0
+}
+
+func (h *OrderHandler) canViewOrder(c *gin.Context, order model.Order) bool {
 	claims := middleware.GetClaims(c)
 	if claims == nil {
-		return order.UserID == nil
+		if order.UserID != nil {
+			return false
+		}
+		return h.guestOwnsOrder(order.ID, c.GetHeader("X-Guest-ID"))
 	}
 	switch claims.Role {
-	case commonauth.RoleTenantAdmin, commonauth.RoleManager, commonauth.RoleVendor:
+	case commonauth.RoleTenantAdmin, commonauth.RoleManager:
 		return true
+	case commonauth.RoleVendor:
+		return h.vendorOwnsOrder(order.ID, claims.VendorID)
 	default:
 		return order.UserID != nil && *order.UserID == claims.UserID
+	}
+}
+
+func (h *OrderHandler) canMutateOrder(c *gin.Context, order model.Order) bool {
+	claims := middleware.GetClaims(c)
+	if claims == nil {
+		return false
+	}
+	switch claims.Role {
+	case commonauth.RoleTenantAdmin, commonauth.RoleManager:
+		return true
+	case commonauth.RoleVendor:
+		return h.vendorOwnsOrder(order.ID, claims.VendorID)
+	default:
+		return false
 	}
 }
 
@@ -133,6 +175,11 @@ func (h *OrderHandler) Status(c *gin.Context) {
 		httpx.BadRequest(c, err.Error())
 		return
 	}
+	order, _, err := h.Service.Repo.Get(c.Param("id"), middleware.GetTenantID(c))
+	if err != nil || !h.canMutateOrder(c, order) {
+		httpx.NotFound(c, "order not found")
+		return
+	}
 	h.transition(c, body.Status)
 }
 func (h *OrderHandler) transition(c *gin.Context, status string) {
@@ -145,7 +192,7 @@ func (h *OrderHandler) transition(c *gin.Context, status string) {
 }
 func (h *OrderHandler) Tracking(c *gin.Context) {
 	order, _, err := h.Service.Repo.Get(c.Param("id"), middleware.GetTenantID(c))
-	if err != nil || !canViewOrder(c, order) {
+	if err != nil || !h.canViewOrder(c, order) {
 		httpx.NotFound(c, "order not found")
 		return
 	}
@@ -164,6 +211,11 @@ func (h *OrderHandler) SetTracking(c *gin.Context) {
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		httpx.BadRequest(c, err.Error())
+		return
+	}
+	order, _, err := h.Service.Repo.Get(c.Param("id"), middleware.GetTenantID(c))
+	if err != nil || !h.canMutateOrder(c, order) {
+		httpx.NotFound(c, "order not found")
 		return
 	}
 	if err := h.Service.SetTracking(c.Request.Context(), c.Param("id"), middleware.GetTenantID(c), body.Carrier, body.TrackingNumber, body.TrackingURL); err != nil {
@@ -202,7 +254,7 @@ func (h *OrderHandler) CreateReturn(c *gin.Context) {
 func (h *OrderHandler) Returns(c *gin.Context) {
 	var rows []model.OrderReturn
 	order, _, err := h.Service.Repo.Get(c.Param("id"), middleware.GetTenantID(c))
-	if err != nil || !canViewOrder(c, order) {
+	if err != nil || !h.canViewOrder(c, order) {
 		httpx.NotFound(c, "order not found")
 		return
 	}

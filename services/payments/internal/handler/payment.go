@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 
+	commonauth "github.com/gayrat/marketplace/packages/go-common/auth"
 	"github.com/gayrat/marketplace/packages/go-common/httpx"
 	"github.com/gayrat/marketplace/packages/go-common/middleware"
 	"github.com/gayrat/marketplace/services/payments/internal/model"
@@ -24,6 +25,43 @@ type PaymentHandler struct {
 func mustJSON(v any) []byte {
 	b, _ := json.Marshal(v)
 	return b
+}
+
+func (h *PaymentHandler) canAccessOrder(c *gin.Context, orderID, tenantID string) bool {
+	var userID *string
+	if err := h.Service.Repo.DB.Get(&userID, `SELECT user_id FROM orders WHERE id=$1 AND tenant_id=$2`, orderID, tenantID); err != nil {
+		return false
+	}
+	claims := middleware.GetClaims(c)
+	if claims == nil {
+		if userID != nil {
+			return false
+		}
+		guestID := c.GetHeader("X-Guest-ID")
+		if guestID == "" {
+			return false
+		}
+		var stored string
+		if err := h.Service.Repo.DB.Get(&stored, `SELECT COALESCE(metadata->>'guest_id','') FROM orders WHERE id=$1 AND tenant_id=$2`, orderID, tenantID); err != nil {
+			return false
+		}
+		return stored != "" && stored == guestID
+	}
+	switch claims.Role {
+	case commonauth.RoleTenantAdmin, commonauth.RoleManager:
+		return true
+	case commonauth.RoleVendor:
+		if claims.VendorID == "" {
+			return false
+		}
+		var n int
+		if err := h.Service.Repo.DB.Get(&n, `SELECT COUNT(1) FROM order_items WHERE order_id=$1 AND vendor_id::text=$2`, orderID, claims.VendorID); err != nil {
+			return false
+		}
+		return n > 0
+	default:
+		return userID != nil && *userID == claims.UserID
+	}
 }
 
 func (h *PaymentHandler) ProvidersList(c *gin.Context) {
@@ -47,6 +85,10 @@ func (h *PaymentHandler) Intent(c *gin.Context) {
 		return
 	}
 	tenantID := middleware.GetTenantID(c)
+	if !h.canAccessOrder(c, body.OrderID, tenantID) {
+		httpx.NotFound(c, "order not found")
+		return
+	}
 	if body.IdempotencyKey != "" {
 		var id string
 		if h.Service.Repo.DB.Get(&id, `SELECT id FROM payments WHERE tenant_id=$1 AND idempotency_key=$2`, tenantID, body.IdempotencyKey) == nil {
@@ -182,7 +224,13 @@ func (h *PaymentHandler) Webhook(c *gin.Context) {
 }
 
 func (h *PaymentHandler) List(c *gin.Context) {
-	items, err := h.Service.Repo.ListForOrder(c.Param("order_id"))
+	tenantID := middleware.GetTenantID(c)
+	orderID := c.Param("order_id")
+	if !h.canAccessOrder(c, orderID, tenantID) {
+		httpx.NotFound(c, "order not found")
+		return
+	}
+	items, err := h.Service.Repo.ListForOrder(orderID, tenantID)
 	if err != nil {
 		httpx.Internal(c, err.Error())
 		return
@@ -242,8 +290,13 @@ button{background:#0f766e;color:#fff;border:0;padding:.75rem 1.25rem;border-radi
 }
 
 func (h *PaymentHandler) GetStatus(c *gin.Context) {
-	payment, err := h.Service.Repo.Find(c.Param("id"))
+	tenantID := middleware.GetTenantID(c)
+	payment, err := h.Service.Repo.FindInTenant(c.Param("id"), tenantID)
 	if err != nil {
+		httpx.NotFound(c, "payment not found")
+		return
+	}
+	if !h.canAccessOrder(c, payment.OrderID, tenantID) {
 		httpx.NotFound(c, "payment not found")
 		return
 	}

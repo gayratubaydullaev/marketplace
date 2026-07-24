@@ -130,7 +130,7 @@ func isAllowedUpload(contentType, filename string) bool {
 }
 
 func (h *Handler) get(c *gin.Context) {
-	file, err := h.repo.Get(c.Param("id"))
+	file, err := h.repo.GetInTenant(c.Param("id"), middleware.GetTenantID(c))
 	if err != nil {
 		httpx.NotFound(c, "not found")
 		return

@@ -13,11 +13,15 @@ func (r *PaymentRepository) Find(id string) (model.Payment, error) {
 	var p model.Payment
 	return p, r.DB.Get(&p, `SELECT id,tenant_id,order_id,user_id,amount,currency,provider,provider_payment_id,status,created_at FROM payments WHERE id=$1`, id)
 }
+func (r *PaymentRepository) FindInTenant(id, tenantID string) (model.Payment, error) {
+	var p model.Payment
+	return p, r.DB.Get(&p, `SELECT id,tenant_id,order_id,user_id,amount,currency,provider,provider_payment_id,status,created_at FROM payments WHERE id=$1 AND tenant_id=$2`, id, tenantID)
+}
 func (r *PaymentRepository) FindByProviderID(id string) (model.Payment, error) {
 	var p model.Payment
 	return p, r.DB.Get(&p, `SELECT id,tenant_id,order_id,user_id,amount,currency,provider,provider_payment_id,status,created_at FROM payments WHERE provider_payment_id=$1 LIMIT 1`, id)
 }
-func (r *PaymentRepository) ListForOrder(orderID string) ([]model.Payment, error) {
+func (r *PaymentRepository) ListForOrder(orderID, tenantID string) ([]model.Payment, error) {
 	var items []model.Payment
-	return items, r.DB.Select(&items, `SELECT id,tenant_id,order_id,user_id,amount,currency,provider,provider_payment_id,status,created_at FROM payments WHERE order_id=$1`, orderID)
+	return items, r.DB.Select(&items, `SELECT id,tenant_id,order_id,user_id,amount,currency,provider,provider_payment_id,status,created_at FROM payments WHERE order_id=$1 AND tenant_id=$2`, orderID, tenantID)
 }

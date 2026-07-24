@@ -79,6 +79,21 @@ func (h *Handler) Register(r *gin.Engine) {
 
 func (h *Handler) repo() *repository.Catalog { return h.Service.Repository() }
 
+func (h *Handler) vendorCanMutateProduct(c *gin.Context, product *model.Product) bool {
+	claims := middleware.GetClaims(c)
+	if claims == nil {
+		return false
+	}
+	switch claims.Role {
+	case commonauth.RoleTenantAdmin, commonauth.RoleManager:
+		return true
+	case commonauth.RoleVendor:
+		return claims.VendorID != "" && product.VendorID != nil && *product.VendorID == claims.VendorID
+	default:
+		return false
+	}
+}
+
 func (h *Handler) databaseUnavailable(c *gin.Context) bool {
 	if h.repo().Available() {
 		return false
@@ -296,18 +311,22 @@ func (h *Handler) updateProduct(c *gin.Context) {
 		return
 	}
 	id, tenantID := c.Param("id"), middleware.GetTenantID(c)
+	product, err := h.repo().GetProductByID(tenantID, id)
+	if repository.IsNoRows(err) {
+		httpx.NotFound(c, "product not found")
+		return
+	}
+	if err != nil {
+		httpx.Internal(c, err.Error())
+		return
+	}
+	if !h.vendorCanMutateProduct(c, &product) {
+		httpx.Forbidden(c, "not your product")
+		return
+	}
 	if status, ok := body["status"].(string); ok {
 		if !service.IsProductStatus(status) {
 			httpx.BadRequest(c, "unknown product status")
-			return
-		}
-		product, err := h.repo().GetProductByID(tenantID, id)
-		if repository.IsNoRows(err) {
-			httpx.NotFound(c, "product not found")
-			return
-		}
-		if err != nil {
-			httpx.Internal(c, err.Error())
 			return
 		}
 		if status != product.Status && !service.ValidateStatusTransition(product.Status, status) {
@@ -335,6 +354,10 @@ func (h *Handler) archiveProduct(c *gin.Context) {
 		httpx.Internal(c, err.Error())
 		return
 	}
+	if !h.vendorCanMutateProduct(c, &product) {
+		httpx.Forbidden(c, "not your product")
+		return
+	}
 	if product.Status != "archived" && !service.ValidateStatusTransition(product.Status, "archived") {
 		httpx.BadRequest(c, "cannot transition "+product.Status+" -> archived")
 		return
@@ -351,6 +374,19 @@ func (h *Handler) createVariant(c *gin.Context) {
 	var body model.CreateVariantRequest
 	if err := c.ShouldBindJSON(&body); err != nil {
 		httpx.BadRequest(c, err.Error())
+		return
+	}
+	product, err := h.repo().GetProductByID(middleware.GetTenantID(c), c.Param("id"))
+	if repository.IsNoRows(err) {
+		httpx.NotFound(c, "product not found")
+		return
+	}
+	if err != nil {
+		httpx.Internal(c, err.Error())
+		return
+	}
+	if !h.vendorCanMutateProduct(c, &product) {
+		httpx.Forbidden(c, "not your product")
 		return
 	}
 	if body.Attributes == nil {
@@ -513,6 +549,19 @@ func (h *Handler) attachImages(c *gin.Context) {
 	}
 	if len(body.URLs) > 20 {
 		httpx.BadRequest(c, "max 20 images")
+		return
+	}
+	product, err := h.repo().GetProductByID(middleware.GetTenantID(c), c.Param("id"))
+	if repository.IsNoRows(err) {
+		httpx.NotFound(c, "product not found")
+		return
+	}
+	if err != nil {
+		httpx.Internal(c, err.Error())
+		return
+	}
+	if !h.vendorCanMutateProduct(c, &product) {
+		httpx.Forbidden(c, "not your product")
 		return
 	}
 	images, _ := json.Marshal(body.URLs)

@@ -47,6 +47,12 @@ func verifyHMAC(payload []byte, signature, secret string) error {
 	if Sandbox() && (signature == "" || signature == "sandbox") {
 		return nil
 	}
+	if signature == "" {
+		return fmt.Errorf("missing signature")
+	}
+	if secret == "" {
+		return fmt.Errorf("webhook secret not configured")
+	}
 	mac := hmac.New(sha256.New, []byte(secret))
 	_, _ = mac.Write(payload)
 	expected := hex.EncodeToString(mac.Sum(nil))
@@ -325,6 +331,9 @@ func (p PayPalProvider) CreateIntent(amount float64, currency, orderID string) (
 	return "", "", fmt.Errorf("PayPal approval link missing")
 }
 func (p PayPalProvider) VerifyWebhook(payload []byte, credential string) (string, string, error) {
+	if Sandbox() && (credential == "" || credential == "sandbox") {
+		return webhookResult(payload)
+	}
 	if !verifyBasicOrToken(credential, p.ClientID, p.ClientSecret) {
 		return "", "", fmt.Errorf("invalid PayPal authorization")
 	}
@@ -338,7 +347,8 @@ func (BankTransferProvider) CreateIntent(float64, string, string) (string, strin
 	return "bank_" + uuid.NewString()[:8], "", nil
 }
 func (BankTransferProvider) VerifyWebhook([]byte, string) (string, string, error) {
-	return "bank_manual", "pending", nil
+	// Bank transfers are confirmed manually by admins — never auto-succeed via webhook.
+	return "", "", fmt.Errorf("bank transfer requires manual confirmation")
 }
 
 func firstSet(values ...string) string {

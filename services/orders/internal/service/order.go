@@ -161,6 +161,9 @@ func (s *OrderService) Create(ctx context.Context, in CreateInput) (map[string]a
 		guestEmail = &in.GuestEmail
 	}
 	meta := map[string]any{}
+	if in.GuestID != "" && userID == nil {
+		meta["guest_id"] = in.GuestID
+	}
 	if cartMeta.GiftCertificateCode != nil && giftAmount > 0 {
 		meta["gift_certificate_code"] = *cartMeta.GiftCertificateCode
 		meta["gift_amount"] = giftAmount

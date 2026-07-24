@@ -19,3 +19,8 @@ func (r *MediaRepository) Get(id string) (model.File, error) {
 	if r.db == nil { return file, sql.ErrNoRows }
 	return file, r.db.Get(&file, `SELECT id, url FROM media_files WHERE id=$1`, id)
 }
+func (r *MediaRepository) GetInTenant(id, tenantID string) (model.File, error) {
+	var file model.File
+	if r.db == nil { return file, sql.ErrNoRows }
+	return file, r.db.Get(&file, `SELECT id, url FROM media_files WHERE id=$1 AND tenant_id=$2`, id, tenantID)
+}

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/gayrat/marketplace/packages/go-common/httpx"
 	"github.com/gayrat/marketplace/packages/go-common/middleware"
@@ -143,6 +144,10 @@ func (h *Handler) SendOTP(c *gin.Context) {
 	}
 	code, err := h.svc.SendOTP(req.Phone)
 	if err != nil {
+		if strings.Contains(err.Error(), "rate limit") {
+			httpx.TooManyRequests(c, err.Error())
+			return
+		}
 		httpx.BadRequest(c, err.Error())
 		return
 	}
@@ -171,6 +176,10 @@ func (h *Handler) SendEmailOTP(c *gin.Context) {
 	}
 	code, err := h.svc.SendEmailOTP(middleware.GetTenantID(c), req.Email)
 	if err != nil {
+		if strings.Contains(err.Error(), "rate limit") {
+			httpx.TooManyRequests(c, err.Error())
+			return
+		}
 		httpx.BadRequest(c, err.Error())
 		return
 	}

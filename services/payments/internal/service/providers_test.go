@@ -22,3 +22,18 @@ func TestStripeProviderSandbox(t *testing.T) {
 		t.Fatalf("sandbox webhook = (%q, %q, %v)", gotID, status, err)
 	}
 }
+
+func TestBankTransferWebhookNeverAutoConfirms(t *testing.T) {
+	t.Setenv("PAYMENTS_SANDBOX", "true")
+	_, _, err := BankTransferProvider{}.VerifyWebhook([]byte(`{"id":"bank_1"}`), "sandbox")
+	if err == nil {
+		t.Fatal("expected bank transfer webhook to require manual confirmation")
+	}
+}
+
+func TestVerifyHMACRejectsEmptyOutsideSandbox(t *testing.T) {
+	t.Setenv("PAYMENTS_SANDBOX", "false")
+	if err := verifyHMAC([]byte(`{}`), "", "secret"); err == nil {
+		t.Fatal("expected missing signature error outside sandbox")
+	}
+}
