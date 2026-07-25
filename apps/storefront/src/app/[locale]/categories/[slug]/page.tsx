@@ -50,6 +50,9 @@ export default async function CategoryPage({
   let products: Product[] = [];
   let total = 0;
   let categoryName = slug;
+  let parentSlug: string | null = null;
+  let parentName: string | null = null;
+  let childLinks: { slug: string; name: string }[] = [];
 
   const qs = new URLSearchParams();
   qs.set("limit", String(PAGE_SIZE));
@@ -60,13 +63,32 @@ export default async function CategoryPage({
 
   try {
     const [cats, prod] = await Promise.all([
-      api<{ items: { slug: string; translations?: Record<string, { name?: string }> }[] }>("/v1/categories"),
+      api<{
+        items: {
+          id: string;
+          slug: string;
+          parent_id?: string | null;
+          translations?: Record<string, { name?: string }>;
+        }[];
+      }>("/v1/categories"),
       api<{ items: Product[]; total?: number }>(`/v1/categories/${slug}/products?${qs.toString()}`),
     ]);
-    const cat = (cats.items || []).find((c) => c.slug === slug);
+    const all = cats.items || [];
+    const cat = all.find((c) => c.slug === slug);
     categoryName = cat?.translations?.[locale]?.name || cat?.translations?.uz?.name || slug;
     products = prod.items || [];
     total = prod.total ?? products.length;
+    const parent = cat?.parent_id ? all.find((c) => c.id === cat.parent_id) : null;
+    if (parent) {
+      parentSlug = parent.slug;
+      parentName = parent.translations?.[locale]?.name || parent.translations?.uz?.name || parent.slug;
+    }
+    childLinks = all
+      .filter((c) => Boolean(cat && c.parent_id === cat.id))
+      .map((c) => ({
+        slug: c.slug,
+        name: c.translations?.[locale]?.name || c.translations?.uz?.name || c.slug,
+      }));
   } catch {
     products = [];
   }
@@ -118,6 +140,14 @@ export default async function CategoryPage({
           <Link href={`/${locale}/products`} className="hover:text-teal">
             {t("nav.catalog")}
           </Link>
+          {parentSlug && parentName ? (
+            <>
+              <span>/</span>
+              <Link href={`/${locale}/categories/${parentSlug}`} className="hover:text-teal">
+                {parentName}
+              </Link>
+            </>
+          ) : null}
           <span>/</span>
           <span className="font-medium text-night/70">{categoryName}</span>
         </nav>
@@ -125,6 +155,19 @@ export default async function CategoryPage({
           {categoryName}
         </h1>
         <p className="mt-1 text-sm text-muted">{t("catalog.found", { count: total })}</p>
+        {childLinks.length > 0 ? (
+          <div className="mt-4 flex flex-wrap gap-2">
+            {childLinks.map((c) => (
+              <Link
+                key={c.slug}
+                href={`/${locale}/categories/${c.slug}`}
+                className="rounded-full border border-night/10 bg-white px-3.5 py-1.5 text-sm font-semibold text-night/80 transition hover:border-teal/40 hover:text-teal"
+              >
+                {c.name}
+              </Link>
+            ))}
+          </div>
+        ) : null}
         <div className="mt-4 flex gap-2 overflow-x-auto pb-1 text-sm">
           {[
             { sort: "price_asc", label: t("catalog.sortPriceAsc") },

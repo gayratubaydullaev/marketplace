@@ -9,6 +9,7 @@ import { useCart } from "@/lib/cart";
 import { useWishlist } from "@/lib/wishlist";
 import { api } from "@/lib/api";
 import { HeaderSearch } from "@/components/HeaderSearch";
+import { CatalogMenu } from "@/components/CatalogMenu";
 
 export function Header({ locale }: { locale: string }) {
   const t = useTranslations();
@@ -64,18 +65,21 @@ export function Header({ locale }: { locale: string }) {
   }
 
   function isActive(href: string) {
-    return pathname === href || pathname.startsWith(`${href}/`);
+    const path = href.split("?")[0];
+    if (href.includes("tab=orders")) {
+      return pathname.includes("/account") || /\/orders(\/|$)/.test(pathname);
+    }
+    return pathname === path || pathname.startsWith(`${path}/`);
   }
 
   const secondaryNav = [
-    { href: `/${locale}/products`, label: t("nav.catalog") },
     ...(showVendors ? [{ href: `/${locale}/vendors`, label: t("nav.vendors") }] : []),
-    { href: `/${locale}/orders`, label: t("nav.orders") },
+    { href: `/${locale}/account?tab=orders`, label: t("nav.orders") },
     ...(showVendors ? [{ href: `/${locale}/sell`, label: t("nav.sell") }] : []),
   ];
 
   return (
-    <header className="sticky top-0 z-40 border-b border-night/8 bg-paper/95 pt-[env(safe-area-inset-top)] backdrop-blur-md">
+    <header className="sticky top-0 z-40 border-b border-night/8 bg-paper pt-[env(safe-area-inset-top)] md:bg-paper/95 md:backdrop-blur-md">
       {/* Mobile: mark · search · language */}
       <div className="site-container flex min-w-0 items-center gap-2 py-2 md:hidden">
         <Link
@@ -111,6 +115,8 @@ export function Header({ locale }: { locale: string }) {
             {t("brand")}
           </span>
         </Link>
+
+        <CatalogMenu locale={locale} />
 
         <div className="min-w-0 flex-1">
           <HeaderSearch locale={locale} />

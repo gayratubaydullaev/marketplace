@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { api, errMsg, getToken, tokenHasVendorRole } from "@/lib/api";
+import { api, clearTokens, errMsg, getToken, tokenHasVendorRole } from "@/lib/api";
 import { CountPill, Msg, PageHeader } from "@/components/ui";
 import { LocaleSwitcher, useI18n } from "@/lib/i18n";
 
@@ -56,13 +56,16 @@ export default function VendorHome() {
     setLoading(true);
     setLoginMsg("");
     try {
-      const data = await api<{ tokens: { access_token: string } }>("/v1/auth/login", {
+      const data = await api<{ tokens: { access_token: string; refresh_token?: string } }>("/v1/auth/login", {
         method: "POST",
         body: JSON.stringify({ email: email.trim(), password }),
       });
       localStorage.setItem("access_token", data.tokens.access_token);
+      if (data.tokens.refresh_token) {
+        localStorage.setItem("refresh_token", data.tokens.refresh_token);
+      }
       if (!tokenHasVendorRole(data.tokens.access_token)) {
-        localStorage.removeItem("access_token");
+        clearTokens();
         setLoginMsg(t("loginNoAccess"));
         return;
       }

@@ -1,3 +1,5 @@
+import { rewriteMediaUrl, rewriteMediaUrls } from "@/lib/media";
+
 export const TENANT_ID =
   process.env.NEXT_PUBLIC_TENANT_ID || "00000000-0000-0000-0000-000000000001";
 
@@ -111,7 +113,8 @@ export type Product = {
 };
 
 export function productImage(p: Product): string | undefined {
-  return Array.isArray(p.images) && typeof p.images[0] === "string" ? p.images[0] : undefined;
+  if (!Array.isArray(p.images) || typeof p.images[0] !== "string") return undefined;
+  return rewriteMediaUrl(p.images[0], { fallbackKey: p.id || p.slug });
 }
 
 export type Variant = {
@@ -145,7 +148,7 @@ export function variantImageList(variant: Variant | null | undefined): string[] 
     if (typeof images === "string") push(images);
     if (Array.isArray(images)) images.forEach(push);
   }
-  return [...new Set(out)];
+  return rewriteMediaUrls([...new Set(out)], { fallbackKey: variant.id || variant.sku || "variant" });
 }
 
 /**
@@ -157,7 +160,10 @@ export function resolveGalleryImages(
   productImages: string[],
   variant: Variant | null | undefined
 ): { images: string[]; focusIndex: number } {
-  const base = productImages.filter((u) => typeof u === "string" && u.length > 0);
+  const base = rewriteMediaUrls(
+    productImages.filter((u) => typeof u === "string" && u.length > 0),
+    { fallbackKey: "product" }
+  );
   const vImgs = variantImageList(variant);
   if (vImgs.length === 0) {
     return { images: base, focusIndex: 0 };

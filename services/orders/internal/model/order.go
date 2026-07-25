@@ -13,6 +13,7 @@ type Order struct {
 	OrderNumber       string          `db:"order_number" json:"order_number"`
 	Status            string          `db:"status" json:"status"`
 	PaymentStatus     string          `db:"payment_status" json:"payment_status"`
+	PaymentMethod     string          `db:"payment_method" json:"payment_method,omitempty"`
 	FulfillmentStatus string          `db:"fulfillment_status" json:"fulfillment_status"`
 	Currency          string          `db:"currency" json:"currency"`
 	Subtotal          float64         `db:"subtotal" json:"subtotal"`

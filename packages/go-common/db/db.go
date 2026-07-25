@@ -19,7 +19,8 @@ func Connect(databaseURL string) (*sqlx.DB, error) {
 	return db, nil
 }
 
-// SetTenant sets app.current_tenant for RLS policies (session-scoped on the connection).
+// SetTenant sets app.current_tenant on one pooled connection only.
+// Prefer WithTenant for handler work under FORCE RLS — SetTenant is not pool-safe.
 func SetTenant(database *sqlx.DB, tenantID string) error {
 	if database == nil || tenantID == "" {
 		return nil

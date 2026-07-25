@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState, Suspense } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { formatUZS, type Locale } from "@gayrat/i18n";
 import { api } from "@/lib/api";
@@ -97,10 +98,32 @@ function orderStatusLabel(t: ReturnType<typeof useTranslations>, status: string)
 }
 
 export default function AccountPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="mx-auto max-w-3xl animate-rise pb-[calc(var(--bottom-nav-h,0px)+1.5rem)] md:pb-0">
+          <div className="h-9 w-40 animate-pulse rounded-lg bg-night/8" />
+          <div className="mt-6 h-28 animate-pulse rounded-3xl bg-night/5" />
+          <div className="mt-4 grid grid-cols-3 gap-2">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="h-20 animate-pulse rounded-2xl bg-night/5" />
+            ))}
+          </div>
+          <div className="mt-6 h-64 animate-pulse rounded-3xl bg-night/5" />
+        </div>
+      }
+    >
+      <AccountInner />
+    </Suspense>
+  );
+}
+
+function AccountInner() {
   const t = useTranslations("account");
   const to = useTranslations("orders");
   const tn = useTranslations("nav");
   const locale = useLocale();
+  const searchParams = useSearchParams();
   const wishlistCount = useWishlist((s) => s.items.length);
   const syncWishlistToServer = useWishlist((s) => s.syncToServer);
   const cartCount = useCart((s) => s.items.reduce((n, i) => n + i.quantity, 0));
@@ -116,10 +139,15 @@ export default function AccountPage() {
   const [profile, setProfile] = useState({ first_name: "", last_name: "", phone: "" });
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [ordersLoading, setOrdersLoading] = useState(false);
   const [addressForm, setAddressForm] = useState<AddressForm>(emptyAddressForm);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showAddressForm, setShowAddressForm] = useState(false);
   const [editingProfile, setEditingProfile] = useState(false);
+  const [lookupNumber, setLookupNumber] = useState("");
+  const [lookupPhone, setLookupPhone] = useState("+998");
+  const [lookupMsg, setLookupMsg] = useState("");
+  const [looking, setLooking] = useState(false);
 
   const flash = useCallback((type: "ok" | "err", text: string) => {
     setMsg({ type, text });
@@ -132,14 +160,28 @@ export default function AccountPage() {
   }, []);
 
   const loadOrders = useCallback(async () => {
-    const data = await api<{ items: Order[] }>("/v1/orders");
-    setOrders(data.items || []);
+    setOrdersLoading(true);
+    try {
+      const data = await api<{ items: Order[] }>("/v1/orders");
+      setOrders(data.items || []);
+    } finally {
+      setOrdersLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    const tabParam = searchParams.get("tab");
+    if (tabParam === "orders" || tabParam === "addresses" || tabParam === "profile") {
+      setTab(tabParam);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     const token = localStorage.getItem("access_token");
     if (!token) {
-      setBootstrapping(false);
+      loadOrders()
+        .catch(() => setOrders([]))
+        .finally(() => setBootstrapping(false));
       return;
     }
     Promise.all([
@@ -306,13 +348,84 @@ export default function AccountPage() {
     window.location.assign(`/${locale}`);
   }
 
-  const recentOrders = useMemo(() => orders.slice(0, 5), [orders]);
+  async function lookupOrder(e: React.FormEvent) {
+    e.preventDefault();
+    setLooking(true);
+    setLookupMsg("");
+    try {
+      const res = await api<{ order: Order }>("/v1/orders/lookup", {
+        method: "POST",
+        body: JSON.stringify({
+          order_number: lookupNumber.trim(),
+          phone: lookupPhone.trim(),
+        }),
+      });
+      if (res.order?.id) {
+        window.location.assign(`/${locale}/orders/${res.order.id}`);
+        return;
+      }
+      setLookupMsg(to("lookupNotFound"));
+    } catch {
+      setLookupMsg(to("lookupNotFound"));
+    } finally {
+      setLooking(false);
+    }
+  }
 
   const tabs: { id: Tab; label: string }[] = [
     { id: "profile", label: t("profile") },
     { id: "addresses", label: t("addresses") },
     { id: "orders", label: t("ordersTab") },
   ];
+
+  function ordersList(emptyTitle: string) {
+    if (ordersLoading) {
+      return (
+        <div className="space-y-3">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="h-24 animate-pulse rounded-2xl bg-night/5" />
+          ))}
+        </div>
+      );
+    }
+    if (orders.length === 0) {
+      return (
+        <div className="rounded-3xl border border-dashed border-night/12 bg-white/60">
+          <EmptyState
+            title={emptyTitle}
+            description={t("noOrdersHint")}
+            actionHref={`/${locale}/products`}
+            actionLabel={t("browseCatalog")}
+          />
+        </div>
+      );
+    }
+    return (
+      <ul className="space-y-3">
+        {orders.map((o) => (
+          <li key={o.id}>
+            <Link
+              href={`/${locale}/orders/${o.id}`}
+              className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-night/8 bg-white p-4 transition hover:border-accent/30 hover:shadow-sm sm:p-5"
+            >
+              <div className="min-w-0">
+                <p className="font-bold text-night">{o.order_number}</p>
+                <p className="mt-1 text-xs text-muted">
+                  {o.created_at ? new Date(o.created_at).toLocaleDateString(locale) : ""}
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <StatusBadge status={o.status} label={orderStatusLabel(to, o.status)} />
+                <p className="text-sm font-bold text-night">
+                  {formatUZS(o.total, locale as Locale)}
+                </p>
+              </div>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    );
+  }
 
   if (bootstrapping) {
     return (
@@ -333,6 +446,44 @@ export default function AccountPage() {
     return (
       <div className="mx-auto max-w-md animate-rise pb-[calc(var(--bottom-nav-h,0px)+1.5rem)] md:pb-0">
         <PageHeader title={t("title")} subtitle={t("authSubtitle")} />
+
+        <section className="mt-6 rounded-3xl border border-night/8 bg-white p-5 sm:p-6">
+          <h2 className="font-display text-base font-bold text-night">{to("lookupTitle")}</h2>
+          <p className="mt-1 text-sm text-muted">{to("lookupHint")}</p>
+          <form onSubmit={lookupOrder} className="mt-4 grid gap-3">
+            <label className="block text-sm font-medium text-night">
+              {to("lookupNumber")}
+              <input
+                className={fieldClass}
+                value={lookupNumber}
+                onChange={(e) => setLookupNumber(e.target.value)}
+                placeholder="GZ-84979085"
+                required
+              />
+            </label>
+            <label className="block text-sm font-medium text-night">
+              {to("lookupPhone")}
+              <input
+                className={fieldClass}
+                value={lookupPhone}
+                onChange={(e) => setLookupPhone(e.target.value)}
+                placeholder="+998901234567"
+                required
+              />
+            </label>
+            <button
+              type="submit"
+              disabled={looking}
+              className="rounded-xl bg-accent py-3 text-sm font-bold text-night disabled:opacity-50"
+            >
+              {looking ? to("loading") : to("lookupSubmit")}
+            </button>
+          </form>
+          {lookupMsg ? <p className="mt-3 text-sm text-danger">{lookupMsg}</p> : null}
+        </section>
+
+        <div className="mt-6">{ordersList(to("guestEmpty"))}</div>
+
         <form
           onSubmit={submitAuth}
           className="mt-8 space-y-4 rounded-3xl border border-night/8 bg-white/80 p-5 shadow-[0_16px_40px_-28px_rgba(11,31,36,0.45)] backdrop-blur-sm sm:p-7"
@@ -427,9 +578,10 @@ export default function AccountPage() {
       <nav className="mt-4 grid grid-cols-3 gap-2">
         {[
           {
-            href: `/${locale}/orders`,
+            id: "orders" as const,
             label: tn("orders"),
             meta: orders.length ? String(orders.length) : "—",
+            onClick: () => setTab("orders"),
           },
           {
             href: `/${locale}/wishlist`,
@@ -441,18 +593,34 @@ export default function AccountPage() {
             label: t("cartLink"),
             meta: cartCount ? String(cartCount) : "—",
           },
-        ].map((item) => (
-          <Link
-            key={item.href}
-            href={item.href}
-            className="rounded-2xl border border-night/8 bg-white px-3 py-3.5 text-center transition hover:border-accent/40 hover:shadow-sm"
-          >
-            <p className="text-lg font-bold tabular-nums text-night">{item.meta}</p>
-            <p className="mt-0.5 text-[11px] font-semibold uppercase tracking-wide text-muted sm:text-xs">
-              {item.label}
-            </p>
-          </Link>
-        ))}
+        ].map((item) =>
+          "onClick" in item && item.onClick ? (
+            <button
+              key={item.id}
+              type="button"
+              onClick={item.onClick}
+              className={`rounded-2xl border px-3 py-3.5 text-center transition hover:border-accent/40 hover:shadow-sm ${
+                tab === "orders" ? "border-accent/40 bg-accent/10" : "border-night/8 bg-white"
+              }`}
+            >
+              <p className="text-lg font-bold tabular-nums text-night">{item.meta}</p>
+              <p className="mt-0.5 text-[11px] font-semibold uppercase tracking-wide text-muted sm:text-xs">
+                {item.label}
+              </p>
+            </button>
+          ) : (
+            <Link
+              key={item.href}
+              href={item.href!}
+              className="rounded-2xl border border-night/8 bg-white px-3 py-3.5 text-center transition hover:border-accent/40 hover:shadow-sm"
+            >
+              <p className="text-lg font-bold tabular-nums text-night">{item.meta}</p>
+              <p className="mt-0.5 text-[11px] font-semibold uppercase tracking-wide text-muted sm:text-xs">
+                {item.label}
+              </p>
+            </Link>
+          ),
+        )}
       </nav>
 
       <div className="mt-6 flex gap-1 overflow-x-auto rounded-2xl bg-night/5 p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
@@ -809,55 +977,11 @@ export default function AccountPage() {
 
       {tab === "orders" ? (
         <section className="mt-5 space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h2 className="font-display text-lg font-bold text-night">{t("ordersTitle")}</h2>
-              <p className="mt-1 text-sm text-muted">{t("ordersHint")}</p>
-            </div>
-            <Link
-              href={`/${locale}/orders`}
-              className="text-sm font-bold text-teal hover:underline"
-            >
-              {t("viewAllOrders")}
-            </Link>
+          <div>
+            <h2 className="font-display text-lg font-bold text-night">{t("ordersTitle")}</h2>
+            <p className="mt-1 text-sm text-muted">{t("ordersHint")}</p>
           </div>
-
-          {recentOrders.length === 0 ? (
-            <div className="rounded-3xl border border-dashed border-night/12 bg-white/60">
-              <EmptyState
-                title={t("noOrders")}
-                description={t("noOrdersHint")}
-                actionHref={`/${locale}/products`}
-                actionLabel={t("browseCatalog")}
-              />
-            </div>
-          ) : (
-            <ul className="space-y-3">
-              {recentOrders.map((o) => (
-                <li key={o.id}>
-                  <Link
-                    href={`/${locale}/orders/${o.id}`}
-                    className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-night/8 bg-white p-4 transition hover:border-accent/30 hover:shadow-sm sm:p-5"
-                  >
-                    <div className="min-w-0">
-                      <p className="font-bold text-night">{o.order_number}</p>
-                      <p className="mt-1 text-xs text-muted">
-                        {o.created_at
-                          ? new Date(o.created_at).toLocaleDateString(locale)
-                          : ""}
-                      </p>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-3">
-                      <StatusBadge status={o.status} label={orderStatusLabel(to, o.status)} />
-                      <p className="text-sm font-bold text-night">
-                        {formatUZS(o.total, locale as Locale)}
-                      </p>
-                    </div>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )}
+          {ordersList(t("noOrders"))}
         </section>
       ) : null}
     </div>

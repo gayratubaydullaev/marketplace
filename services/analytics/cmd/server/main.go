@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	commonauth "github.com/gayrat/marketplace/packages/go-common/auth"
@@ -34,7 +36,15 @@ func main() {
 	r := gin.New()
 	r.Use(gin.Recovery(), middleware.CORS(), middleware.SecurityHeaders(), middleware.MaxBodyBytes(0), middleware.Tenant(), middleware.Metrics(cfg.ServiceName))
 	middleware.MountMetrics(r)
-	r.GET("/health", func(c *gin.Context) { c.JSON(200, gin.H{"status": "ok"}) })
+	r.GET("/health", func(c *gin.Context) { c.JSON(200, gin.H{"status": "ok", "service": "analytics-service"}) })
+
+	// Public ingest (optional JWT) — storefront banners/products.
+	pub := r.Group("/v1/analytics", middleware.JWT(tokenMgr, true))
+	{
+		pub.POST("/events", func(c *gin.Context) {
+			ingestEvent(c, database, chURL)
+		})
+	}
 
 	v1 := r.Group("/v1/analytics", middleware.JWT(tokenMgr, false))
 	{
@@ -56,11 +66,19 @@ func main() {
 		v1.GET("/revenue-per-minute", middleware.RequireRoles(commonauth.RoleSuperAdmin, commonauth.RoleTenantAdmin, commonauth.RoleManager), func(c *gin.Context) {
 			revenuePerMinute(c, database)
 		})
-		v1.POST("/events", func(c *gin.Context) {
-			var body map[string]any
-			_ = c.ShouldBindJSON(&body)
-			_ = insertCH(chURL, body)
-			httpx.Created(c, gin.H{"ok": true})
+		v1.GET("/banners", middleware.RequireRoles(commonauth.RoleTenantAdmin, commonauth.RoleManager), func(c *gin.Context) {
+			bannerAnalytics(c, database)
+		})
+		v1.GET("/products", middleware.RequireRoles(commonauth.RoleTenantAdmin, commonauth.RoleManager), func(c *gin.Context) {
+			productAnalytics(c, database, "")
+		})
+		v1.GET("/vendor/products", middleware.RequireRoles(commonauth.RoleVendor, commonauth.RoleTenantAdmin), func(c *gin.Context) {
+			claims := middleware.GetClaims(c)
+			var vendorID string
+			if database != nil {
+				_ = database.Get(&vendorID, `SELECT id FROM vendors WHERE user_id=$1 LIMIT 1`, claims.UserID)
+			}
+			productAnalytics(c, database, vendorID)
 		})
 	}
 
@@ -82,6 +100,7 @@ func realtime(c *gin.Context, database *sqlx.DB, rdb *redis.Client) {
 	}
 	httpx.OK(c, gin.H{
 		"active_users": active, "orders_today": n, "revenue_minute": 0,
+		"active_carts": active, "orders_last_hour": n,
 		"currency": "UZS", "ts": time.Now(),
 	})
 }
@@ -135,9 +154,18 @@ func overview(c *gin.Context, database *sqlx.DB, chURL string) {
 	var vendors []topVendor
 	_ = database.Select(&vendors, `SELECT vendor_id, SUM(total_price) AS revenue FROM order_items WHERE tenant_id=$1 AND vendor_id IS NOT NULL GROUP BY vendor_id ORDER BY revenue DESC LIMIT 10`, tenantID)
 
+	var views, atc int
+	_ = database.Get(&views, `SELECT COUNT(*) FROM analytics_event_mirror WHERE tenant_id=$1 AND event_type IN ('product_view','product_impression')`, tenantID)
+	_ = database.Get(&atc, `SELECT COUNT(*) FROM analytics_event_mirror WHERE tenant_id=$1 AND event_type='add_to_cart'`, tenantID)
+	conversion := 0.0
+	if views > 0 {
+		conversion = float64(orders) / float64(views) * 100
+	}
+
 	httpx.OK(c, gin.H{
 		"revenue": revenue, "orders": orders, "customers": customers, "currency": "UZS",
-		"top_products": top, "top_vendors": vendors, "geo": geoRows, "conversion": 0.0,
+		"top_products": top, "top_vendors": vendors, "geo": geoRows,
+		"conversion": conversion, "product_views": views, "add_to_cart": atc,
 	})
 }
 
@@ -165,9 +193,33 @@ func vendorOverview(c *gin.Context, database *sqlx.DB) {
 	_ = database.Select(&top, `SELECT product_id, title, SUM(quantity) AS sold, SUM(total_price) AS revenue
 		FROM order_items WHERE vendor_id=$1 GROUP BY product_id, title ORDER BY sold DESC LIMIT 10`, vendorID)
 
+	var views, clicks, atc int
+	if vendorID != "" {
+		_ = database.Get(&views, `
+			SELECT COUNT(*) FROM analytics_event_mirror e
+			JOIN products p ON p.id::text = e.entity_id AND p.tenant_id = e.tenant_id
+			WHERE e.tenant_id=$1 AND p.vendor_id=$2 AND e.event_type IN ('product_view','product_impression')`,
+			middleware.GetTenantID(c), vendorID)
+		_ = database.Get(&clicks, `
+			SELECT COUNT(*) FROM analytics_event_mirror e
+			JOIN products p ON p.id::text = e.entity_id AND p.tenant_id = e.tenant_id
+			WHERE e.tenant_id=$1 AND p.vendor_id=$2 AND e.event_type='product_click'`,
+			middleware.GetTenantID(c), vendorID)
+		_ = database.Get(&atc, `
+			SELECT COUNT(*) FROM analytics_event_mirror e
+			JOIN products p ON p.id::text = e.entity_id AND p.tenant_id = e.tenant_id
+			WHERE e.tenant_id=$1 AND p.vendor_id=$2 AND e.event_type='add_to_cart'`,
+			middleware.GetTenantID(c), vendorID)
+	}
+	conversion := 0.0
+	if views > 0 {
+		conversion = float64(orders) / float64(views) * 100
+	}
+
 	httpx.OK(c, gin.H{
 		"sales": revenue + commission, "revenue": revenue, "commission": commission, "orders": orders, "currency": "UZS",
 		"top_products": top,
+		"product_views": views, "product_clicks": clicks, "add_to_cart": atc, "conversion": conversion,
 	})
 }
 
@@ -248,6 +300,9 @@ func revenuePerMinute(c *gin.Context, database *sqlx.DB) {
 }
 
 func insertCH(chURL string, body map[string]any) error {
+	if chURL == "" {
+		return nil
+	}
 	eventType, _ := body["event_type"].(string)
 	tenantID, _ := body["tenant_id"].(string)
 	userID, _ := body["user_id"].(string)
@@ -255,7 +310,6 @@ func insertCH(chURL string, body map[string]any) error {
 	region, _ := body["region"].(string)
 	amount, _ := body["amount"].(float64)
 	payload, _ := json.Marshal(body)
-	// Parameterized via HTTP body + query placeholders (ClickHouse HTTP protocol)
 	query := `INSERT INTO marketplace.events FORMAT JSONEachRow`
 	row, _ := json.Marshal(map[string]any{
 		"event_time": time.Now().UTC().Format("2006-01-02 15:04:05"),
@@ -266,7 +320,7 @@ func insertCH(chURL string, body map[string]any) error {
 		"amount":     amount,
 		"currency":   "UZS",
 		"region":     region,
-		"payload":    string(payload),
+		"metadata":   string(payload),
 	})
 	resp, err := http.Post(chURL+"/?query="+url.QueryEscape(query), "application/json", bytes.NewReader(row))
 	if err != nil {
@@ -275,6 +329,228 @@ func insertCH(chURL string, body map[string]any) error {
 	defer resp.Body.Close()
 	_, _ = io.ReadAll(resp.Body)
 	return nil
+}
+
+var allowedEventTypes = map[string]struct{}{
+	"banner_impression":  {},
+	"banner_click":       {},
+	"product_impression": {},
+	"product_click":      {},
+	"product_view":       {},
+	"add_to_cart":        {},
+	"wishlist_add":       {},
+}
+
+type eventBody struct {
+	EventType string         `json:"event_type"`
+	EntityID  string         `json:"entity_id"`
+	SessionID string         `json:"session_id"`
+	Payload   map[string]any `json:"payload"`
+}
+
+func ingestEvent(c *gin.Context, database *sqlx.DB, chURL string) {
+	var body eventBody
+	if err := c.ShouldBindJSON(&body); err != nil {
+		httpx.BadRequest(c, "invalid body")
+		return
+	}
+	body.EventType = strings.TrimSpace(body.EventType)
+	body.EntityID = strings.TrimSpace(body.EntityID)
+	if body.EventType == "" || body.EntityID == "" {
+		httpx.BadRequest(c, "event_type and entity_id required")
+		return
+	}
+	if _, ok := allowedEventTypes[body.EventType]; !ok {
+		httpx.BadRequest(c, "unsupported event_type")
+		return
+	}
+	tenantID := middleware.GetTenantID(c)
+	if tenantID == "" {
+		httpx.BadRequest(c, "tenant required")
+		return
+	}
+	userID := ""
+	if claims := middleware.GetClaims(c); claims != nil {
+		userID = claims.UserID
+	}
+	if body.Payload == nil {
+		body.Payload = map[string]any{}
+	}
+	payloadJSON, _ := json.Marshal(body.Payload)
+
+	if database != nil {
+		var uid any
+		if userID != "" {
+			uid = userID
+		}
+		_, _ = database.Exec(`
+			INSERT INTO analytics_event_mirror (tenant_id, event_type, entity_id, user_id, session_id, payload)
+			VALUES ($1,$2,$3,$4,$5,$6)`,
+			tenantID, body.EventType, body.EntityID, uid, nullIfEmpty(body.SessionID), payloadJSON)
+	}
+
+	_ = insertCH(chURL, map[string]any{
+		"event_type": body.EventType,
+		"tenant_id":  tenantID,
+		"user_id":    userID,
+		"entity_id":  body.EntityID,
+		"session_id": body.SessionID,
+		"payload":    body.Payload,
+	})
+	httpx.Created(c, gin.H{"ok": true})
+}
+
+func nullIfEmpty(s string) any {
+	if strings.TrimSpace(s) == "" {
+		return nil
+	}
+	return s
+}
+
+func daysWindow(c *gin.Context) int {
+	d, _ := strconv.Atoi(c.DefaultQuery("days", "30"))
+	if d < 1 {
+		d = 1
+	}
+	if d > 90 {
+		d = 90
+	}
+	return d
+}
+
+func bannerAnalytics(c *gin.Context, database *sqlx.DB) {
+	tenantID := middleware.GetTenantID(c)
+	days := daysWindow(c)
+	type row struct {
+		BannerID    string  `db:"banner_id" json:"banner_id"`
+		Kind        string  `db:"kind" json:"kind"`
+		ImageURL    string  `db:"image_url" json:"image_url"`
+		Link        string  `db:"link" json:"link"`
+		Active      bool    `db:"active" json:"active"`
+		Impressions int     `db:"impressions" json:"impressions"`
+		Clicks      int     `db:"clicks" json:"clicks"`
+		CTR         float64 `db:"ctr" json:"ctr"`
+	}
+	items := []row{}
+	if database != nil {
+		_ = database.Select(&items, `
+			SELECT b.id AS banner_id,
+				COALESCE(b.kind,'hero') AS kind,
+				COALESCE(b.image_url,'') AS image_url,
+				COALESCE(b.cta_href,'') AS link,
+				COALESCE(b.active,true) AS active,
+				COALESCE(SUM(CASE WHEN e.event_type='banner_impression' THEN 1 ELSE 0 END),0)::int AS impressions,
+				COALESCE(SUM(CASE WHEN e.event_type='banner_click' THEN 1 ELSE 0 END),0)::int AS clicks,
+				CASE WHEN COALESCE(SUM(CASE WHEN e.event_type='banner_impression' THEN 1 ELSE 0 END),0)=0 THEN 0
+					ELSE ROUND(
+						COALESCE(SUM(CASE WHEN e.event_type='banner_click' THEN 1 ELSE 0 END),0)::numeric
+						/ NULLIF(SUM(CASE WHEN e.event_type='banner_impression' THEN 1 ELSE 0 END),0) * 100, 2
+					)::float8 END AS ctr
+			FROM hero_banners b
+			LEFT JOIN analytics_event_mirror e
+				ON e.tenant_id = b.tenant_id
+				AND e.entity_id = b.id::text
+				AND e.event_type IN ('banner_impression','banner_click')
+				AND e.created_at >= NOW() - make_interval(days => $2::int)
+			WHERE b.tenant_id=$1
+			GROUP BY b.id, b.kind, b.image_url, b.cta_href, b.active, b.sort_order
+			ORDER BY impressions DESC, b.sort_order ASC`, tenantID, days)
+	}
+
+	var totalImp, totalClick int
+	for _, it := range items {
+		totalImp += it.Impressions
+		totalClick += it.Clicks
+	}
+	ctr := 0.0
+	if totalImp > 0 {
+		ctr = float64(totalClick) / float64(totalImp) * 100
+	}
+	httpx.OK(c, gin.H{
+		"items": items, "days": days,
+		"totals": gin.H{"impressions": totalImp, "clicks": totalClick, "ctr": ctr},
+	})
+}
+
+func productAnalytics(c *gin.Context, database *sqlx.DB, vendorID string) {
+	tenantID := middleware.GetTenantID(c)
+	days := daysWindow(c)
+	type row struct {
+		ProductID   string  `db:"product_id" json:"product_id"`
+		Title       string  `db:"title" json:"title"`
+		Slug        string  `db:"slug" json:"slug"`
+		Impressions int     `db:"impressions" json:"impressions"`
+		Clicks      int     `db:"clicks" json:"clicks"`
+		Views       int     `db:"views" json:"views"`
+		AddToCart   int     `db:"add_to_cart" json:"add_to_cart"`
+		Sold        int     `db:"sold" json:"sold"`
+		Revenue     float64 `db:"revenue" json:"revenue"`
+		CTR         float64 `db:"ctr" json:"ctr"`
+		Conversion  float64 `db:"conversion" json:"conversion"`
+	}
+	items := []row{}
+	if database == nil {
+		httpx.OK(c, gin.H{"items": items, "days": days})
+		return
+	}
+
+	vendorFilter := ""
+	args := []any{tenantID, days}
+	if vendorID != "" {
+		vendorFilter = ` AND p.vendor_id=$3`
+		args = append(args, vendorID)
+	}
+
+	q := `
+		SELECT p.id AS product_id,
+			COALESCE(p.translations->'uz'->>'name', p.slug) AS title,
+			p.slug,
+			COALESCE(SUM(CASE WHEN e.event_type='product_impression' THEN 1 ELSE 0 END),0)::int AS impressions,
+			COALESCE(SUM(CASE WHEN e.event_type='product_click' THEN 1 ELSE 0 END),0)::int AS clicks,
+			COALESCE(SUM(CASE WHEN e.event_type='product_view' THEN 1 ELSE 0 END),0)::int AS views,
+			COALESCE(SUM(CASE WHEN e.event_type='add_to_cart' THEN 1 ELSE 0 END),0)::int AS add_to_cart,
+			COALESCE((
+				SELECT SUM(oi.quantity) FROM order_items oi
+				WHERE oi.product_id=p.id AND oi.tenant_id=p.tenant_id
+			),0)::int AS sold,
+			COALESCE((
+				SELECT SUM(oi.total_price) FROM order_items oi
+				WHERE oi.product_id=p.id AND oi.tenant_id=p.tenant_id
+			),0)::float8 AS revenue,
+			CASE WHEN COALESCE(SUM(CASE WHEN e.event_type='product_impression' THEN 1 ELSE 0 END),0)=0 THEN 0
+				ELSE ROUND(
+					COALESCE(SUM(CASE WHEN e.event_type='product_click' THEN 1 ELSE 0 END),0)::numeric
+					/ NULLIF(SUM(CASE WHEN e.event_type='product_impression' THEN 1 ELSE 0 END),0) * 100, 2
+				)::float8 END AS ctr,
+			CASE WHEN COALESCE(SUM(CASE WHEN e.event_type IN ('product_view','product_impression') THEN 1 ELSE 0 END),0)=0 THEN 0
+				ELSE ROUND(
+					COALESCE(SUM(CASE WHEN e.event_type='add_to_cart' THEN 1 ELSE 0 END),0)::numeric
+					/ NULLIF(SUM(CASE WHEN e.event_type IN ('product_view','product_impression') THEN 1 ELSE 0 END),0) * 100, 2
+				)::float8 END AS conversion
+		FROM products p
+		LEFT JOIN analytics_event_mirror e
+			ON e.tenant_id = p.tenant_id
+			AND e.entity_id = p.id::text
+			AND e.event_type IN ('product_impression','product_click','product_view','add_to_cart')
+			AND e.created_at >= NOW() - make_interval(days => $2::int)
+		WHERE p.tenant_id=$1` + vendorFilter + `
+		GROUP BY p.id, p.translations, p.slug
+		HAVING COALESCE(SUM(CASE WHEN e.event_type IN ('product_impression','product_click','product_view','add_to_cart') THEN 1 ELSE 0 END),0) > 0
+			OR EXISTS (SELECT 1 FROM order_items oi WHERE oi.product_id=p.id AND oi.tenant_id=p.tenant_id)
+		ORDER BY views DESC, impressions DESC, sold DESC
+		LIMIT 50`
+	_ = database.Select(&items, q, args...)
+
+	var totViews, totATC, totSold int
+	for _, it := range items {
+		totViews += it.Views + it.Impressions
+		totATC += it.AddToCart
+		totSold += it.Sold
+	}
+	httpx.OK(c, gin.H{
+		"items": items, "days": days,
+		"totals": gin.H{"views": totViews, "add_to_cart": totATC, "sold": totSold},
+	})
 }
 
 func mustJSON(v any) string {

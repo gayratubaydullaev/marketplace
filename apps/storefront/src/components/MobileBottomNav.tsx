@@ -2,55 +2,82 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useState } from "react";
 import { useTranslations } from "next-intl";
 import { useCart } from "@/lib/cart";
+import { CatalogSheet } from "@/components/CatalogSheet";
 
 export function MobileBottomNav({ locale }: { locale: string }) {
   const t = useTranslations("nav");
   const pathname = usePathname();
   const count = useCart((s) => s.items.reduce((a, i) => a + i.quantity, 0));
+  const [catalogOpen, setCatalogOpen] = useState(false);
 
   const tabs = [
     { href: `/${locale}`, label: t("home"), match: (p: string) => p === `/${locale}` || p === `/${locale}/`, icon: HomeIcon },
-    { href: `/${locale}/products`, label: t("catalog"), match: (p: string) => p.includes("/products") || p.includes("/categories"), icon: GridIcon },
+    { href: "catalog", label: t("catalog"), match: (p: string) => p.includes("/products") || p.includes("/categories"), icon: GridIcon, catalog: true },
     { href: `/${locale}/search`, label: t("search"), match: (p: string) => p.includes("/search"), icon: SearchIcon },
     { href: `/${locale}/cart`, label: t("cart"), match: (p: string) => p.includes("/cart") || p.includes("/checkout"), icon: CartIcon, badge: count },
     { href: `/${locale}/account`, label: t("account"), match: (p: string) => p.includes("/account") || p.includes("/orders"), icon: UserIcon },
-  ];
+  ] as const;
 
   return (
-    <nav
-      className="fixed inset-x-0 bottom-0 z-[70] border-t border-teal/15 bg-paper/95 backdrop-blur-md md:hidden"
-      style={{ paddingBottom: "max(0.35rem, env(safe-area-inset-bottom))" }}
-      aria-label="Mobile"
-    >
-      <ul className="mx-auto grid h-[var(--bottom-nav-h)] max-w-lg grid-cols-5 gap-0 px-1">
-        {tabs.map((tab) => {
-          const active = tab.match(pathname);
-          const Icon = tab.icon;
-          return (
-            <li key={tab.href} className="flex">
-              <Link
-                href={tab.href}
-                className={`relative flex min-h-0 w-full flex-col items-center justify-center gap-0.5 rounded-xl px-1 py-1 text-[10px] font-semibold ${
-                  active ? "text-teal" : "text-night/45"
-                }`}
-              >
-                <span className="relative">
-                  <Icon active={active} />
-                  {tab.badge ? (
-                    <span className="absolute -end-2 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-saffron px-0.5 text-[9px] font-bold text-night">
-                      {tab.badge > 9 ? "9+" : tab.badge}
+    <>
+      <nav
+        className="fixed inset-x-0 bottom-0 z-[70] border-t border-teal/15 bg-paper md:hidden"
+        style={{ paddingBottom: "max(0.35rem, env(safe-area-inset-bottom))" }}
+        aria-label="Mobile"
+      >
+        <ul className="mx-auto grid h-[var(--bottom-nav-h)] max-w-lg grid-cols-5 gap-0 px-1">
+          {tabs.map((tab) => {
+            const active = catalogOpen && "catalog" in tab && tab.catalog ? true : tab.match(pathname);
+            const Icon = tab.icon;
+            if ("catalog" in tab && tab.catalog) {
+              return (
+                <li key="catalog" className="flex">
+                  <button
+                    type="button"
+                    onClick={() => setCatalogOpen(true)}
+                    className={`relative flex min-h-0 w-full flex-col items-center justify-center gap-0.5 rounded-xl px-1 py-1 text-[10px] font-semibold ${
+                      active ? "text-teal" : "text-night/45"
+                    }`}
+                    aria-expanded={catalogOpen}
+                    aria-haspopup="dialog"
+                  >
+                    <span className="relative">
+                      <Icon active={active} />
                     </span>
-                  ) : null}
-                </span>
-                <span className="max-w-full truncate">{tab.label}</span>
-              </Link>
-            </li>
-          );
-        })}
-      </ul>
-    </nav>
+                    <span className="max-w-full truncate">{tab.label}</span>
+                  </button>
+                </li>
+              );
+            }
+            return (
+              <li key={tab.href} className="flex">
+                <Link
+                  href={tab.href}
+                  className={`relative flex min-h-0 w-full flex-col items-center justify-center gap-0.5 rounded-xl px-1 py-1 text-[10px] font-semibold ${
+                    active ? "text-teal" : "text-night/45"
+                  }`}
+                >
+                  <span className="relative">
+                    <Icon active={active} />
+                    {"badge" in tab && tab.badge ? (
+                      <span className="absolute -end-2 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-saffron px-0.5 text-[9px] font-bold text-night">
+                        {tab.badge > 9 ? "9+" : tab.badge}
+                      </span>
+                    ) : null}
+                  </span>
+                  <span className="max-w-full truncate">{tab.label}</span>
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      </nav>
+
+      <CatalogSheet locale={locale} open={catalogOpen} onClose={() => setCatalogOpen(false)} />
+    </>
   );
 }
 

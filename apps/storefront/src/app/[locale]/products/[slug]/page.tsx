@@ -2,6 +2,7 @@ import Link from "next/link";
 import { setRequestLocale, getTranslations } from "next-intl/server";
 import type { Metadata } from "next";
 import { api, productName, type Product, type Variant } from "@/lib/api";
+import { rewriteMediaUrls } from "@/lib/media";
 import { ProductReviews } from "@/components/ProductReviews";
 import { ProductDetail } from "@/components/ProductDetail";
 import { ProductGrid } from "@/components/ProductGrid";
@@ -19,10 +20,12 @@ export async function generateMetadata({
       data.product.translations?.[locale]?.description ||
       data.product.translations?.uz?.description ||
       "";
-    const images = Array.isArray(data.product.images)
-      ? data.product.images.filter((x): x is string => typeof x === "string")
-      : [];
-    return {
+    const images = rewriteMediaUrls(
+      Array.isArray(data.product.images)
+        ? data.product.images.filter((x): x is string => typeof x === "string")
+        : [],
+      { fallbackKey: data.product.id || slug }
+    );    return {
       title: `${name} | Gayrat Market`,
       description: desc.slice(0, 160),
       openGraph: {

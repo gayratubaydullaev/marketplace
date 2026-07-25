@@ -351,6 +351,27 @@ func (BankTransferProvider) VerifyWebhook([]byte, string) (string, string, error
 	return "", "", fmt.Errorf("bank transfer requires manual confirmation")
 }
 
+// Cash / card collected when the order is handed to the customer.
+type CashOnDeliveryProvider struct{}
+
+func (CashOnDeliveryProvider) Name() string { return "cash_on_delivery" }
+func (CashOnDeliveryProvider) CreateIntent(float64, string, string) (string, string, error) {
+	return "cod_cash_" + uuid.NewString()[:8], "", nil
+}
+func (CashOnDeliveryProvider) VerifyWebhook([]byte, string) (string, string, error) {
+	return "", "", fmt.Errorf("cash on delivery is confirmed by vendor/admin at handoff")
+}
+
+type CardOnDeliveryProvider struct{}
+
+func (CardOnDeliveryProvider) Name() string { return "card_on_delivery" }
+func (CardOnDeliveryProvider) CreateIntent(float64, string, string) (string, string, error) {
+	return "cod_card_" + uuid.NewString()[:8], "", nil
+}
+func (CardOnDeliveryProvider) VerifyWebhook([]byte, string) (string, string, error) {
+	return "", "", fmt.Errorf("card on delivery is confirmed by vendor/admin at handoff")
+}
+
 func firstSet(values ...string) string {
 	for _, value := range values {
 		if value != "" {

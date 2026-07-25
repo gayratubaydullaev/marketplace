@@ -12,43 +12,46 @@ type Banner = {
   id: string;
   kind?: BannerKind | string;
   image_url: string;
-  headline?: string;
-  sub?: string;
-  cta_label?: string;
   cta_href?: string;
-  cta2_label?: string;
-  cta2_href?: string;
   sort_order?: number;
   active?: boolean;
-  show_brand?: boolean;
+  interval_sec?: number;
+  starts_at?: string | null;
+  ends_at?: string | null;
 };
 
 type FormState = {
   kind: BannerKind;
   image_url: string;
-  headline: string;
-  sub: string;
-  cta_label: string;
   cta_href: string;
-  cta2_label: string;
-  cta2_href: string;
   sort_order: number;
   active: boolean;
-  show_brand: boolean;
+  interval_sec: number;
+  starts_at: string;
+  ends_at: string;
 };
+
+function toLocalInput(iso?: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function fromLocalInput(value: string): string {
+  return value.trim();
+}
 
 const emptyForm = (kind: BannerKind = "hero"): FormState => ({
   kind,
   image_url: "",
-  headline: "",
-  sub: "",
-  cta_label: "",
   cta_href: "",
-  cta2_label: "",
-  cta2_href: "",
   sort_order: 0,
   active: true,
-  show_brand: kind === "hero",
+  interval_sec: 6,
+  starts_at: "",
+  ends_at: "",
 });
 
 export default function BannersPage() {
@@ -84,6 +87,26 @@ export default function BannersPage() {
     setForm((f) => ({ ...f, [key]: value }));
   }
 
+  function payloadFromForm() {
+    return {
+      kind: form.kind || tab,
+      image_url: form.image_url.trim(),
+      cta_href: form.cta_href.trim(),
+      // Image-only banners — clear legacy text/button fields
+      headline: "",
+      sub: "",
+      cta_label: "",
+      cta2_label: "",
+      cta2_href: "",
+      show_brand: false,
+      sort_order: form.sort_order,
+      active: form.active,
+      interval_sec: form.interval_sec,
+      starts_at: fromLocalInput(form.starts_at) || "",
+      ends_at: fromLocalInput(form.ends_at) || "",
+    };
+  }
+
   async function uploadImage(file: File) {
     setUploading(true);
     setMsg("");
@@ -95,7 +118,7 @@ export default function BannersPage() {
         body,
       });
       patch("image_url", uploaded.variants?.webp || uploaded.url);
-      setOk("Image uploaded");
+      setOk(t("bannersUploaded"));
     } catch (e) {
       setMsg(errMsg(e));
     } finally {
@@ -106,15 +129,15 @@ export default function BannersPage() {
   async function create() {
     setMsg("");
     if (!form.image_url.trim()) {
-      setMsg("Image is required");
+      setMsg(t("bannersImageRequired"));
       return;
     }
     await api("/v1/admin/hero-banners", {
       method: "POST",
-      body: JSON.stringify({ ...form, kind: form.kind || tab }),
+      body: JSON.stringify(payloadFromForm()),
     });
     setForm(emptyForm(tab));
-    setOk("Banner created");
+    setOk(t("bannersCreated"));
     await load();
   }
 
@@ -123,11 +146,11 @@ export default function BannersPage() {
     setMsg("");
     await api(`/v1/admin/hero-banners/${editId}`, {
       method: "PUT",
-      body: JSON.stringify(form),
+      body: JSON.stringify(payloadFromForm()),
     });
     setEditId(null);
     setForm(emptyForm(tab));
-    setOk("Banner updated");
+    setOk(t("bannersUpdated"));
     await load();
   }
 
@@ -138,22 +161,19 @@ export default function BannersPage() {
     setForm({
       kind,
       image_url: b.image_url || "",
-      headline: b.headline || "",
-      sub: b.sub || "",
-      cta_label: b.cta_label || "",
       cta_href: b.cta_href || "",
-      cta2_label: b.cta2_label || "",
-      cta2_href: b.cta2_href || "",
       sort_order: b.sort_order || 0,
       active: b.active !== false,
-      show_brand: b.show_brand !== false,
+      interval_sec: b.interval_sec && b.interval_sec > 0 ? b.interval_sec : 6,
+      starts_at: toLocalInput(b.starts_at),
+      ends_at: toLocalInput(b.ends_at),
     });
   }
 
   async function remove(id: string) {
-    if (!confirm("Delete this banner?")) return;
+    if (!confirm(t("bannersDeleteConfirm"))) return;
     await api(`/v1/admin/hero-banners/${id}`, { method: "DELETE" });
-    setOk("Deleted");
+    setOk(t("bannersDeleted"));
     if (editId === id) {
       setEditId(null);
       setForm(emptyForm(tab));
@@ -195,6 +215,7 @@ export default function BannersPage() {
           {t("bannersPromo")}
         </button>
       </div>
+
       <div className="md:col-span-2 space-y-2">
         <label className="block text-sm font-medium">
           {t("bannersPhoto")}
@@ -210,75 +231,88 @@ export default function BannersPage() {
           />
         </label>
         <Input
-          placeholder="Or paste image URL"
+          placeholder={t("bannersImageUrl")}
           value={form.image_url}
           onChange={(e: ChangeEvent<HTMLInputElement>) => patch("image_url", e.target.value)}
         />
         {form.image_url ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={form.image_url} alt="" className="h-28 w-full max-w-md rounded-xl object-cover" />
+          <img
+            src={form.image_url}
+            alt=""
+            className="aspect-[3/2] w-full max-w-md rounded-xl bg-slate-900 object-cover"
+          />
         ) : null}
       </div>
-      {!isPromo ? (
-        <label className="flex items-center gap-2 text-sm md:col-span-2">
-          <input
-            type="checkbox"
-            checked={form.show_brand}
-            onChange={(e) => patch("show_brand", e.target.checked)}
+
+      <div className="md:col-span-2">
+        <label className="block text-sm font-medium">
+          {t("bannersLink")}
+          <Input
+            className="mt-1"
+            placeholder={t("bannersLinkHint")}
+            value={form.cta_href}
+            onChange={(e: ChangeEvent<HTMLInputElement>) => patch("cta_href", e.target.value)}
           />
-          {t("bannersShowBrand")}
         </label>
-      ) : null}
-      <Input
-        placeholder={isPromo ? "Title (optional)" : "Headline (optional)"}
-        value={form.headline}
-        onChange={(e: ChangeEvent<HTMLInputElement>) => patch("headline", e.target.value)}
-      />
-      <Input
-        placeholder="Sort order"
-        type="number"
-        value={form.sort_order}
-        onChange={(e: ChangeEvent<HTMLInputElement>) => patch("sort_order", Number(e.target.value))}
-      />
-      <textarea
-        className="min-h-[72px] rounded border px-3 py-2 text-sm md:col-span-2"
-        placeholder="Subtitle (optional — leave empty for photo only)"
-        value={form.sub}
-        onChange={(e) => patch("sub", e.target.value)}
-      />
-      <Input
-        placeholder={isPromo ? "Button label (optional)" : "Button 1 label (optional)"}
-        value={form.cta_label}
-        onChange={(e: ChangeEvent<HTMLInputElement>) => patch("cta_label", e.target.value)}
-      />
-      <Input
-        placeholder="Button link e.g. /products"
-        value={form.cta_href}
-        onChange={(e: ChangeEvent<HTMLInputElement>) => patch("cta_href", e.target.value)}
-      />
-      {!isPromo ? (
-        <>
-          <Input
-            placeholder="Button 2 label (optional)"
-            value={form.cta2_label}
-            onChange={(e: ChangeEvent<HTMLInputElement>) => patch("cta2_label", e.target.value)}
-          />
-          <Input
-            placeholder="Button 2 link"
-            value={form.cta2_href}
-            onChange={(e: ChangeEvent<HTMLInputElement>) => patch("cta2_href", e.target.value)}
-          />
-        </>
-      ) : null}
-      <label className="flex items-center gap-2 text-sm">
-        <input type="checkbox" checked={form.active} onChange={(e) => patch("active", e.target.checked)} />
-        Active
+        <p className="mt-1 text-xs text-slate-500">{t("bannersLinkHelp")}</p>
+      </div>
+
+      <label className="block text-sm font-medium">
+        {t("bannersInterval")}
+        <Input
+          className="mt-1"
+          type="number"
+          min={2}
+          max={120}
+          value={form.interval_sec}
+          onChange={(e: ChangeEvent<HTMLInputElement>) =>
+            patch("interval_sec", Math.max(2, Math.min(120, Number(e.target.value) || 6)))
+          }
+        />
+        <span className="mt-1 block text-xs text-slate-500">{t("bannersIntervalHelp")}</span>
       </label>
+
+      <label className="block text-sm font-medium">
+        {t("bannersSort")}
+        <Input
+          className="mt-1"
+          type="number"
+          value={form.sort_order}
+          onChange={(e: ChangeEvent<HTMLInputElement>) => patch("sort_order", Number(e.target.value))}
+        />
+      </label>
+
+      <label className="block text-sm font-medium">
+        {t("bannersStarts")}
+        <input
+          type="datetime-local"
+          className="mt-1 w-full rounded border px-3 py-2 text-sm"
+          value={form.starts_at}
+          onChange={(e) => patch("starts_at", e.target.value)}
+        />
+      </label>
+
+      <label className="block text-sm font-medium">
+        {t("bannersEnds")}
+        <input
+          type="datetime-local"
+          className="mt-1 w-full rounded border px-3 py-2 text-sm"
+          value={form.ends_at}
+          onChange={(e) => patch("ends_at", e.target.value)}
+        />
+        <span className="mt-1 block text-xs text-slate-500">{t("bannersScheduleHelp")}</span>
+      </label>
+
+      <label className="flex items-center gap-2 text-sm md:col-span-2">
+        <input type="checkbox" checked={form.active} onChange={(e) => patch("active", e.target.checked)} />
+        {t("bannersActive")}
+      </label>
+
       <p className="text-xs text-slate-500 md:col-span-2">
-        {isPromo
-          ? "Promo banner appears below categories. Leave text/button empty for image-only ad."
-          : "Hero slides replace the default homepage carousel once at least one active hero exists."}
+        {isPromo ? t("bannersPromoHint") : t("bannersHeroHint")}
       </p>
+
       <div className="flex flex-wrap gap-2 md:col-span-2">
         {editId ? (
           <>
@@ -338,23 +372,27 @@ export default function BannersPage() {
                   <img
                     src={b.image_url}
                     alt=""
-                    className="h-28 w-full shrink-0 rounded-lg object-cover sm:h-auto sm:w-44"
+                    className="aspect-[3/2] w-full shrink-0 rounded-lg bg-slate-900 object-cover sm:w-56"
                   />
                   <div className="min-w-0 flex-1 space-y-1.5 px-1 py-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <StatusBadge status={b.active ? "active" : "draft"} />
                       <span className="text-xs text-slate-400">{b.kind || "hero"}</span>
-                      <span className="text-xs text-slate-400">order {b.sort_order ?? 0}</span>
+                      <span className="text-xs text-slate-400">#{b.sort_order ?? 0}</span>
+                      <span className="text-xs text-slate-400">
+                        {b.interval_sec || 6}s
+                      </span>
                     </div>
-                    <p className="font-semibold text-slate-900">
-                      {b.headline || (b.sub ? "—" : "Photo only")}
+                    <p className="truncate text-sm font-semibold text-slate-900">
+                      {b.cta_href || t("bannersNoLink")}
                     </p>
-                    {b.sub ? <p className="line-clamp-2 text-sm text-slate-600">{b.sub}</p> : null}
-                    <p className="text-xs text-slate-500">
-                      {[b.cta_label && `Btn: ${b.cta_label}`, b.cta2_label && `Btn2: ${b.cta2_label}`]
-                        .filter(Boolean)
-                        .join(" · ") || "No buttons"}
-                    </p>
+                    {(b.starts_at || b.ends_at) && (
+                      <p className="text-xs text-slate-500">
+                        {b.starts_at ? toLocalInput(b.starts_at).replace("T", " ") : "…"}
+                        {" → "}
+                        {b.ends_at ? toLocalInput(b.ends_at).replace("T", " ") : "…"}
+                      </p>
+                    )}
                     <div className="flex flex-wrap gap-2 pt-1">
                       <button type="button" className="text-xs font-semibold text-teal" onClick={() => startEdit(b)}>
                         {t("commonEdit")}

@@ -4,9 +4,12 @@ import Link from "next/link";
 import { useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { formatUZS, type Locale } from "@gayrat/i18n";
+import { api, variantImageList, type Product, type Variant } from "@/lib/api";
 import { useWishlist } from "@/lib/wishlist";
 import { useCart } from "@/lib/cart";
+import { rewriteMediaUrl } from "@/lib/media";
 import { EmptyState, PageHeader } from "@/components/PageChrome";
+import { VariantSelectModal } from "@/components/VariantSelectModal";
 
 export default function WishlistPage() {
   const locale = useLocale();
@@ -15,6 +18,81 @@ export default function WishlistPage() {
   const { items, remove } = useWishlist();
   const add = useCart((s) => s.add);
   const [addedId, setAddedId] = useState<string | null>(null);
+  const [loadingId, setLoadingId] = useState<string | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalProduct, setModalProduct] = useState<Product | null>(null);
+  const [modalVariants, setModalVariants] = useState<Variant[]>([]);
+  const [modalName, setModalName] = useState("");
+  const [modalImages, setModalImages] = useState<string[]>([]);
+
+  function flashAdded(id: string) {
+    setAddedId(id);
+    window.setTimeout(() => setAddedId(null), 1400);
+  }
+
+  async function onAdd(item: (typeof items)[number]) {
+    if (loadingId) return;
+    setLoadingId(item.id);
+    try {
+      const data = await api<{ product?: Product; variants?: Variant[] }>(
+        `/v1/products/${item.slug}`
+      );
+      const list = data.variants || [];
+      if (list.length > 0) {
+        const product: Product = data.product || {
+          id: item.id,
+          slug: item.slug,
+          translations: {},
+          price: item.price,
+          currency: "UZS",
+          images: item.image ? [item.image] : [],
+        };
+        setModalProduct(product);
+        setModalVariants(list);
+        setModalName(item.title);
+        setModalImages(
+          Array.isArray(product.images)
+            ? product.images.filter((x): x is string => typeof x === "string")
+            : item.image
+              ? [item.image]
+              : []
+        );
+        setModalOpen(true);
+        return;
+      }
+      add({
+        product_id: item.id,
+        title: item.title,
+        unit_price: item.price,
+        quantity: 1,
+        slug: item.slug,
+        image: item.image,
+      });
+      flashAdded(item.id);
+    } catch {
+      // keep cart clean if we cannot resolve variants
+    } finally {
+      setLoadingId(null);
+    }
+  }
+
+  function onModalConfirm(variantId: string) {
+    if (!modalProduct) return;
+    const variant = modalVariants.find((v) => v.id === variantId);
+    if (!variant) return;
+    setModalOpen(false);
+    add({
+      product_id: modalProduct.id,
+      variant_id: variant.id,
+      vendor_id: modalProduct.vendor_id || undefined,
+      title: `${modalName} — ${variant.title || variant.sku || ""}`,
+      unit_price: variant.price ?? modalProduct.price,
+      quantity: 1,
+      slug: modalProduct.slug,
+      image: variantImageList(variant)[0] || modalImages[0],
+    });
+    flashAdded(modalProduct.id);
+  }
 
   if (items.length === 0) {
     return (
@@ -38,7 +116,11 @@ export default function WishlistPage() {
                 <div className="aspect-[3/4]">
                   {item.image ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={item.image} alt="" className="h-full w-full object-cover" />
+                    <img
+                      src={rewriteMediaUrl(item.image, { fallbackKey: item.id })}
+                      alt=""
+                      className="h-full w-full object-cover"
+                    />
                   ) : (
                     <div className="flex h-full items-end p-4 text-3xl font-bold text-night/15">
                       {item.title.slice(0, 1)}
@@ -63,27 +145,31 @@ export default function WishlistPage() {
             </Link>
             <button
               type="button"
-              className={`mt-2 w-full rounded-xl py-2 text-sm font-bold transition ${
+              disabled={loadingId === item.id}
+              className={`mt-2 w-full rounded-xl py-2 text-sm font-bold transition disabled:opacity-60 ${
                 addedId === item.id ? "bg-teal text-paper" : "bg-accent text-night hover:bg-accent-hover"
               }`}
-              onClick={() => {
-                add({
-                  product_id: item.id,
-                  title: item.title,
-                  unit_price: item.price,
-                  quantity: 1,
-                  slug: item.slug,
-                  image: item.image,
-                });
-                setAddedId(item.id);
-                window.setTimeout(() => setAddedId(null), 1400);
-              }}
+              onClick={() => onAdd(item)}
             >
-              {addedId === item.id ? tp("addedToCart") : t("addToCart")}
+              {addedId === item.id ? tp("addedToCart") : loadingId === item.id ? "…" : t("addToCart")}
             </button>
           </article>
         ))}
       </div>
+
+      {modalProduct ? (
+        <VariantSelectModal
+          open={modalOpen}
+          onClose={() => setModalOpen(false)}
+          product={modalProduct}
+          variants={modalVariants}
+          locale={locale}
+          name={modalName}
+          productImages={modalImages}
+          intent="add"
+          onConfirm={onModalConfirm}
+        />
+      ) : null}
     </div>
   );
 }

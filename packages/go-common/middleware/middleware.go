@@ -159,6 +159,11 @@ func JWT(manager *auth.Manager, optional bool) gin.HandlerFunc {
 		}
 		claims, err := manager.Parse(parts[1])
 		if err != nil {
+			if optional {
+				// Stale Authorization header must not block public/optional routes.
+				c.Next()
+				return
+			}
 			httpx.Unauthorized(c, "invalid or expired token")
 			return
 		}

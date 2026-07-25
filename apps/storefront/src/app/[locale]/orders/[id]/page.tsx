@@ -250,7 +250,7 @@ export default function OrderDetailPage() {
         <p className="text-night/70">{t("loadError")}</p>
         <p className="mt-2 text-xs break-all text-night/40">{error}</p>
         <Link
-          href={`/${locale}/orders`}
+          href={`/${locale}/account?tab=orders`}
           className="mt-6 inline-block rounded-xl bg-accent px-5 py-2.5 text-sm font-bold text-night"
         >
           {t("title")}
@@ -270,7 +270,7 @@ export default function OrderDetailPage() {
 
   return (
     <div className="mx-auto max-w-2xl animate-rise pb-[calc(var(--bottom-nav-h,0px)+1.5rem)] md:pb-0">
-      <Link href={`/${locale}/orders`} className="text-sm font-medium text-muted hover:text-teal">
+      <Link href={`/${locale}/account?tab=orders`} className="text-sm font-medium text-muted hover:text-teal">
         ← {t("title")}
       </Link>
 

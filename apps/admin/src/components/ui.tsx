@@ -58,17 +58,17 @@ export function EmptyState({ text }: { text: string }) {
   );
 }
 
-export function StatusBadge({ status }: { status?: string }) {
+export function StatusBadge({ status, label }: { status?: string; label?: string }) {
   const s = (status || "—").toLowerCase();
   const tone =
     s.includes("active") || s.includes("paid") || s.includes("approved") || s.includes("delivered") || s.includes("completed")
       ? "bg-emerald-50 text-emerald-700"
-      : s.includes("pending") || s.includes("processing") || s.includes("draft")
+      : s.includes("pending") || s.includes("processing") || s.includes("draft") || s.includes("unpaid")
         ? "bg-amber-50 text-amber-700"
         : s.includes("cancel") || s.includes("reject") || s.includes("suspend") || s.includes("fail")
           ? "bg-rose-50 text-rose-700"
           : "bg-slate-100 text-slate-600";
-  return <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${tone}`}>{status || "—"}</span>;
+  return <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${tone}`}>{label || status || "—"}</span>;
 }
 
 export function CountPill({ value, alert }: { value: number; alert?: boolean }) {

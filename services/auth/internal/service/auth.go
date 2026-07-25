@@ -503,8 +503,26 @@ func (s *AuthService) issueTokens(u *model.User) (*commonauth.TokenPair, error) 
 	return s.issueTokensWithFingerprint(u, "")
 }
 
+func (s *AuthService) lookupVendorID(u *model.User) string {
+	if u == nil {
+		return ""
+	}
+	// Prefer active shop; fall back to any vendor row for this user.
+	var id string
+	err := s.repo.DB().Get(&id, `
+		SELECT id::text FROM vendors
+		WHERE user_id=$1 AND tenant_id=$2
+		ORDER BY CASE WHEN status='active' THEN 0 ELSE 1 END, created_at DESC
+		LIMIT 1`, u.ID, u.TenantID)
+	if err != nil {
+		return ""
+	}
+	return id
+}
+
 func (s *AuthService) issueTokensWithFingerprint(u *model.User, fingerprint string) (*commonauth.TokenPair, error) {
-	pair, err := s.tokens.Issue(u.ID, u.TenantID, u.Email, commonauth.Role(u.Role), fingerprint)
+	vendorID := s.lookupVendorID(u)
+	pair, err := s.tokens.Issue(u.ID, u.TenantID, u.Email, commonauth.Role(u.Role), vendorID)
 	if err != nil {
 		return nil, err
 	}

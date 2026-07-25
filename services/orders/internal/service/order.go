@@ -48,9 +48,9 @@ func NewOrderService(repo *repository.OrderRepository, producer *kafkax.Producer
 }
 
 type CreateInput struct {
-	CartID, GuestEmail, GuestID, Notes, AddressID string
-	ShippingAddress                               json.RawMessage
-	TenantID, UserID                              string
+	CartID, GuestEmail, GuestID, Notes, AddressID, PaymentMethod string
+	ShippingAddress                                              json.RawMessage
+	TenantID, UserID                                             string
 }
 
 func (s *OrderService) Create(ctx context.Context, in CreateInput) (map[string]any, error) {
@@ -178,8 +178,8 @@ func (s *OrderService) Create(ctx context.Context, in CreateInput) (map[string]a
 		return nil, err
 	}
 	defer tx.Rollback()
-	_, err = tx.Exec(`INSERT INTO orders (id, tenant_id, user_id, guest_email, order_number, status, payment_status, fulfillment_status, currency, subtotal, discount, shipping_cost, tax_total, total, coupon_code, shipping_address, notes, metadata) VALUES ($1,$2,$3,$4,$5,'pending','unpaid','unfulfilled','UZS',$6,$7,$8,0,$9,$10,$11,$12,$13)`,
-		id, in.TenantID, userID, guestEmail, number, subtotal, discountTotal, shippingCost, orderTotal, couponCode, in.ShippingAddress, in.Notes, metaJSON)
+	_, err = tx.Exec(`INSERT INTO orders (id, tenant_id, user_id, guest_email, order_number, status, payment_status, payment_method, fulfillment_status, currency, subtotal, discount, shipping_cost, tax_total, total, coupon_code, shipping_address, notes, metadata) VALUES ($1,$2,$3,$4,$5,'pending','unpaid',$6,'unfulfilled','UZS',$7,$8,$9,0,$10,$11,$12,$13,$14)`,
+		id, in.TenantID, userID, guestEmail, number, in.PaymentMethod, subtotal, discountTotal, shippingCost, orderTotal, couponCode, in.ShippingAddress, in.Notes, metaJSON)
 	if err != nil {
 		return nil, err
 	}
@@ -260,13 +260,17 @@ func (s *OrderService) Create(ctx context.Context, in CreateInput) (map[string]a
 }
 
 func (s *OrderService) Transition(ctx context.Context, id, tenantID, status string) error {
-	var current, orderTenant string
+	var current, orderTenant, paymentStatus string
 	var userID *string
-	if err := s.Repo.DB.QueryRow(`SELECT status,user_id,tenant_id FROM orders WHERE id=$1 AND tenant_id=$2`, id, tenantID).Scan(&current, &userID, &orderTenant); err != nil {
+	if err := s.Repo.DB.QueryRow(`SELECT status,user_id,tenant_id,COALESCE(payment_status,'unpaid') FROM orders WHERE id=$1 AND tenant_id=$2`, id, tenantID).Scan(&current, &userID, &orderTenant, &paymentStatus); err != nil {
 		return err
 	}
 	if err := ValidateStatusTransition(current, status); err != nil {
 		return err
+	}
+	// Hand-off (delivered / completed) requires payment so COD cannot skip collection.
+	if (status == "delivered" || status == "completed") && paymentStatus != "paid" {
+		return fmt.Errorf("collect payment before marking order as %s", status)
 	}
 	fulfillment := map[string]string{"shipped": "shipped", "delivered": "fulfilled", "completed": "fulfilled", "cancelled": "cancelled"}[status]
 	if fulfillment != "" {

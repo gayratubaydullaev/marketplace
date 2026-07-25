@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	commonauth "github.com/gayrat/marketplace/packages/go-common/auth"
 	"github.com/gayrat/marketplace/packages/go-common/httpx"
@@ -18,6 +19,7 @@ func (h *OrderHandler) Create(c *gin.Context) {
 	var body struct {
 		CartID          string          `json:"cart_id"`
 		GuestEmail      string          `json:"guest_email"`
+		PaymentMethod   string          `json:"payment_method"`
 		ShippingAddress json.RawMessage `json:"shipping_address" binding:"required"`
 		Notes           string          `json:"notes"`
 		AddressID       string          `json:"address_id"`
@@ -29,7 +31,8 @@ func (h *OrderHandler) Create(c *gin.Context) {
 	claims := middleware.GetClaims(c)
 	input := service.CreateInput{
 		CartID:          body.CartID,
-		GuestEmail:      body.GuestEmail,
+		GuestEmail:      strings.TrimSpace(body.GuestEmail),
+		PaymentMethod:   body.PaymentMethod,
 		GuestID:         c.GetHeader("X-Guest-ID"),
 		ShippingAddress: body.ShippingAddress,
 		Notes:           body.Notes,
@@ -55,7 +58,25 @@ func (h *OrderHandler) Create(c *gin.Context) {
 
 func (h *OrderHandler) List(c *gin.Context) {
 	claims := middleware.GetClaims(c)
-	orders, err := h.Service.Repo.List(middleware.GetTenantID(c), claims.UserID, claims.Role == commonauth.RoleCustomer)
+	tenantID := middleware.GetTenantID(c)
+	if claims == nil {
+		guestID := c.GetHeader("X-Guest-ID")
+		if guestID == "" {
+			httpx.OK(c, gin.H{"items": []model.Order{}})
+			return
+		}
+		orders, err := h.Service.Repo.ListByGuest(tenantID, guestID)
+		if err != nil {
+			httpx.Internal(c, err.Error())
+			return
+		}
+		if orders == nil {
+			orders = []model.Order{}
+		}
+		httpx.OK(c, gin.H{"items": orders})
+		return
+	}
+	orders, err := h.Service.Repo.List(tenantID, claims.UserID, claims.Role == commonauth.RoleCustomer)
 	if err != nil {
 		httpx.Internal(c, err.Error())
 		return
@@ -64,6 +85,54 @@ func (h *OrderHandler) List(c *gin.Context) {
 		orders = []model.Order{}
 	}
 	httpx.OK(c, gin.H{"items": orders})
+}
+
+func digitsOnly(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if r >= '0' && r <= '9' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+// Lookup lets guests find an order by order_number + phone (no account required).
+func (h *OrderHandler) Lookup(c *gin.Context) {
+	var body struct {
+		OrderNumber string `json:"order_number" binding:"required"`
+		Phone       string `json:"phone" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		httpx.BadRequest(c, err.Error())
+		return
+	}
+	number := strings.TrimSpace(body.OrderNumber)
+	phoneDigits := digitsOnly(body.Phone)
+	if number == "" || len(phoneDigits) < 9 {
+		httpx.BadRequest(c, "order_number and phone required")
+		return
+	}
+	order, items, err := h.Service.Repo.GetByNumber(number, middleware.GetTenantID(c))
+	if err != nil {
+		httpx.NotFound(c, "order not found")
+		return
+	}
+	var addr map[string]any
+	_ = json.Unmarshal(order.ShippingAddress, &addr)
+	storedPhone, _ := addr["phone"].(string)
+	storedDigits := digitsOnly(storedPhone)
+	// Accept last 9 digits match (UZ mobile without country code variants).
+	ok := storedDigits != "" && (storedDigits == phoneDigits ||
+		(len(storedDigits) >= 9 && len(phoneDigits) >= 9 && storedDigits[len(storedDigits)-9:] == phoneDigits[len(phoneDigits)-9:]))
+	if !ok {
+		httpx.NotFound(c, "order not found")
+		return
+	}
+	if items == nil {
+		items = []model.OrderItem{}
+	}
+	httpx.OK(c, gin.H{"order": order, "items": items})
 }
 
 func (h *OrderHandler) Get(c *gin.Context) {
@@ -116,7 +185,11 @@ func (h *OrderHandler) canViewOrder(c *gin.Context, order model.Order) bool {
 	case commonauth.RoleTenantAdmin, commonauth.RoleManager:
 		return true
 	case commonauth.RoleVendor:
-		return h.vendorOwnsOrder(order.ID, claims.VendorID)
+		vendorID := claims.VendorID
+		if vendorID == "" {
+			_ = h.Service.Repo.DB.Get(&vendorID, `SELECT id::text FROM vendors WHERE user_id=$1 AND tenant_id=$2 ORDER BY CASE WHEN status='active' THEN 0 ELSE 1 END, created_at DESC LIMIT 1`, claims.UserID, order.TenantID)
+		}
+		return h.vendorOwnsOrder(order.ID, vendorID)
 	default:
 		return order.UserID != nil && *order.UserID == claims.UserID
 	}
@@ -131,7 +204,11 @@ func (h *OrderHandler) canMutateOrder(c *gin.Context, order model.Order) bool {
 	case commonauth.RoleTenantAdmin, commonauth.RoleManager:
 		return true
 	case commonauth.RoleVendor:
-		return h.vendorOwnsOrder(order.ID, claims.VendorID)
+		vendorID := claims.VendorID
+		if vendorID == "" {
+			_ = h.Service.Repo.DB.Get(&vendorID, `SELECT id::text FROM vendors WHERE user_id=$1 AND tenant_id=$2 ORDER BY CASE WHEN status='active' THEN 0 ELSE 1 END, created_at DESC LIMIT 1`, claims.UserID, order.TenantID)
+		}
+		return h.vendorOwnsOrder(order.ID, vendorID)
 	default:
 		return false
 	}
@@ -197,10 +274,10 @@ func (h *OrderHandler) Tracking(c *gin.Context) {
 		return
 	}
 	if order.TrackingCarrier == nil && order.TrackingNumber == nil && order.TrackingURL == nil {
-		httpx.NotFound(c, "tracking not available")
+		httpx.OK(c, gin.H{"order_id": order.ID, "carrier": nil, "tracking_number": nil, "tracking_url": nil, "shipped_at": nil, "status": order.Status, "available": false})
 		return
 	}
-	httpx.OK(c, gin.H{"order_id": order.ID, "carrier": order.TrackingCarrier, "tracking_number": order.TrackingNumber, "tracking_url": order.TrackingURL, "shipped_at": order.ShippedAt, "status": order.Status})
+	httpx.OK(c, gin.H{"order_id": order.ID, "carrier": order.TrackingCarrier, "tracking_number": order.TrackingNumber, "tracking_url": order.TrackingURL, "shipped_at": order.ShippedAt, "status": order.Status, "available": true})
 }
 
 func (h *OrderHandler) SetTracking(c *gin.Context) {

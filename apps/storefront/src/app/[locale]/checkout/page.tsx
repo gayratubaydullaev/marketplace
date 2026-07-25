@@ -13,12 +13,16 @@ import { UZ_REGIONS } from "@/lib/regions";
 const REGIONS = UZ_REGIONS;
 
 const PAYMENTS = [
-  { id: "payme", label: "Payme" },
-  { id: "click", label: "Click" },
-  { id: "uzum", label: "Uzum" },
-  { id: "stripe", label: "Stripe" },
-  { id: "bank_transfer", label: "Bank" },
+  { id: "cash_on_delivery", labelKey: "payCash" as const },
+  { id: "card_on_delivery", labelKey: "payCardOnDelivery" as const },
+  { id: "payme", labelKey: "payPayme" as const },
+  { id: "click", labelKey: "payClick" as const },
+  { id: "uzum", labelKey: "payUzum" as const },
+  { id: "stripe", labelKey: "payStripe" as const },
+  { id: "bank_transfer", labelKey: "payBank" as const },
 ] as const;
+
+const COD_PROVIDERS = new Set(["cash_on_delivery", "card_on_delivery", "bank_transfer"]);
 
 type Address = {
   id: string;
@@ -35,7 +39,7 @@ const fieldClass =
 export default function CheckoutPage() {
   const t = useTranslations("checkout");
   const locale = useLocale();
-  const { items, total, syncToServer } = useCart();
+  const { items, total, syncToServer, clear } = useCart();
   const [loggedIn, setLoggedIn] = useState(false);
   const [guestMode, setGuestMode] = useState(true);
   const [guestEmail, setGuestEmail] = useState("");
@@ -47,7 +51,7 @@ export default function CheckoutPage() {
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [selectedAddress, setSelectedAddress] = useState("");
   const [shippingCost, setShippingCost] = useState(15000);
-  const [provider, setProvider] = useState("payme");
+  const [provider, setProvider] = useState("cash_on_delivery");
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -102,13 +106,17 @@ export default function CheckoutPage() {
     setLoading(true);
     setStatus("");
     try {
-      await syncToServer();
-      const cart = await api<{ cart: { id: string } }>("/v1/cart");
+      await syncToServer(true);
+      const cart = await api<{ cart: { id: string }; items?: { id: string }[] }>("/v1/cart");
+      if (!cart.cart?.id || !(cart.items && cart.items.length > 0)) {
+        throw new Error("Cart sync failed — add items again");
+      }
       const order = await api<{ id: string; order_number: string }>("/v1/orders", {
         method: "POST",
         body: JSON.stringify({
           cart_id: cart.cart.id,
-          guest_email: guestMode ? guestEmail : undefined,
+          guest_email: guestMode && guestEmail.trim() ? guestEmail.trim() : undefined,
+          payment_method: provider,
           shipping_address: {
             region: delivery === "pickup" ? "pickup" : region,
             district: delivery === "pickup" ? "store" : district,
@@ -129,7 +137,21 @@ export default function CheckoutPage() {
           idempotency_key: `chk-${order.id}`,
         }),
       });
-      if (!intent.redirect_url) throw new Error("Payment provider did not return a redirect URL.");
+      sessionStorage.setItem("pending_order_id", order.id);
+      sessionStorage.setItem("pending_order_number", order.order_number || "");
+      try {
+        const raw = localStorage.getItem("guest_orders");
+        const list: { id: string; order_number: string; at: number }[] = raw ? JSON.parse(raw) : [];
+        const next = [{ id: order.id, order_number: order.order_number || "", at: Date.now() }, ...list.filter((x) => x.id !== order.id)].slice(0, 20);
+        localStorage.setItem("guest_orders", JSON.stringify(next));
+      } catch {
+        /* ignore */
+      }
+      clear();
+      if (COD_PROVIDERS.has(provider) || !intent.redirect_url) {
+        window.location.assign(`/${locale}/orders/${order.id}`);
+        return;
+      }
       const returnUrl = `${window.location.origin}/${locale}/orders/${order.id}/payment-return`;
       let redirectHref = intent.redirect_url;
       try {
@@ -141,8 +163,6 @@ export default function CheckoutPage() {
         const join = intent.redirect_url.includes("?") ? "&" : "?";
         redirectHref = `${intent.redirect_url}${join}payment_id=${encodeURIComponent(intent.id)}&return_url=${encodeURIComponent(returnUrl)}`;
       }
-      sessionStorage.setItem("pending_order_id", order.id);
-      sessionStorage.setItem("pending_order_number", order.order_number || "");
       window.location.assign(redirectHref);
     } catch (err) {
       setStatus(err instanceof Error ? err.message : "error");
@@ -248,10 +268,10 @@ export default function CheckoutPage() {
           <div className="mt-3 space-y-3">
             {guestMode && (
               <label className="block text-sm font-medium">
-                {t("guestEmail")}
+                {t("guestEmail")}{" "}
+                <span className="font-normal text-muted">({t("optional")})</span>
                 <input
                   type="email"
-                  required
                   className={fieldClass}
                   value={guestEmail}
                   onChange={(e) => setGuestEmail(e.target.value)}
@@ -372,7 +392,7 @@ export default function CheckoutPage() {
                     : "border-night/12 bg-white hover:border-accent/40"
                 }`}
               >
-                {p.label}
+                {t(p.labelKey)}
               </button>
             ))}
           </div>
@@ -382,7 +402,7 @@ export default function CheckoutPage() {
             disabled={loading}
             className="mt-6 hidden w-full rounded-xl bg-accent py-3.5 text-sm font-bold text-night transition hover:bg-accent-hover disabled:opacity-50 lg:block"
           >
-            {t("pay")}
+            {COD_PROVIDERS.has(provider) ? t("placeOrder") : t("pay")}
           </button>
           <p className="mt-3 hidden text-center text-xs text-muted lg:block">{t("trust")}</p>
         </section>
@@ -409,7 +429,7 @@ export default function CheckoutPage() {
             disabled={loading}
             className="min-h-11 shrink-0 rounded-xl bg-accent px-5 text-sm font-bold text-night disabled:opacity-50"
           >
-            {t("pay")}
+            {COD_PROVIDERS.has(provider) ? t("placeOrder") : t("pay")}
           </button>
         </div>
       </MobileStickyPortal>

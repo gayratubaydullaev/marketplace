@@ -6,6 +6,7 @@ import { useTranslations, useLocale } from "next-intl";
 import { formatUZS, type Locale } from "@gayrat/i18n";
 import { useCart } from "@/lib/cart";
 import { api } from "@/lib/api";
+import { rewriteMediaUrl } from "@/lib/media";
 import { EmptyState, PageHeader } from "@/components/PageChrome";
 import { MobileStickyPortal } from "@/components/MobileStickyPortal";
 
@@ -221,7 +222,11 @@ export default function CartPage() {
                       <div className="h-20 w-20 overflow-hidden rounded-xl bg-surface-muted sm:h-24 sm:w-24">
                         {item.image ? (
                           // eslint-disable-next-line @next/next/no-img-element
-                          <img src={item.image} alt="" className="h-full w-full object-cover" />
+                          <img
+                            src={rewriteMediaUrl(item.image, { fallbackKey: item.product_id })}
+                            alt=""
+                            className="h-full w-full object-cover"
+                          />
                         ) : null}
                       </div>
                     </Link>

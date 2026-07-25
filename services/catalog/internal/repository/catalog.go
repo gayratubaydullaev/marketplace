@@ -3,8 +3,10 @@ package repository
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gayrat/marketplace/services/catalog/internal/model"
 	"github.com/jmoiron/sqlx"
@@ -26,7 +28,7 @@ func (r *Catalog) Available() bool {
 
 func (r *Catalog) ListCategories(tenantID string) ([]model.Category, error) {
 	var categories []model.Category
-	err := r.db.Select(&categories, `SELECT id, tenant_id, parent_id, slug, translations, sort_order, status FROM categories WHERE tenant_id=$1 AND status='active' ORDER BY sort_order`, tenantID)
+	err := r.db.Select(&categories, `SELECT id, tenant_id, parent_id, slug, translations, image_url, sort_order, status FROM categories WHERE tenant_id=$1 AND status='active' ORDER BY sort_order`, tenantID)
 	return categories, err
 }
 
@@ -35,8 +37,8 @@ func (r *Catalog) CreateCategory(id, tenantID string, body model.CreateCategoryR
 	if len(attrs) == 0 {
 		attrs = json.RawMessage(`[]`)
 	}
-	_, err := r.db.Exec(`INSERT INTO categories (id, tenant_id, parent_id, slug, translations, sort_order, attributes_schema) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-		id, tenantID, body.ParentID, body.Slug, body.Translations, body.SortOrder, attrs)
+	_, err := r.db.Exec(`INSERT INTO categories (id, tenant_id, parent_id, slug, translations, sort_order, attributes_schema, image_url) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+		id, tenantID, body.ParentID, body.Slug, body.Translations, body.SortOrder, attrs, body.ImageURL)
 	return err
 }
 
@@ -61,6 +63,14 @@ func (r *Catalog) UpdateCategory(tenantID, id string, body model.UpdateCategoryR
 	}
 	if body.ParentID != nil {
 		add("parent_id", *body.ParentID)
+	}
+	if body.ImageURL != nil {
+		url := strings.TrimSpace(*body.ImageURL)
+		if url == "" {
+			add("image_url", nil)
+		} else {
+			add("image_url", url)
+		}
 	}
 	if len(sets) == 0 {
 		return nil
@@ -97,6 +107,20 @@ func productOrderBy(sort string) string {
 		return ` ORDER BY created_at DESC`
 	default:
 		return ` ORDER BY created_at DESC`
+	}
+}
+
+func productOrderByPrefixed(sort, alias string) string {
+	p := alias + "."
+	switch sort {
+	case "price_asc":
+		return ` ORDER BY ` + p + `price ASC, ` + p + `created_at DESC`
+	case "price_desc":
+		return ` ORDER BY ` + p + `price DESC, ` + p + `created_at DESC`
+	case "newest":
+		return ` ORDER BY ` + p + `created_at DESC`
+	default:
+		return ` ORDER BY ` + p + `created_at DESC`
 	}
 }
 
@@ -153,14 +177,26 @@ func (r *Catalog) CategoryIDBySlug(tenantID, slug string) (string, error) {
 }
 
 func (r *Catalog) ListProductsByCategory(tenantID, categoryID string, opts ProductListOpts) ([]model.Product, int, error) {
-	where := ` FROM products WHERE tenant_id=$1 AND category_id=$2 AND status='active'`
+	// Include products in this category and all descendant subcategories.
+	where := ` FROM products p
+		WHERE p.tenant_id=$1 AND p.status='active'
+		AND p.category_id IN (
+			WITH RECURSIVE cat_tree AS (
+				SELECT id FROM categories WHERE tenant_id=$1 AND id=$2
+				UNION ALL
+				SELECT c.id FROM categories c
+				INNER JOIN cat_tree t ON c.parent_id = t.id
+				WHERE c.tenant_id=$1 AND c.status='active'
+			)
+			SELECT id FROM cat_tree
+		)`
 	args := []any{tenantID, categoryID}
 	if opts.MinPrice != nil {
-		where += ` AND price>=$` + strconv.Itoa(len(args)+1)
+		where += ` AND p.price>=$` + strconv.Itoa(len(args)+1)
 		args = append(args, *opts.MinPrice)
 	}
 	if opts.MaxPrice != nil {
-		where += ` AND price<=$` + strconv.Itoa(len(args)+1)
+		where += ` AND p.price<=$` + strconv.Itoa(len(args)+1)
 		args = append(args, *opts.MaxPrice)
 	}
 
@@ -174,7 +210,10 @@ func (r *Catalog) ListProductsByCategory(tenantID, categoryID string, opts Produ
 	if limit < 1 {
 		limit = 50
 	}
-	query := `SELECT ` + productColumns + where + productOrderBy(opts.Sort) +
+	// productColumns are unqualified; prefix with p. for the JOIN-less FROM products p alias.
+	cols := strings.ReplaceAll(productColumns, ", ", ", p.")
+	cols = "p." + cols
+	query := `SELECT ` + cols + where + productOrderByPrefixed(opts.Sort, "p") +
 		` LIMIT $` + strconv.Itoa(len(args)+1) + ` OFFSET $` + strconv.Itoa(len(args)+2)
 	args = append(args, limit, offset)
 
@@ -475,7 +514,7 @@ func (r *Catalog) DeleteGiftCertificate(tenantID, id string) error {
 	return err
 }
 
-const heroBannerColumns = `id, tenant_id, kind, image_url, headline, sub, cta_label, cta_href, cta2_label, cta2_href, sort_order, active, show_brand`
+const heroBannerColumns = `id, tenant_id, kind, image_url, headline, sub, cta_label, cta_href, cta2_label, cta2_href, sort_order, active, show_brand, interval_sec, starts_at, ends_at`
 
 func normalizeBannerKind(kind string) string {
 	switch strings.ToLower(strings.TrimSpace(kind)) {
@@ -484,6 +523,39 @@ func normalizeBannerKind(kind string) string {
 	default:
 		return "hero"
 	}
+}
+
+func clampIntervalSec(v int) int {
+	if v < 2 {
+		return 2
+	}
+	if v > 120 {
+		return 120
+	}
+	return v
+}
+
+func parseOptionalTime(raw *string) (*time.Time, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	s := strings.TrimSpace(*raw)
+	if s == "" || s == "null" {
+		return nil, nil
+	}
+	layouts := []string{
+		time.RFC3339,
+		time.RFC3339Nano,
+		"2006-01-02T15:04",
+		"2006-01-02 15:04:05",
+		"2006-01-02",
+	}
+	for _, layout := range layouts {
+		if t, err := time.ParseInLocation(layout, s, time.Local); err == nil {
+			return &t, nil
+		}
+	}
+	return nil, fmt.Errorf("invalid datetime: %s", s)
 }
 
 func (r *Catalog) ListHeroBanners(tenantID string, activeOnly bool, kind string) ([]model.HeroBanner, error) {
@@ -496,6 +568,8 @@ func (r *Catalog) ListHeroBanners(tenantID string, activeOnly bool, kind string)
 	}
 	if activeOnly {
 		q += ` AND active=TRUE`
+		q += ` AND (starts_at IS NULL OR starts_at <= NOW())`
+		q += ` AND (ends_at IS NULL OR ends_at >= NOW())`
 	}
 	q += ` ORDER BY sort_order ASC, created_at ASC`
 	err := r.db.Select(&items, q, args...)
@@ -513,15 +587,27 @@ func (r *Catalog) CreateHeroBanner(id, tenantID string, body model.CreateHeroBan
 	if body.Active != nil {
 		active = *body.Active
 	}
-	showBrand := true
+	showBrand := false
 	if body.ShowBrand != nil {
 		showBrand = *body.ShowBrand
 	}
+	interval := 6
+	if body.IntervalSec != nil {
+		interval = clampIntervalSec(*body.IntervalSec)
+	}
+	startsAt, err := parseOptionalTime(body.StartsAt)
+	if err != nil {
+		return err
+	}
+	endsAt, err := parseOptionalTime(body.EndsAt)
+	if err != nil {
+		return err
+	}
 	kind := normalizeBannerKind(body.Kind)
-	_, err := r.db.Exec(`
-		INSERT INTO hero_banners (id, tenant_id, kind, image_url, headline, sub, cta_label, cta_href, cta2_label, cta2_href, sort_order, active, show_brand)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-		id, tenantID, kind, body.ImageURL, body.Headline, body.Sub, body.CtaLabel, body.CtaHref, body.Cta2Label, body.Cta2Href, body.SortOrder, active, showBrand)
+	_, err = r.db.Exec(`
+		INSERT INTO hero_banners (id, tenant_id, kind, image_url, headline, sub, cta_label, cta_href, cta2_label, cta2_href, sort_order, active, show_brand, interval_sec, starts_at, ends_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+		id, tenantID, kind, body.ImageURL, body.Headline, body.Sub, body.CtaLabel, body.CtaHref, body.Cta2Label, body.Cta2Href, body.SortOrder, active, showBrand, interval, startsAt, endsAt)
 	return err
 }
 
@@ -563,12 +649,32 @@ func (r *Catalog) UpdateHeroBanner(tenantID, id string, body model.UpdateHeroBan
 	if body.ShowBrand != nil {
 		item.ShowBrand = *body.ShowBrand
 	}
+	if body.IntervalSec != nil {
+		item.IntervalSec = clampIntervalSec(*body.IntervalSec)
+	}
+	if body.StartsAt != nil {
+		startsAt, err := parseOptionalTime(body.StartsAt)
+		if err != nil {
+			return err
+		}
+		item.StartsAt = startsAt
+	}
+	if body.EndsAt != nil {
+		endsAt, err := parseOptionalTime(body.EndsAt)
+		if err != nil {
+			return err
+		}
+		item.EndsAt = endsAt
+	}
+	if item.IntervalSec <= 0 {
+		item.IntervalSec = 6
+	}
 	_, err = r.db.Exec(`
 		UPDATE hero_banners SET kind=$1, image_url=$2, headline=$3, sub=$4, cta_label=$5, cta_href=$6, cta2_label=$7, cta2_href=$8,
-			sort_order=$9, active=$10, show_brand=$11, updated_at=NOW()
-		WHERE id=$12 AND tenant_id=$13`,
+			sort_order=$9, active=$10, show_brand=$11, interval_sec=$12, starts_at=$13, ends_at=$14, updated_at=NOW()
+		WHERE id=$15 AND tenant_id=$16`,
 		normalizeBannerKind(item.Kind), item.ImageURL, item.Headline, item.Sub, item.CtaLabel, item.CtaHref, item.Cta2Label, item.Cta2Href,
-		item.SortOrder, item.Active, item.ShowBrand, id, tenantID)
+		item.SortOrder, item.Active, item.ShowBrand, clampIntervalSec(item.IntervalSec), item.StartsAt, item.EndsAt, id, tenantID)
 	return err
 }
 

@@ -17,6 +17,10 @@ func NewUserRepo(db *sqlx.DB) *UserRepo {
 	return &UserRepo{db: db}
 }
 
+func (r *UserRepo) DB() *sqlx.DB {
+	return r.db
+}
+
 func (r *UserRepo) Create(u *model.User) error {
 	_, err := r.db.NamedExec(`
 		INSERT INTO users (id, tenant_id, email, password_hash, role, first_name, last_name, phone, locale, email_verified, status)

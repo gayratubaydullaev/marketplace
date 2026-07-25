@@ -65,7 +65,7 @@ func (h *PaymentHandler) canAccessOrder(c *gin.Context, orderID, tenantID string
 }
 
 func (h *PaymentHandler) ProvidersList(c *gin.Context) {
-	httpx.OK(c, gin.H{"providers": []string{"payme", "click", "uzum", "stripe", "paypal", "bank_transfer"}, "currency": "UZS", "sandbox": h.Sandbox})
+	httpx.OK(c, gin.H{"providers": []string{"payme", "click", "uzum", "stripe", "paypal", "bank_transfer", "cash_on_delivery", "card_on_delivery"}, "currency": "UZS", "sandbox": h.Sandbox})
 }
 
 func (h *PaymentHandler) Intent(c *gin.Context) {
@@ -135,9 +135,13 @@ func (h *PaymentHandler) Intent(c *gin.Context) {
 	if storefront == "" {
 		storefront = "http://localhost:3000"
 	}
-	sandboxRedirect := fmt.Sprintf("%s/v1/payments/sandbox/pay/%s?return_url=%s/uz/orders/%s/payment-return", publicBase, id, storefront, body.OrderID)
-	if !h.Sandbox && redirect != "" {
-		sandboxRedirect = redirect
+	var sandboxRedirect string
+	if redirect != "" {
+		if h.Sandbox {
+			sandboxRedirect = fmt.Sprintf("%s/v1/payments/sandbox/pay/%s?return_url=%s/uz/orders/%s/payment-return", publicBase, id, storefront, body.OrderID)
+		} else {
+			sandboxRedirect = redirect
+		}
 	}
 	metaValues := gin.H{"redirect_url": sandboxRedirect, "sandbox": h.Sandbox}
 	for key, value := range body.Metadata {
@@ -150,6 +154,11 @@ func (h *PaymentHandler) Intent(c *gin.Context) {
 	if _, err = h.Service.Repo.DB.Exec(`INSERT INTO payments (id,tenant_id,order_id,user_id,amount,currency,provider,provider_payment_id,status,idempotency_key,metadata) VALUES ($1,$2,$3,$4,$5,'UZS',$6,$7,'pending',$8,$9)`, id, tenantID, body.OrderID, userID, order.Total, body.Provider, providerID, idem, meta); err != nil {
 		httpx.BadRequest(c, err.Error())
 		return
+	}
+	_, _ = h.Service.Repo.DB.Exec(`UPDATE orders SET payment_method=$1, updated_at=NOW() WHERE id=$2 AND tenant_id=$3`, body.Provider, body.OrderID, tenantID)
+	// COD / bank: confirm fulfillment pipeline without collecting money yet.
+	if body.Provider == "cash_on_delivery" || body.Provider == "card_on_delivery" || body.Provider == "bank_transfer" {
+		_, _ = h.Service.Repo.DB.Exec(`UPDATE orders SET status='confirmed', updated_at=NOW() WHERE id=$1 AND tenant_id=$2 AND status='pending'`, body.OrderID, tenantID)
 	}
 	middleware.WriteAudit(c, "create_intent", "payment", id, nil, gin.H{"order_id": body.OrderID, "provider": body.Provider, "amount": order.Total})
 	httpx.Created(c, gin.H{"id": id, "provider": body.Provider, "provider_payment_id": providerID, "amount": order.Total, "currency": "UZS", "redirect_url": sandboxRedirect, "sandbox": h.Sandbox})
@@ -183,6 +192,97 @@ func (h *PaymentHandler) Confirm(c *gin.Context) {
 	}
 	middleware.WriteAudit(c, "mark_paid", "payment", payment.ID, nil, gin.H{"order_id": payment.OrderID})
 	httpx.OK(c, gin.H{"status": "succeeded", "order_id": payment.OrderID})
+}
+
+// Collect marks cash/card-on-delivery (or bank transfer) as paid when money is received at handoff.
+func (h *PaymentHandler) Collect(c *gin.Context) {
+	claims := middleware.GetClaims(c)
+	if claims == nil {
+		httpx.Unauthorized(c, "auth required")
+		return
+	}
+	switch claims.Role {
+	case commonauth.RoleTenantAdmin, commonauth.RoleManager, commonauth.RoleVendor:
+	default:
+		httpx.Forbidden(c, "forbidden")
+		return
+	}
+	var body struct {
+		OrderID string `json:"order_id" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		httpx.BadRequest(c, err.Error())
+		return
+	}
+	tenantID := middleware.GetTenantID(c)
+	if !h.canAccessOrder(c, body.OrderID, tenantID) {
+		httpx.NotFound(c, "order not found")
+		return
+	}
+	var order struct {
+		Total         float64 `db:"total"`
+		PaymentStatus string  `db:"payment_status"`
+		PaymentMethod string  `db:"payment_method"`
+		UserID        *string `db:"user_id"`
+	}
+	if err := h.Service.Repo.DB.Get(&order, `
+		SELECT total, COALESCE(payment_status,'unpaid') payment_status, COALESCE(payment_method,'') payment_method, user_id
+		FROM orders WHERE id=$1 AND tenant_id=$2`, body.OrderID, tenantID); err != nil {
+		httpx.NotFound(c, "order not found")
+		return
+	}
+	if order.PaymentStatus == "paid" {
+		httpx.OK(c, gin.H{"status": "succeeded", "order_id": body.OrderID})
+		return
+	}
+	provider := order.PaymentMethod
+	switch provider {
+	case "cash_on_delivery", "card_on_delivery", "bank_transfer":
+	default:
+		httpx.BadRequest(c, "order is not cash/card-on-delivery")
+		return
+	}
+
+	var payment model.Payment
+	err := h.Service.Repo.DB.Get(&payment, `
+		SELECT id,tenant_id,order_id,user_id,amount,currency,provider,provider_payment_id,status,created_at
+		FROM payments
+		WHERE order_id=$1 AND tenant_id=$2
+		  AND provider IN ('cash_on_delivery','card_on_delivery','bank_transfer')
+		ORDER BY created_at DESC
+		LIMIT 1`, body.OrderID, tenantID)
+	if err != nil {
+		// Intent may be missing (interrupted checkout) — create pending COD payment for collection.
+		payment = model.Payment{
+			ID:                uuid.NewString(),
+			TenantID:          tenantID,
+			OrderID:           body.OrderID,
+			UserID:            order.UserID,
+			Amount:            order.Total,
+			Currency:          "UZS",
+			Provider:          provider,
+			ProviderPaymentID: "collect_" + uuid.NewString()[:8],
+			Status:            "pending",
+		}
+		if _, err = h.Service.Repo.DB.Exec(`
+			INSERT INTO payments (id,tenant_id,order_id,user_id,amount,currency,provider,provider_payment_id,status,metadata)
+			VALUES ($1,$2,$3,$4,$5,'UZS',$6,$7,'pending','{"collected_at_handoff":true}')`,
+			payment.ID, payment.TenantID, payment.OrderID, payment.UserID, payment.Amount, payment.Provider, payment.ProviderPaymentID,
+		); err != nil {
+			httpx.BadRequest(c, err.Error())
+			return
+		}
+	}
+	if payment.Status == "succeeded" {
+		httpx.OK(c, gin.H{"status": "succeeded", "order_id": payment.OrderID, "payment_id": payment.ID})
+		return
+	}
+	if err := h.Service.MarkPaid(c.Request.Context(), payment); err != nil {
+		httpx.BadRequest(c, err.Error())
+		return
+	}
+	middleware.WriteAudit(c, "collect_payment", "payment", payment.ID, nil, gin.H{"order_id": payment.OrderID, "provider": payment.Provider})
+	httpx.OK(c, gin.H{"status": "succeeded", "order_id": payment.OrderID, "payment_id": payment.ID})
 }
 
 func (h *PaymentHandler) Webhook(c *gin.Context) {

@@ -19,25 +19,45 @@
 }
 
 html {
-  scroll-behavior: smooth;
   -webkit-tap-highlight-color: transparent;
   overflow-x: clip;
+}
+
+@media (min-width: 768px) {
+  html {
+    scroll-behavior: smooth;
+  }
 }
 
 body {
   overflow-x: clip;
   color: var(--ink);
-  background:
-    var(--noise),
-    linear-gradient(160deg, rgba(13, 115, 119, 0.14) 0%, transparent 42%),
-    linear-gradient(340deg, rgba(232, 168, 56, 0.1) 0%, transparent 38%),
-    radial-gradient(circle at 85% 12%, rgba(13, 115, 119, 0.16), transparent 42%),
-    var(--bg);
+  background: var(--bg);
   min-height: 100dvh;
+}
+
+@media (min-width: 768px) {
+  body {
+    background:
+      var(--noise),
+      linear-gradient(160deg, rgba(13, 115, 119, 0.14) 0%, transparent 42%),
+      linear-gradient(340deg, rgba(232, 168, 56, 0.1) 0%, transparent 38%),
+      radial-gradient(circle at 85% 12%, rgba(13, 115, 119, 0.16), transparent 42%),
+      var(--bg);
+  }
 }
 
 .site-container {
   @apply mx-auto w-full max-w-[90rem] min-w-0 px-4 sm:px-6 lg:px-8;
+}
+
+/* Optional wider bleed from sm up; mobile keeps site-container inset so corner radius is visible. */
+@media (min-width: 640px) and (max-width: 1023px) {
+  .home-banner-bleed {
+    width: calc(100% + 3rem);
+    margin-left: -1.5rem;
+    margin-right: -1.5rem;
+  }
 }
 
 @media (max-width: 767px) {
@@ -111,6 +131,30 @@ body {
   }
 }
 
+@keyframes bannerProgress {
+  from {
+    transform: scaleX(0.06);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+.banner-progress-bar {
+  animation-name: bannerProgress;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+
+.banner-progress-paused {
+  animation-play-state: paused;
+}
+
+.home-product-card {
+  content-visibility: auto;
+  contain-intrinsic-size: 320px;
+}
+
 .animate-rise {
   animation: rise 0.75s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
@@ -156,11 +200,18 @@ body {
 .home-cat-rail {
   scrollbar-width: none;
   -ms-overflow-style: none;
-  scroll-snap-type: x mandatory;
   -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  touch-action: pan-x;
 }
 .home-cat-rail::-webkit-scrollbar {
   display: none;
+}
+
+@media (min-width: 768px) {
+  .home-cat-rail {
+    scroll-snap-type: x mandatory;
+  }
 }
 
 .hero-texture {
@@ -168,6 +219,22 @@ body {
   opacity: 0.45;
   mix-blend-mode: overlay;
   pointer-events: none;
+}
+
+/* Mobile: no entrance transforms — they feel like scroll lag / rubber-band animation. */
+@media (max-width: 767px) {
+  .animate-rise,
+  .home-hero-zoom,
+  .home-hero-copy,
+  .home-hero-line,
+  .home-cat-rail > li,
+  .home-product,
+  .product-card-enter,
+  .home-section {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

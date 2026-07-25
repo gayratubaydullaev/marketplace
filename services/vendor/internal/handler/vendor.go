@@ -198,7 +198,14 @@ func vendorOrders(c *gin.Context, database *sqlx.DB) {
 		httpx.NotFound(c, "vendor not found")
 		return
 	}
-	rows, _ := database.Queryx(`SELECT oi.order_id, oi.title, oi.quantity, oi.total_price, oi.status, o.created_at FROM order_items oi JOIN orders o ON o.id=oi.order_id WHERE oi.vendor_id=$1 ORDER BY o.created_at DESC LIMIT 50`, vid)
+	rows, _ := database.Queryx(`
+		SELECT oi.order_id, o.order_number, oi.title, oi.quantity, oi.total_price,
+		       o.status AS status, o.payment_status, o.created_at
+		FROM order_items oi
+		JOIN orders o ON o.id = oi.order_id
+		WHERE oi.vendor_id = $1
+		ORDER BY o.created_at DESC
+		LIMIT 50`, vid)
 	defer rows.Close()
 	httpx.OK(c, gin.H{"items": maps(rows)})
 }

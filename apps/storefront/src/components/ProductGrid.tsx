@@ -41,9 +41,11 @@ export function ProductGrid({
     );
   }
 
+  const marginClass = /(?:^|\s)mt-/.test(className) ? "" : "mt-4";
+
   return (
     <div
-      className={`mt-5 grid gap-x-2.5 gap-y-5 sm:mt-6 sm:gap-x-4 sm:gap-y-7 ${colClass[columns]} ${className}`}
+      className={`${marginClass} grid gap-x-2.5 gap-y-4 sm:gap-x-3.5 sm:gap-y-5 ${colClass[columns]} ${className}`}
     >
       {products.map((p, i) => (
         <ProductCard key={p.id} product={p} locale={locale} index={i} animate={animate} />

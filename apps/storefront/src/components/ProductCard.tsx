@@ -1,16 +1,22 @@
 "use client";
 
 import Link from "next/link";
-import { useState, type CSSProperties, type MouseEvent } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type MouseEvent } from "react";
 import { useTranslations } from "next-intl";
 import { formatUZS, type Locale } from "@gayrat/i18n";
-import { productName, type Product } from "@/lib/api";
+import { api, productName, variantImageList, type Product, type Variant } from "@/lib/api";
+import { rewriteMediaUrls } from "@/lib/media";
 import { useCart } from "@/lib/cart";
 import { WishlistButton } from "@/components/WishlistButton";
+import { VariantSelectModal } from "@/components/VariantSelectModal";
+import { track, trackImpressionOnce } from "@/lib/track";
 
 function productImages(p: Product): string[] {
   if (!Array.isArray(p.images)) return [];
-  return p.images.filter((x): x is string => typeof x === "string");
+  return rewriteMediaUrls(
+    p.images.filter((x): x is string => typeof x === "string"),
+    { fallbackKey: p.id || p.slug }
+  );
 }
 
 export function ProductCard({
@@ -29,8 +35,19 @@ export function ProductCard({
   const [added, setAdded] = useState(false);
   const [hovered, setHovered] = useState(false);
   const [imgIndex, setImgIndex] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [variants, setVariants] = useState<Variant[]>([]);
+  const rootRef = useRef<HTMLElement>(null);
 
   const name = productName(product, locale);
+
+  useEffect(() => {
+    return trackImpressionOnce(rootRef.current, "product_impression", product.id, {
+      slug: product.slug,
+      source: "card",
+    });
+  }, [product.id, product.slug]);
   const images = productImages(product);
   const img = images[hovered && images.length > 1 ? Math.min(imgIndex, images.length - 1) : 0];
   const stock = product.inventory_quantity;
@@ -47,21 +64,59 @@ export function ProductCard({
       ? product.review_count
       : null;
 
-  function onAdd(e: MouseEvent) {
-    e.preventDefault();
-    e.stopPropagation();
-    if (outOfStock || added) return;
-    add({
-      product_id: product.id,
-      vendor_id: product.vendor_id || undefined,
-      title: name,
-      unit_price: product.price,
-      quantity: 1,
-      slug: product.slug,
-      image: images[0],
-    });
+  function flashAdded() {
     setAdded(true);
     window.setTimeout(() => setAdded(false), 1600);
+  }
+
+  function addLine(variant: Variant | null) {
+    const unitPrice = variant?.price ?? product.price;
+    const image = (variant && variantImageList(variant)[0]) || images[0];
+    add({
+      product_id: product.id,
+      variant_id: variant?.id,
+      vendor_id: product.vendor_id || undefined,
+      title: variant ? `${name} — ${variant.title || variant.sku || ""}` : name,
+      unit_price: unitPrice,
+      quantity: 1,
+      slug: product.slug,
+      image,
+    });
+    track("add_to_cart", product.id, {
+      slug: product.slug,
+      variant_id: variant?.id || "",
+      source: "card",
+    });
+    flashAdded();
+  }
+
+  async function onAdd(e: MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (outOfStock || added || loading) return;
+
+    setLoading(true);
+    try {
+      const data = await api<{ variants?: Variant[] }>(`/v1/products/${product.slug}`);
+      const list = data.variants || [];
+      if (list.length > 0) {
+        setVariants(list);
+        setModalOpen(true);
+        return;
+      }
+      addLine(null);
+    } catch {
+      // Don't add without knowing variants — avoid wrong cart lines.
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function onModalConfirm(variantId: string) {
+    const variant = variants.find((v) => v.id === variantId) || null;
+    if (!variant) return;
+    setModalOpen(false);
+    addLine(variant);
   }
 
   function onMove(e: MouseEvent<HTMLAnchorElement>) {
@@ -74,7 +129,8 @@ export function ProductCard({
 
   return (
     <article
-      className={`group relative flex flex-col ${animate ? "product-card-enter" : ""}`}
+      ref={rootRef}
+      className={`group relative flex flex-col home-product-card ${animate ? "product-card-enter" : ""}`}
       style={animate ? ({ "--i": index } as CSSProperties) : undefined}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => {
@@ -88,6 +144,9 @@ export function ProductCard({
           className="block"
           tabIndex={-1}
           onMouseMove={onMove}
+          onClick={() =>
+            track("product_click", product.id, { slug: product.slug, source: "card" })
+          }
         >
           <div className="relative aspect-[3/4] overflow-hidden rounded-2xl bg-surface-muted">
             {img ? (
@@ -96,11 +155,12 @@ export function ProductCard({
                 src={img}
                 alt={name}
                 loading="lazy"
+                decoding="async"
                 width={600}
                 height={800}
                 sizes="(max-width: 639px) 50vw, (max-width: 1023px) 33vw, (max-width: 1279px) 25vw, 20vw"
-                className={`h-full w-full object-cover transition duration-300 group-hover:scale-[1.03] ${
-                  outOfStock ? "opacity-50" : ""
+                className={`h-full w-full object-cover ${
+                  outOfStock ? "opacity-50" : "md:transition md:duration-300 md:group-hover:scale-[1.03]"
                 }`}
               />
             ) : (
@@ -198,14 +258,27 @@ export function ProductCard({
           <button
             type="button"
             onClick={onAdd}
-            className={`mt-2 w-full rounded-xl py-2.5 text-sm font-bold text-night transition sm:py-2.5 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 focus-visible:opacity-100 ${
-              added ? "bg-teal text-paper opacity-100" : "bg-accent hover:bg-accent-hover"
+            disabled={loading}
+            className={`mt-2 w-full rounded-xl py-2.5 text-sm font-bold text-night transition disabled:opacity-60 ${
+              added ? "bg-teal text-paper" : "bg-accent hover:bg-accent-hover"
             }`}
           >
-            {added ? t("addedToCart") : t("addToCart")}
+            {added ? t("addedToCart") : loading ? "…" : t("addToCart")}
           </button>
         ) : null}
       </div>
+
+      <VariantSelectModal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        product={product}
+        variants={variants}
+        locale={locale}
+        name={name}
+        productImages={images}
+        intent="add"
+        onConfirm={onModalConfirm}
+      />
     </article>
   );
 }

@@ -34,6 +34,7 @@ type Category struct {
 	ParentID     *string         `db:"parent_id" json:"parent_id"`
 	Slug         string          `db:"slug" json:"slug"`
 	Translations json.RawMessage `db:"translations" json:"translations"`
+	ImageURL     *string         `db:"image_url" json:"image_url,omitempty"`
 	SortOrder    int             `db:"sort_order" json:"sort_order"`
 	Status       string          `db:"status" json:"status"`
 }
@@ -57,6 +58,7 @@ type CreateCategoryRequest struct {
 	Translations     json.RawMessage `json:"translations" binding:"required"`
 	SortOrder        int             `json:"sort_order"`
 	AttributesSchema json.RawMessage `json:"attributes_schema"`
+	ImageURL         *string         `json:"image_url"`
 }
 
 type UpdateCategoryRequest struct {
@@ -65,6 +67,7 @@ type UpdateCategoryRequest struct {
 	SortOrder        *int            `json:"sort_order"`
 	AttributesSchema json.RawMessage `json:"attributes_schema"`
 	Status           *string         `json:"status"`
+	ImageURL         *string         `json:"image_url"`
 }
 
 type CreateProductRequest struct {
@@ -179,45 +182,54 @@ type UpdateGiftCertificateRequest struct {
 }
 
 type HeroBanner struct {
-	ID        string `db:"id" json:"id"`
-	TenantID  string `db:"tenant_id" json:"tenant_id"`
-	Kind      string `db:"kind" json:"kind"`
-	ImageURL  string `db:"image_url" json:"image_url"`
-	Headline  string `db:"headline" json:"headline"`
-	Sub       string `db:"sub" json:"sub"`
-	CtaLabel  string `db:"cta_label" json:"cta_label"`
-	CtaHref   string `db:"cta_href" json:"cta_href"`
-	Cta2Label string `db:"cta2_label" json:"cta2_label"`
-	Cta2Href  string `db:"cta2_href" json:"cta2_href"`
-	SortOrder int    `db:"sort_order" json:"sort_order"`
-	Active    bool   `db:"active" json:"active"`
-	ShowBrand bool   `db:"show_brand" json:"show_brand"`
+	ID          string     `db:"id" json:"id"`
+	TenantID    string     `db:"tenant_id" json:"tenant_id"`
+	Kind        string     `db:"kind" json:"kind"`
+	ImageURL    string     `db:"image_url" json:"image_url"`
+	Headline    string     `db:"headline" json:"headline"`
+	Sub         string     `db:"sub" json:"sub"`
+	CtaLabel    string     `db:"cta_label" json:"cta_label"`
+	CtaHref     string     `db:"cta_href" json:"cta_href"`
+	Cta2Label   string     `db:"cta2_label" json:"cta2_label"`
+	Cta2Href    string     `db:"cta2_href" json:"cta2_href"`
+	SortOrder   int        `db:"sort_order" json:"sort_order"`
+	Active      bool       `db:"active" json:"active"`
+	ShowBrand   bool       `db:"show_brand" json:"show_brand"`
+	IntervalSec int        `db:"interval_sec" json:"interval_sec"`
+	StartsAt    *time.Time `db:"starts_at" json:"starts_at,omitempty"`
+	EndsAt      *time.Time `db:"ends_at" json:"ends_at,omitempty"`
 }
 
 type CreateHeroBannerRequest struct {
-	Kind      string `json:"kind"`
-	ImageURL  string `json:"image_url" binding:"required"`
-	Headline  string `json:"headline"`
-	Sub       string `json:"sub"`
-	CtaLabel  string `json:"cta_label"`
-	CtaHref   string `json:"cta_href"`
-	Cta2Label string `json:"cta2_label"`
-	Cta2Href  string `json:"cta2_href"`
-	SortOrder int    `json:"sort_order"`
-	Active    *bool  `json:"active"`
-	ShowBrand *bool  `json:"show_brand"`
+	Kind        string  `json:"kind"`
+	ImageURL    string  `json:"image_url" binding:"required"`
+	Headline    string  `json:"headline"`
+	Sub         string  `json:"sub"`
+	CtaLabel    string  `json:"cta_label"`
+	CtaHref     string  `json:"cta_href"`
+	Cta2Label   string  `json:"cta2_label"`
+	Cta2Href    string  `json:"cta2_href"`
+	SortOrder   int     `json:"sort_order"`
+	Active      *bool   `json:"active"`
+	ShowBrand   *bool   `json:"show_brand"`
+	IntervalSec *int    `json:"interval_sec"`
+	StartsAt    *string `json:"starts_at"`
+	EndsAt      *string `json:"ends_at"`
 }
 
 type UpdateHeroBannerRequest struct {
-	Kind      *string `json:"kind"`
-	ImageURL  *string `json:"image_url"`
-	Headline  *string `json:"headline"`
-	Sub       *string `json:"sub"`
-	CtaLabel  *string `json:"cta_label"`
-	CtaHref   *string `json:"cta_href"`
-	Cta2Label *string `json:"cta2_label"`
-	Cta2Href  *string `json:"cta2_href"`
-	SortOrder *int    `json:"sort_order"`
-	Active    *bool   `json:"active"`
-	ShowBrand *bool   `json:"show_brand"`
+	Kind        *string `json:"kind"`
+	ImageURL    *string `json:"image_url"`
+	Headline    *string `json:"headline"`
+	Sub         *string `json:"sub"`
+	CtaLabel    *string `json:"cta_label"`
+	CtaHref     *string `json:"cta_href"`
+	Cta2Label   *string `json:"cta2_label"`
+	Cta2Href    *string `json:"cta2_href"`
+	SortOrder   *int    `json:"sort_order"`
+	Active      *bool   `json:"active"`
+	ShowBrand   *bool   `json:"show_brand"`
+	IntervalSec *int    `json:"interval_sec"`
+	StartsAt    *string `json:"starts_at"`
+	EndsAt      *string `json:"ends_at"`
 }

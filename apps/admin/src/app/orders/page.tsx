@@ -46,13 +46,26 @@ export default function OrdersPage() {
 
   const pageItems = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
+  const statusLabel = (s?: string) => {
+    if (!s) return "—";
+    const key = `status${s[0].toUpperCase()}${s.slice(1)}`;
+    const translated = t(key);
+    return translated === key ? s : translated;
+  };
+  const payLabel = (s?: string) => {
+    if (!s) return "—";
+    const key = `pay${s[0].toUpperCase()}${s.slice(1)}`;
+    const translated = t(key);
+    return translated === key ? s : translated;
+  };
+
   return (
     <div>
       <PageHeader title={t("pageOrdersTitle")} description={t("pageOrdersDesc")} />
       <div className="mb-4 flex flex-wrap gap-2">
         <Input
           className="max-w-xs"
-          placeholder="Order number"
+          placeholder={t("orderSearch")}
           value={q}
           onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
             setQ(e.target.value);
@@ -68,7 +81,7 @@ export default function OrdersPage() {
         >
           {["all", "pending", "confirmed", "processing", "shipped", "delivered", "completed", "cancelled", "returned"].map((s) => (
             <option key={s} value={s}>
-              {s}
+              {s === "all" ? t("filterAll") : statusLabel(s)}
             </option>
           ))}
         </Select>
@@ -81,22 +94,22 @@ export default function OrdersPage() {
         >
           {["all", "unpaid", "paid", "refunded"].map((s) => (
             <option key={s} value={s}>
-              {s}
+              {s === "all" ? t("filterAll") : payLabel(s)}
             </option>
           ))}
         </Select>
       </div>
       <Msg text={msg} />
       {pageItems.length === 0 ? (
-        <EmptyState text="No orders" />
+        <EmptyState text={t("ordersEmpty")} />
       ) : (
         <TableShell>
           <thead>
             <tr className="border-b bg-slate-50/80 text-xs uppercase tracking-wide text-slate-500">
-              <th className="px-4 py-3">Number</th>
-              <th className="px-4 py-3">Status</th>
-              <th className="px-4 py-3">Payment</th>
-              <th className="px-4 py-3">Total</th>
+              <th className="px-4 py-3">{t("orderSearch")}</th>
+              <th className="px-4 py-3">{t("orderColStatus")}</th>
+              <th className="px-4 py-3">{t("orderColPayment")}</th>
+              <th className="px-4 py-3">{t("orderTotal")}</th>
             </tr>
           </thead>
           <tbody>
@@ -108,10 +121,10 @@ export default function OrdersPage() {
                   </Link>
                 </td>
                 <td className="px-4 py-3">
-                  <StatusBadge status={o.status} />
+                  <StatusBadge status={o.status} label={statusLabel(o.status)} />
                 </td>
                 <td className="px-4 py-3">
-                  <StatusBadge status={o.payment_status} />
+                  <StatusBadge status={o.payment_status} label={payLabel(o.payment_status)} />
                 </td>
                 <td className="px-4 py-3">{o.total?.toLocaleString()} UZS</td>
               </tr>

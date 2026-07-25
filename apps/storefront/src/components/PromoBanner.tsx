@@ -1,65 +1,208 @@
-import Link from "next/link";
+"use client";
 
-export function PromoBanner({
-  title,
-  sub,
-  cta,
+import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
+import type { HeroSlide } from "@/components/HomeHero";
+import { useCarouselDrag } from "@/lib/useCarouselDrag";
+import { track } from "@/lib/track";
+
+function isExternalHref(href: string) {
+  return /^(https?:|mailto:|tel:)/i.test(href);
+}
+
+function BannerLink({
   href,
-  image,
+  className,
+  children,
+  onNavigate,
 }: {
-  title?: string;
-  sub?: string;
-  cta?: string;
   href?: string;
-  image: string;
+  className?: string;
+  children: React.ReactNode;
+  onNavigate?: () => void;
 }) {
-  const hasText = Boolean(title?.trim() || sub?.trim());
-  const hasCta = Boolean(cta?.trim() && href?.trim());
-  const inner = (
-    <div className="relative aspect-[16/7] min-h-[9.5rem] w-full sm:aspect-[21/7] sm:min-h-[11rem]">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={image}
-        alt=""
-        className="h-full w-full object-cover transition duration-700 group-hover:scale-[1.03]"
-      />
-      {hasText || hasCta ? (
-        <div className="absolute inset-0 bg-gradient-to-r from-night/90 via-night/55 to-night/20" />
-      ) : (
-        <div className="absolute inset-0 bg-gradient-to-t from-night/25 via-transparent to-transparent" />
-      )}
-      {hasText || hasCta ? (
-        <div className="absolute inset-0 flex flex-col justify-center px-5 py-6 sm:px-10 sm:py-8 md:px-12">
-          {title?.trim() ? (
-            <p className="max-w-md font-display text-xl font-bold leading-tight text-paper sm:text-3xl md:text-4xl">
-              {title}
-            </p>
-          ) : null}
-          {sub?.trim() ? (
-            <p className="mt-2 max-w-sm text-sm text-paper/75 sm:mt-3 sm:text-base">{sub}</p>
-          ) : null}
-          {hasCta ? (
-            <span className="mt-4 inline-flex w-fit items-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-bold text-night transition group-hover:bg-accent-hover sm:mt-5">
-              {cta}
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden>
-                <path d="M5 12h14M13 6l6 6-6 6" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </span>
-          ) : null}
-        </div>
-      ) : null}
-    </div>
+  if (!href?.trim()) {
+    return <div className={className}>{children}</div>;
+  }
+  if (isExternalHref(href)) {
+    return (
+      <a
+        href={href}
+        className={`${className || ""} group`}
+        target="_blank"
+        rel="noopener noreferrer"
+        draggable={false}
+        onDragStart={(e) => e.preventDefault()}
+        onClick={() => onNavigate?.()}
+      >
+        {children}
+      </a>
+    );
+  }
+  return (
+    <Link
+      href={href}
+      className={`${className || ""} group`}
+      draggable={false}
+      onDragStart={(e) => e.preventDefault()}
+      onClick={() => onNavigate?.()}
+    >
+      {children}
+    </Link>
+  );
+}
+
+/** Image-only promo: the photo itself is the clickable CTA. Supports carousel when multiple. */
+export function PromoBanner({ slides }: { slides: HeroSlide[] }) {
+  const list = slides.filter((s) => Boolean(s.image));
+  const [active, setActive] = useState(0);
+  const [paused, setPaused] = useState(false);
+  const reducedMotion = useRef(false);
+  const total = list.length;
+  const slide = list[active] || list[0];
+  const autoMs = Math.max(2000, Math.min(120000, slide?.intervalMs || 6500));
+  const multi = total > 1;
+
+  useEffect(() => {
+    reducedMotion.current = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  }, []);
+
+  const goTo = useCallback(
+    (index: number) => {
+      if (total < 1) return;
+      setActive(((index % total) + total) % total);
+    },
+    [total]
   );
 
+  const go = useCallback(
+    (dir: -1 | 1) => {
+      goTo(active + dir);
+    },
+    [active, goTo]
+  );
+
+  const drag = useCarouselDrag({
+    enabled: multi,
+    onSwipe: go,
+    onPause: setPaused,
+  });
+
+  useEffect(() => {
+    if (!multi || paused || reducedMotion.current) return;
+    const timer = window.setTimeout(() => go(1), autoMs);
+    return () => window.clearTimeout(timer);
+  }, [active, autoMs, go, multi, paused]);
+
+  useEffect(() => {
+    if (!slide?.id) return;
+    track("banner_impression", slide.id, { kind: "promo", href: slide.href || "" });
+  }, [slide?.id, slide?.href]);
+
+  if (!slide) return null;
+
   return (
-    <section className="home-section mt-14 sm:mt-16">
-      {hasCta ? (
-        <Link href={href!} className="group relative block overflow-hidden rounded-3xl">
-          {inner}
-        </Link>
-      ) : (
-        <div className="group relative overflow-hidden rounded-3xl">{inner}</div>
-      )}
+    <section className="home-section home-banner-bleed mt-6 sm:mt-8">
+      <div
+        className={`relative overflow-hidden rounded-2xl bg-night md:rounded-3xl ${
+          multi ? (drag.dragging ? "cursor-grabbing" : "cursor-grab") : ""
+        }`}
+        onMouseEnter={() => setPaused(true)}
+        onMouseLeave={() => setPaused(false)}
+        onPointerDown={drag.onPointerDown}
+        onClickCapture={drag.onClickCapture}
+        onDragStart={drag.onDragStart}
+      >
+        {multi ? (
+          <>
+            <button
+              type="button"
+              aria-label="Previous"
+              onClick={() => go(-1)}
+              className="absolute start-2 top-1/2 z-[3] flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-paper/25 bg-night/50 text-base text-paper transition hover:bg-night/70 sm:start-3 sm:h-10 sm:w-10 sm:text-lg"
+            >
+              ‹
+            </button>
+            <button
+              type="button"
+              aria-label="Next"
+              onClick={() => go(1)}
+              className="absolute end-2 top-1/2 z-[3] flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-paper/25 bg-night/50 text-base text-paper transition hover:bg-night/70 sm:end-3 sm:h-10 sm:w-10 sm:text-lg"
+            >
+              ›
+            </button>
+          </>
+        ) : null}
+
+        <div className="relative aspect-[3/2] w-full max-h-[min(42dvh,18rem)] select-none sm:max-h-[20rem] md:max-h-[22rem]">
+          {list.map((item, i) => {
+            const isActive = i === active;
+            const near =
+              Math.abs(i - active) <= 1 ||
+              (active === 0 && i === total - 1) ||
+              (active === total - 1 && i === 0);
+            if (!isActive && !near) return null;
+            return (
+              <div
+                key={item.id}
+                className={`absolute inset-0 transition-opacity duration-500 ease-out ${
+                  isActive ? "z-[1] opacity-100" : "z-0 pointer-events-none opacity-0"
+                }`}
+                aria-hidden={!isActive}
+              >
+                <BannerLink
+                  href={isActive ? item.href : undefined}
+                  className="absolute inset-0 block overflow-hidden"
+                  onNavigate={() =>
+                    track("banner_click", item.id, { kind: "promo", href: item.href || "" })
+                  }
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={item.image}
+                    alt=""
+                    draggable={false}
+                    decoding="async"
+                    loading="lazy"
+                    className="absolute inset-0 h-full w-full object-cover"
+                  />
+                </BannerLink>
+              </div>
+            );
+          })}
+
+          {multi ? (
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[2] flex justify-center bg-gradient-to-t from-night/35 to-transparent p-3">
+              <div className="pointer-events-auto flex items-center gap-1.5">
+                {list.map((item, i) => {
+                  const isActive = i === active;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      aria-label={`${i + 1} / ${total}`}
+                      onClick={() => goTo(i)}
+                      className={`relative h-1.5 overflow-hidden rounded-full transition-all ${
+                        isActive ? "w-7 bg-paper/25" : "w-1.5 bg-paper/40 hover:bg-paper/60"
+                      }`}
+                    >
+                      {isActive && !reducedMotion.current ? (
+                        <span
+                          key={`prog-${active}-${paused ? "p" : "r"}`}
+                          className={`banner-progress-bar absolute inset-y-0 start-0 w-full origin-left rounded-full bg-accent ${
+                            paused ? "banner-progress-paused" : ""
+                          }`}
+                          style={{ animationDuration: `${autoMs}ms` }}
+                        />
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </div>
     </section>
   );
 }

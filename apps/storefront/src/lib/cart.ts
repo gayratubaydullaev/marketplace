@@ -35,7 +35,7 @@ type CartState = {
   remove: (productId: string, variantId?: string) => void;
   clear: () => void;
   total: () => number;
-  syncToServer: () => Promise<void>;
+  syncToServer: (force?: boolean) => Promise<void>;
 };
 
 export const useCart = create<CartState>()(
@@ -77,29 +77,22 @@ export const useCart = create<CartState>()(
         set({ items: [] });
       },
       total: () => get().items.reduce((a, i) => a + i.unit_price * i.quantity, 0),
-      syncToServer: async () => {
+      syncToServer: async (force = false) => {
         const items = get().items;
         if (typeof window === "undefined") return;
         const fp = fingerprint(items);
-        if (sessionStorage.getItem("cart_sync_fp") === fp) return;
+        if (!force && sessionStorage.getItem("cart_sync_fp") === fp) return;
 
-        if (localStorage.getItem("access_token")) {
-          await api("/v1/cart/merge", {
-            method: "POST",
-            body: JSON.stringify({ items }),
-          }).catch(() => undefined);
-        } else {
-          for (const item of items) {
-            await api("/v1/cart/items", {
-              method: "POST",
-              body: JSON.stringify({
-                product_id: item.product_id,
-                variant_id: item.variant_id,
-                quantity: item.quantity,
-              }),
-            }).catch(() => undefined);
-          }
-        }
+        await api<{ cart: { id: string }; items?: unknown[]; synced?: number }>("/v1/cart/sync", {
+          method: "POST",
+          body: JSON.stringify({
+            items: items.map((item) => ({
+              product_id: item.product_id,
+              variant_id: item.variant_id || undefined,
+              quantity: item.quantity,
+            })),
+          }),
+        });
         sessionStorage.setItem("cart_sync_fp", fp);
       },
     }),

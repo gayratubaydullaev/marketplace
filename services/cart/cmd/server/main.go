@@ -34,6 +34,7 @@ func main() {
 		carts.POST("/items", cart.AddItem)
 		carts.PUT("/items/:id", cart.UpdateItem)
 		carts.DELETE("/items/:id", cart.RemoveItem)
+		carts.POST("/sync", cart.SyncCart)
 		carts.POST("/apply-coupon", cart.ApplyCoupon)
 		carts.DELETE("/coupon", cart.RemoveCoupon)
 		carts.POST("/apply-gift", cart.ApplyGift)

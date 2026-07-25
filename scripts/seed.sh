@@ -11,6 +11,15 @@ HDR=(-H "Content-Type: application/json" -H "X-Tenant-ID: $TENANT")
 CAT_ELEK="00000000-0000-0000-0000-000000000101"
 CAT_KIYIM="00000000-0000-0000-0000-000000000102"
 CAT_UY="00000000-0000-0000-0000-000000000103"
+CAT_SMART="00000000-0000-0000-0000-000000000111"
+CAT_NOTE="00000000-0000-0000-0000-000000000112"
+CAT_AUDIO="00000000-0000-0000-0000-000000000113"
+CAT_MEN="00000000-0000-0000-0000-000000000121"
+CAT_WOMEN="00000000-0000-0000-0000-000000000122"
+CAT_KIDS="00000000-0000-0000-0000-000000000123"
+CAT_KITCHEN="00000000-0000-0000-0000-000000000131"
+CAT_CLEAN="00000000-0000-0000-0000-000000000132"
+CAT_HOME_TEX="00000000-0000-0000-0000-000000000133"
 
 echo "Login admin..."
 TOK=$(curl -sf "${HDR[@]}" -d '{"email":"admin@gayrat.uz","password":"Admin123!"}' "$API_AUTH/v1/auth/login" | python3 -c "import sys,json; print(json.load(sys.stdin)['tokens']['access_token'])")
@@ -54,8 +63,27 @@ create_product() {
     curl -sf "${AUTH[@]}" -d @- "$API_CATALOG/v1/products" >/dev/null \
     && echo "  product: $slug" \
     || echo "  product skip/fail: $slug"
-import json, sys
+import json, sys, hashlib
 vendor_id, category_id, slug, name_uz, name_ru, desc_uz, desc_ru, price, qty, featured = sys.argv[1:]
+photos = {
+  "samsung-a55": ["/products/prod-phone-samsung.jpg"],
+  "xiaomi-redmi-note-13": ["/products/prod-phone-xiaomi.jpg"],
+  "airpods-pro-2": ["/products/prod-earbuds.jpg"],
+  "lenovo-ideapad-3": ["/products/prod-laptop.jpg"],
+  "jbl-flip-6": ["/products/prod-speaker.jpg"],
+  "atlas-kurtka": ["/products/prod-jacket.jpg"],
+  "erkak-futbolka": ["/products/prod-tshirt.jpg", "/products/prod-tshirt.jpg"],
+  "ayol-poyabzal": ["/products/prod-sneakers.jpg"],
+  "bolalar-sviter": ["/products/prod-sweater.jpg"],
+  "klassik-shim": ["/products/prod-trousers.jpg"],
+  "blender-philips": ["/products/prod-blender.jpg"],
+  "choynak-tefal": ["/products/prod-kettle.jpg"],
+  "yostiq-set": ["/products/prod-pillows.jpg"],
+  "tozalash-robot": ["/products/prod-robot-vac.jpg"],
+  "non-pishirgich": ["/products/prod-breadmaker.jpg"],
+}
+n = (int(hashlib.md5(slug.encode()).hexdigest(), 16) % 10) + 1
+imgs = photos.get(slug, [f"/products/p{n}.svg"])
 body = {
   "category_id": category_id,
   "slug": slug,
@@ -68,7 +96,7 @@ body = {
   "inventory_quantity": int(qty),
   "status": "active",
   "is_featured": featured.lower() == "true",
-  "images": [],
+  "images": imgs,
 }
 if vendor_id:
   body["vendor_id"] = vendor_id
@@ -82,27 +110,31 @@ VID2=$(create_vendor "dilshod@gayrat.uz" "Vendor123!" "Dilshod" "Karimov" "+9989
 VID3=$(create_vendor "nilufar@gayrat.uz" "Vendor123!" "Nilufar" "Rahimova" "+998901112255" "Uy Comfort" "uy-comfort" "Uy-ro'zg'or")
 
 echo
+echo "=== Subcategories ==="
+bash "$(dirname "$0")/seed-subcategories.sh" || true
+
+echo
 echo "=== Products ==="
-# Ali Shop — electronics
-create_product "${VID1}" "$CAT_ELEK" "samsung-a55" "Samsung Galaxy A55" "Samsung Galaxy A55" "128GB, 5G" "128GB, 5G" 4599000 25 true
-create_product "${VID1}" "$CAT_ELEK" "xiaomi-redmi-note-13" "Xiaomi Redmi Note 13" "Xiaomi Redmi Note 13" "8/256GB, AMOLED" "8/256GB, AMOLED" 2899000 40 true
-create_product "${VID1}" "$CAT_ELEK" "airpods-pro-2" "AirPods Pro 2" "AirPods Pro 2" "Shovqinni bostirish" "Шумоподавление" 3299000 15 true
-create_product "${VID1}" "$CAT_ELEK" "lenovo-ideapad-3" "Lenovo IdeaPad 3" "Lenovo IdeaPad 3" "Ryzen 5, 16GB RAM" "Ryzen 5, 16GB RAM" 7499000 12 false
-create_product "${VID1}" "$CAT_ELEK" "jbl-flip-6" "JBL Flip 6" "JBL Flip 6" "Portativ kolonka" "Портативная колонка" 1899000 30 false
+# Ali Shop — electronics (leaf subcategories)
+create_product "${VID1}" "$CAT_SMART" "samsung-a55" "Samsung Galaxy A55" "Samsung Galaxy A55" "128GB, 5G" "128GB, 5G" 4599000 25 true
+create_product "${VID1}" "$CAT_SMART" "xiaomi-redmi-note-13" "Xiaomi Redmi Note 13" "Xiaomi Redmi Note 13" "8/256GB, AMOLED" "8/256GB, AMOLED" 2899000 40 true
+create_product "${VID1}" "$CAT_AUDIO" "airpods-pro-2" "AirPods Pro 2" "AirPods Pro 2" "Shovqinni bostirish" "Шумоподавление" 3299000 15 true
+create_product "${VID1}" "$CAT_NOTE" "lenovo-ideapad-3" "Lenovo IdeaPad 3" "Lenovo IdeaPad 3" "Ryzen 5, 16GB RAM" "Ryzen 5, 16GB RAM" 7499000 12 false
+create_product "${VID1}" "$CAT_AUDIO" "jbl-flip-6" "JBL Flip 6" "JBL Flip 6" "Portativ kolonka" "Портативная колонка" 1899000 30 false
 
 # Toshkent Style — clothing
-create_product "${VID2}" "$CAT_KIYIM" "atlas-kurtka" "Qishki kurtka" "Зимняя куртка" "Issiq va qulay" "Тёплая и удобная" 899000 40 true
-create_product "${VID2}" "$CAT_KIYIM" "erkak-futbolka" "Erkaklar futbolkasi" "Мужская футболка" "100% paxta" "100% хлопок" 149000 100 true
-create_product "${VID2}" "$CAT_KIYIM" "ayol-poyabzal" "Ayollar krossovkalari" "Женские кроссовки" "Yengil va chiroyli" "Лёгкие и красивые" 459000 55 true
-create_product "${VID2}" "$CAT_KIYIM" "bolalar-sviter" "Bolalar sviteri" "Детский свитер" "Issiq to'qima" "Тёплая вязка" 199000 70 false
-create_product "${VID2}" "$CAT_KIYIM" "klassik-shim" "Klassik shim" "Классические брюки" "Ofis uchun" "Для офиса" 329000 45 false
+create_product "${VID2}" "$CAT_MEN" "atlas-kurtka" "Qishki kurtka" "Зимняя куртка" "Issiq va qulay" "Тёплая и удобная" 899000 40 true
+create_product "${VID2}" "$CAT_MEN" "erkak-futbolka" "Erkaklar futbolkasi" "Мужская футболка" "100% paxta" "100% хлопок" 149000 100 true
+create_product "${VID2}" "$CAT_WOMEN" "ayol-poyabzal" "Ayollar krossovkalari" "Женские кроссовки" "Yengil va chiroyli" "Лёгкие и красивые" 459000 55 true
+create_product "${VID2}" "$CAT_KIDS" "bolalar-sviter" "Bolalar sviteri" "Детский свитер" "Issiq to'qima" "Тёплая вязка" 199000 70 false
+create_product "${VID2}" "$CAT_MEN" "klassik-shim" "Klassik shim" "Классические брюки" "Ofis uchun" "Для офиса" 329000 45 false
 
 # Uy Comfort — home
-create_product "${VID3}" "$CAT_UY" "blender-philips" "Philips blender" "Блендер Philips" "800W, 2 tezlik" "800W, 2 скорости" 799000 20 true
-create_product "${VID3}" "$CAT_UY" "choynak-tefal" "Tefal choynak" "Чайник Tefal" "1.7L, po'lat" "1.7L, сталь" 449000 35 true
-create_product "${VID3}" "$CAT_UY" "yostiq-set" "Yostiq to'plami (2 dona)" "Набор подушек (2 шт)" "Gipoallergen" "Гипоаллергенные" 299000 60 false
-create_product "${VID3}" "$CAT_UY" "tozalash-robot" "Robot changyutgich" "Робот-пылесос" "Smart mapping" "Умная карта" 2499000 10 true
-create_product "${VID3}" "$CAT_UY" "non-pishirgich" "Non pishirgich" "Хлебопечка" "12 dastur" "12 программ" 1299000 18 false
+create_product "${VID3}" "$CAT_KITCHEN" "blender-philips" "Philips blender" "Блендер Philips" "800W, 2 tezlik" "800W, 2 скорости" 799000 20 true
+create_product "${VID3}" "$CAT_KITCHEN" "choynak-tefal" "Tefal choynak" "Чайник Tefal" "1.7L, po'lat" "1.7L, сталь" 449000 35 true
+create_product "${VID3}" "$CAT_HOME_TEX" "yostiq-set" "Yostiq to'plami (2 dona)" "Набор подушек (2 шт)" "Gipoallergen" "Гипоаллергенные" 299000 60 false
+create_product "${VID3}" "$CAT_CLEAN" "tozalash-robot" "Robot changyutgich" "Робот-пылесос" "Smart mapping" "Умная карта" 2499000 10 true
+create_product "${VID3}" "$CAT_KITCHEN" "non-pishirgich" "Non pishirgich" "Хлебопечка" "12 dastur" "12 программ" 1299000 18 false
 
 echo
 echo "=== Demo gallery + variants (erkak-futbolka) ==="
@@ -110,29 +142,22 @@ PID=$(curl -sf "${AUTH[@]}" "$API_CATALOG/v1/products/erkak-futbolka" | python3 
 if [[ -n "${PID}" ]]; then
   curl -sf "${AUTH[@]}" -X POST "$API_CATALOG/v1/products/$PID/images" -d '{
     "urls": [
-      "https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=800&q=80",
-      "https://images.unsplash.com/photo-1583743814966-8936f5b7be1a?w=800&q=80",
-      "https://images.unsplash.com/photo-1618354691373-d851c5c3a990?w=800&q=80",
-      "https://images.unsplash.com/photo-1576566588028-4147f3842fbf?w=800&q=80",
-      "https://images.unsplash.com/photo-1622445275463-afa2ab738c34?w=800&q=80",
-      "https://images.unsplash.com/photo-1503342217505-b0a15ec3261c?w=800&q=80",
-      "https://images.unsplash.com/photo-1489987707025-afc232f7ea0f?w=800&q=80",
-      "https://images.unsplash.com/photo-1562157873-818bc0726f68?w=800&q=80",
-      "https://images.unsplash.com/photo-1554568218-0f1715e72254?w=800&q=80",
-      "https://images.unsplash.com/photo-1596755094514-f87e34085b83?w=800&q=80"
+      "/products/prod-tshirt.jpg",
+      "/products/prod-tshirt.jpg"
     ]
   }' >/dev/null && echo "  images attached" || echo "  images skip"
 
   # Full color × size matrix so Rang and O'lcham can be chosen independently
-  python3 - "$PID" <<'PY' | while IFS= read -r body; do
+  while IFS= read -r body; do
+    [[ -z "$body" ]] && continue
     curl -sf "${AUTH[@]}" -X POST "$API_CATALOG/v1/products/$PID/variants" -d "$body" >/dev/null || true
-  done
+  done < <(python3 - "$PID" <<'PY'
 import json, sys
 pid = sys.argv[1]
 colors = {
-  "Qora": "https://images.unsplash.com/photo-1583743814966-8936f5b7be1a?w=800&q=80",
-  "Oq": "https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=800&q=80",
-  "Ko'k": "https://images.unsplash.com/photo-1576566588028-4147f3842fbf?w=800&q=80",
+  "Qora": "/products/prod-tshirt.jpg",
+  "Oq": "/products/prod-tshirt.jpg",
+  "Ko'k": "/products/prod-tshirt.jpg",
 }
 sizes = ["M", "L", "XL"]
 slug = {"Qora": "qora", "Oq": "oq", "Ko'k": "kok"}
@@ -149,6 +174,7 @@ for color, img in colors.items():
       "attributes": {"color": color, "size": size},
     }, ensure_ascii=False))
 PY
+)
   echo "  variants matrix seeded (3 colors × 3 sizes)"
 else
   echo "  product erkak-futbolka not found, skip gallery demo"
@@ -159,10 +185,13 @@ curl -sf "${AUTH[@]}" -d "{\"label\":\"Uy\",\"full_name\":\"Admin Gayrat\",\"pho
   "$API_CART/v1/addresses" >/dev/null || true
 
 echo "=== Home banners ==="
-curl -sf "${AUTH[@]}" -d '{"kind":"hero","image_url":"https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=1600&q=80","headline":"Gayrat Marketplace","sub":"Oʻzbekiston boʻylab yetkazib berish","cta_label":"Katalog","cta_href":"/catalog","sort_order":0,"active":true,"show_brand":true}' \
+curl -sf "${AUTH[@]}" -d '{"kind":"hero","image_url":"/hero/hero-market.jpg","cta_href":"/products","interval_sec":6,"sort_order":0,"active":true}' \
   "$API_CATALOG/v1/admin/hero-banners" >/dev/null \
   && echo "  hero banner seeded" || echo "  hero banner skip/fail"
-curl -sf "${AUTH[@]}" -d '{"kind":"promo","image_url":"https://images.unsplash.com/photo-1607082348824-0a96f2a4b9da?w=1200&q=80","headline":"Yozgi chegirmalar","sub":"Tanlangan tovarlarga -20%","cta_label":"Koʻrish","cta_href":"/catalog","sort_order":0,"active":true}' \
+curl -sf "${AUTH[@]}" -d '{"kind":"hero","image_url":"/hero/hero-delivery.jpg","cta_href":"/products","interval_sec":6,"sort_order":1,"active":true}' \
+  "$API_CATALOG/v1/admin/hero-banners" >/dev/null \
+  && echo "  hero banner 2 seeded" || echo "  hero banner 2 skip/fail"
+curl -sf "${AUTH[@]}" -d '{"kind":"promo","image_url":"/hero/hero-promo.jpg","cta_href":"/products","interval_sec":8,"sort_order":0,"active":true}' \
   "$API_CATALOG/v1/admin/hero-banners" >/dev/null \
   && echo "  promo banner seeded" || echo "  promo banner skip/fail"
 

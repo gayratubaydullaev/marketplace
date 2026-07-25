@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import type { Product, Variant } from "@/lib/api";
 import { resolveGalleryImages } from "@/lib/api";
+import { rewriteMediaUrls } from "@/lib/media";
 import { ProductGallery } from "@/components/ProductGallery";
 import { ProductPurchase } from "@/components/ProductPurchase";
 
@@ -23,10 +24,13 @@ export function ProductDetail({
 }) {
   const productImages = useMemo(
     () =>
-      Array.isArray(product.images)
-        ? product.images.filter((image): image is string => typeof image === "string")
-        : [],
-    [product.images]
+      rewriteMediaUrls(
+        Array.isArray(product.images)
+          ? product.images.filter((image): image is string => typeof image === "string")
+          : [],
+        { fallbackKey: product.id || product.slug }
+      ),
+    [product.images, product.id, product.slug]
   );
 
   const [variantId, setVariantId] = useState("");

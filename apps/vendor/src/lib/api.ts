@@ -47,13 +47,71 @@ export function tokenHasVendorRole(token = getToken()): boolean {
   return isVendorRole(payload?.role);
 }
 
+let refreshPromise: Promise<boolean> | null = null;
+
+async function tryRefresh(): Promise<boolean> {
+  if (typeof window === "undefined") return false;
+  const refresh = localStorage.getItem("refresh_token");
+  if (!refresh) return false;
+  if (!refreshPromise) {
+    refreshPromise = (async () => {
+      try {
+        const res = await fetch(resolve("/v1/auth/refresh"), {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Tenant-ID": TENANT,
+          },
+          body: JSON.stringify({ refresh_token: refresh }),
+          cache: "no-store",
+        });
+        if (!res.ok) {
+          clearTokens();
+          return false;
+        }
+        const data = (await res.json()) as {
+          tokens?: { access_token?: string; refresh_token?: string };
+        };
+        const access = data.tokens?.access_token;
+        if (!access) {
+          clearTokens();
+          return false;
+        }
+        localStorage.setItem("access_token", access);
+        if (data.tokens?.refresh_token) {
+          localStorage.setItem("refresh_token", data.tokens.refresh_token);
+        }
+        return true;
+      } catch {
+        return false;
+      } finally {
+        refreshPromise = null;
+      }
+    })();
+  }
+  return refreshPromise;
+}
+
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   if (!(init.body instanceof FormData)) headers.set("Content-Type", "application/json");
   headers.set("X-Tenant-ID", TENANT);
   const token = getToken();
   if (token) headers.set("Authorization", `Bearer ${token}`);
-  const res = await fetch(resolve(path), { ...init, headers, cache: "no-store" });
+
+  let res = await fetch(resolve(path), { ...init, headers, cache: "no-store" });
+  if (res.status === 401 && typeof window !== "undefined" && !path.includes("/auth/")) {
+    const ok = await tryRefresh();
+    if (ok) {
+      const retryHeaders = new Headers(init.headers);
+      if (!(init.body instanceof FormData)) retryHeaders.set("Content-Type", "application/json");
+      retryHeaders.set("X-Tenant-ID", TENANT);
+      const next = getToken();
+      if (next) retryHeaders.set("Authorization", `Bearer ${next}`);
+      res = await fetch(resolve(path), { ...init, headers: retryHeaders, cache: "no-store" });
+    }
+  }
+
   if (!res.ok) throw new Error(await res.text());
   if (res.status === 204) return undefined as T;
   return res.json();

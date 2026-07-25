@@ -30,7 +30,7 @@ export default async function LocaleLayout({
       <HtmlLang locale={locale} />
       <div dir={dir} lang={locale} className="min-h-dvh overflow-x-clip">
         <Header locale={locale} />
-        <main className="site-container min-w-0 overflow-x-clip pb-[calc(var(--bottom-chrome)+1.25rem)] pt-4 md:pb-20 md:pt-6">
+        <main className="site-container min-w-0 overflow-x-clip pb-[calc(var(--bottom-chrome)+1rem)] pt-2 md:pb-12 md:pt-3">
           {children}
         </main>
         <Footer locale={locale} />

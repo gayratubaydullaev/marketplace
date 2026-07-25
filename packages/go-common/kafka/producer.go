@@ -3,6 +3,7 @@ package kafka
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/segmentio/kafka-go"
@@ -36,15 +37,27 @@ func (p *Producer) writer(topic string) *kafka.Writer {
 }
 
 func (p *Producer) Publish(ctx context.Context, topic, key string, payload any) error {
+	if p == nil || len(p.brokers) == 0 {
+		return nil
+	}
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return err
 	}
-	return p.writer(topic).WriteMessages(ctx, kafka.Message{
+	// Local/dev often runs without Kafka; never block handlers for long.
+	writeCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
+	defer cancel()
+	err = p.writer(topic).WriteMessages(writeCtx, kafka.Message{
 		Key:   []byte(key),
 		Value: body,
 		Time:  time.Now(),
 	})
+	if err != nil {
+		// Best-effort fan-out: DB mutations already succeeded in callers.
+		fmt.Printf("kafka: publish %s failed: %v\n", topic, err)
+		return nil
+	}
+	return nil
 }
 
 func (p *Producer) Close() error {

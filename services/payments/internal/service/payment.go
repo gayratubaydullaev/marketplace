@@ -16,12 +16,14 @@ import (
 
 func Providers() map[string]Provider {
 	return map[string]Provider{
-		"payme":         PaymeProvider{MerchantID: envOr("PAYME_MERCHANT_ID", "gayrat-payme"), Secret: envOr("PAYME_SECRET", "payme-sandbox-secret")},
-		"click":         ClickProvider{MerchantID: envOr("CLICK_MERCHANT_ID", "gayrat-click"), Secret: envOr("CLICK_SECRET", "click-sandbox-secret")},
-		"uzum":          UzumProvider{MerchantID: envOr("UZUM_MERCHANT_ID", "gayrat-uzum"), Secret: envOr("UZUM_SECRET", "uzum-sandbox-secret")},
-		"stripe":        StripeProvider{Secret: envOr("STRIPE_SECRET", "sk_test_dev"), WebhookSecret: os.Getenv("STRIPE_WEBHOOK_SECRET")},
-		"paypal":        PayPalProvider{ClientID: os.Getenv("PAYPAL_CLIENT_ID"), ClientSecret: os.Getenv("PAYPAL_CLIENT_SECRET")},
-		"bank_transfer": BankTransferProvider{},
+		"payme":             PaymeProvider{MerchantID: envOr("PAYME_MERCHANT_ID", "gayrat-payme"), Secret: envOr("PAYME_SECRET", "payme-sandbox-secret")},
+		"click":             ClickProvider{MerchantID: envOr("CLICK_MERCHANT_ID", "gayrat-click"), Secret: envOr("CLICK_SECRET", "click-sandbox-secret")},
+		"uzum":              UzumProvider{MerchantID: envOr("UZUM_MERCHANT_ID", "gayrat-uzum"), Secret: envOr("UZUM_SECRET", "uzum-sandbox-secret")},
+		"stripe":            StripeProvider{Secret: envOr("STRIPE_SECRET", "sk_test_dev"), WebhookSecret: os.Getenv("STRIPE_WEBHOOK_SECRET")},
+		"paypal":            PayPalProvider{ClientID: os.Getenv("PAYPAL_CLIENT_ID"), ClientSecret: os.Getenv("PAYPAL_CLIENT_SECRET")},
+		"bank_transfer":     BankTransferProvider{},
+		"cash_on_delivery":  CashOnDeliveryProvider{},
+		"card_on_delivery":  CardOnDeliveryProvider{},
 	}
 }
 
@@ -84,7 +86,10 @@ func (s *PaymentService) MarkPaid(ctx context.Context, p model.Payment) error {
 	if _, err := tx.Exec(`UPDATE payments SET status='succeeded', updated_at=NOW() WHERE id=$1 AND status<>'succeeded'`, p.ID); err != nil {
 		return err
 	}
-	res, err := tx.Exec(`UPDATE orders SET status='confirmed', payment_status='paid', updated_at=NOW()
+	res, err := tx.Exec(`UPDATE orders SET
+			payment_status='paid',
+			status = CASE WHEN status = 'pending' THEN 'confirmed' ELSE status END,
+			updated_at=NOW()
 		WHERE id=$1 AND payment_status='unpaid' AND status NOT IN ('cancelled','refunded','returned')`, p.OrderID)
 	if err != nil {
 		return err

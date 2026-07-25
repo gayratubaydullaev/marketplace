@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
@@ -15,6 +15,7 @@ import {
   VariantSelectModal,
   type VariantSelectIntent,
 } from "@/components/VariantSelectModal";
+import { track } from "@/lib/track";
 
 export function ProductPurchase({
   product,
@@ -45,6 +46,10 @@ export function ProductPurchase({
   const setCartQty = useCart((s) => s.setQty);
   const [modalOpen, setModalOpen] = useState(false);
   const [modalIntent, setModalIntent] = useState<VariantSelectIntent>("add");
+
+  useEffect(() => {
+    track("product_view", product.id, { slug: product.slug, source: "pdp" });
+  }, [product.id, product.slug]);
 
   const selected = useMemo(
     () => variants.find((v) => v.id === variantId) || null,
@@ -108,6 +113,11 @@ export function ProductPurchase({
       return;
     }
     add(lineItemFor(variant, quantity));
+    track("add_to_cart", product.id, {
+      slug: product.slug,
+      variant_id: variant?.id || "",
+      source: "pdp",
+    });
   }
 
   function onAdd() {
@@ -117,6 +127,11 @@ export function ProductPurchase({
       return;
     }
     add(lineItemFor(selected, 1));
+    track("add_to_cart", product.id, {
+      slug: product.slug,
+      variant_id: selected?.id || "",
+      source: "pdp",
+    });
   }
 
   function onQtyDelta(delta: number) {
@@ -150,6 +165,11 @@ export function ProductPurchase({
       return;
     }
     add(lineItemFor(variant, 1));
+    track("add_to_cart", product.id, {
+      slug: product.slug,
+      variant_id: variant.id,
+      source: "pdp-modal",
+    });
   }
 
   return (
