@@ -1,18 +1,18 @@
-go 1.24.0
+go 1.25.12
 
 use (
 	./packages/go-common
 	./packages/proto
+	./services/analytics
 	./services/auth
-	./services/catalog
-	./services/search
 	./services/cart
+	./services/catalog
+	./services/media
+	./services/notifications
 	./services/orders
 	./services/payments
-	./services/vendor
-	./services/reviews
-	./services/notifications
-	./services/analytics
-	./services/media
 	./services/realtime
+	./services/reviews
+	./services/search
+	./services/vendor
 )
