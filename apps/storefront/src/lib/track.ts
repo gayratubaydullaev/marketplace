@@ -71,18 +71,6 @@ export function track(
     },
   });
 
-  try {
-    if (navigator.sendBeacon) {
-      const blob = new Blob([body], { type: "application/json" });
-      // sendBeacon cannot set custom headers — fall back to fetch
-      if (!headers.Authorization) {
-        // Still need tenant header — use fetch
-      }
-    }
-  } catch {
-    /* ignore */
-  }
-
   void fetch(`${API_BASE}/v1/analytics/events`, {
     method: "POST",
     headers,

@@ -109,10 +109,10 @@ export function ensureCartHydrated(): Promise<void> {
   if (typeof window === "undefined") return Promise.resolve();
   if (useCart.persist.hasHydrated()) return Promise.resolve();
   if (!hydratePromise) {
-    hydratePromise = new Promise((resolve) => {
+    hydratePromise = new Promise<void>((resolve) => {
       const finish = () => resolve();
       const unsub = useCart.persist.onFinishHydration(finish);
-      void useCart.persist.rehydrate().then(() => {
+      void Promise.resolve(useCart.persist.rehydrate()).then(() => {
         unsub();
         finish();
       });
