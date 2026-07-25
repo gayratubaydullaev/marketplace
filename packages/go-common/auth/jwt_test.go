@@ -20,7 +20,7 @@ func TestManagerIssueAndParseHS256(t *testing.T) {
 		t.Fatalf("Algorithm() = %q, want HS256", got)
 	}
 
-	pair, err := manager.Issue("user-1", "tenant-1", "buyer@example.com", RoleCustomer, "")
+	pair, err := manager.Issue("user-1", "tenant-1", "buyer@example.com", RoleCustomer, "", "")
 	if err != nil {
 		t.Fatalf("Issue() error = %v", err)
 	}

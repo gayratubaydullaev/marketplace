@@ -18,7 +18,7 @@ func TestCORSAllowlist(t *testing.T) {
 func TestCORSAllowlistDefaults(t *testing.T) {
 	t.Setenv("CORS_ORIGINS", "")
 
-	if got := CORSAllowlist(); len(got) != 3 {
-		t.Fatalf("default allowlist length = %d, want 3", len(got))
+	if got := CORSAllowlist(); len(got) != 8 {
+		t.Fatalf("default allowlist length = %d, want 8", len(got))
 	}
 }

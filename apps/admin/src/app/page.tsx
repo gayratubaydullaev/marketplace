@@ -20,6 +20,8 @@ export default function AdminHome() {
   }>({});
   const [pendingVendors, setPendingVendors] = useState(0);
   const [pendingReviews, setPendingReviews] = useState(0);
+  const [pendingDeliveries, setPendingDeliveries] = useState(0);
+  const [onShiftCouriers, setOnShiftCouriers] = useState(0);
   const [dashErr, setDashErr] = useState("");
   const [dashLoading, setDashLoading] = useState(false);
 
@@ -35,11 +37,15 @@ export default function AdminHome() {
       api<typeof stats>("/v1/analytics/tenant/overview").catch(() => ({})),
       api<{ items?: { status?: string }[] }>("/v1/admin/vendors").catch(() => ({ items: [] })),
       api<{ items?: unknown[] }>("/v1/admin/reviews?status=pending").catch(() => ({ items: [] })),
+      api<{ items?: { status?: string }[] }>("/v1/admin/deliveries?status=pending_assign").catch(() => ({ items: [] })),
+      api<{ items?: { on_shift?: boolean }[] }>("/v1/admin/couriers").catch(() => ({ items: [] })),
     ])
-      .then(([s, vendors, reviews]) => {
+      .then(([s, vendors, reviews, deliveries, couriers]) => {
         setStats(s || {});
         setPendingVendors((vendors.items || []).filter((v) => v.status === "pending").length);
         setPendingReviews((reviews.items || []).length);
+        setPendingDeliveries((deliveries.items || []).length);
+        setOnShiftCouriers((couriers.items || []).filter((c) => c.on_shift).length);
       })
       .catch((e) => setDashErr(errMsg(e)))
       .finally(() => setDashLoading(false));
@@ -161,9 +167,17 @@ export default function AdminHome() {
       </div>
       <div className="mt-8">
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">{t("dashAttention")}</h2>
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <LinkCard href="/vendors?status=pending" title={t("dashPendingVendors")} value={pendingVendors} openLabel={t("open")} alert />
           <LinkCard href="/reviews" title={t("dashPendingReviews")} value={pendingReviews} openLabel={t("open")} alert />
+          <LinkCard
+            href="/deliveries?status=pending_assign"
+            title={t("dashPendingDeliveries")}
+            value={pendingDeliveries}
+            openLabel={t("open")}
+            alert
+          />
+          <LinkCard href="/fleet" title={t("dashOnShiftCouriers")} value={onShiftCouriers} openLabel={t("open")} />
         </div>
       </div>
       <div className="mt-8">
@@ -171,6 +185,9 @@ export default function AdminHome() {
         <div className="flex flex-wrap gap-2.5 text-sm">
           <QuickLink href="/products" label={t("navProducts")} />
           <QuickLink href="/orders" label={t("navOrders")} />
+          <QuickLink href="/deliveries" label={t("navDeliveries")} />
+          <QuickLink href="/fleet" label={t("navFleet")} />
+          <QuickLink href="/couriers" label={t("navCouriers")} />
           <QuickLink href="/categories" label={t("navCategories")} />
           <QuickLink href="/banners" label={t("navBanners")} />
           <QuickLink href="/vendors" label={t("navVendors")} />

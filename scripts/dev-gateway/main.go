@@ -14,6 +14,11 @@ var routes = []struct {
 	prefix string
 	target string
 }{
+	{"/v1/admin/couriers", "http://127.0.0.1:8013"},
+	{"/v1/admin/courier-shifts", "http://127.0.0.1:8013"},
+	{"/v1/admin/courier-ratings", "http://127.0.0.1:8013"},
+	{"/v1/admin/courier-payouts", "http://127.0.0.1:8013"},
+	{"/v1/admin/deliveries", "http://127.0.0.1:8013"},
 	{"/v1/admin/users", "http://127.0.0.1:8001"},
 	{"/v1/admin/reviews", "http://127.0.0.1:8008"},
 	{"/v1/admin/returns", "http://127.0.0.1:8005"},
@@ -32,6 +37,8 @@ var routes = []struct {
 	{"/v1/addresses", "http://127.0.0.1:8004"},
 	{"/v1/wishlist", "http://127.0.0.1:8004"},
 	{"/v1/orders", "http://127.0.0.1:8005"},
+	{"/v1/delivery", "http://127.0.0.1:8013"},
+	{"/v1/courier", "http://127.0.0.1:8013"},
 	{"/v1/payments", "http://127.0.0.1:8006"},
 	{"/v1/vendors", "http://127.0.0.1:8007"},
 	{"/v1/vendor", "http://127.0.0.1:8007"},
@@ -47,6 +54,9 @@ var routes = []struct {
 func resolveTarget(path string) string {
 	if strings.HasPrefix(path, "/v1/products/") && strings.Contains(path, "/reviews") {
 		return "http://127.0.0.1:8008"
+	}
+	if strings.HasPrefix(path, "/v1/orders/") && strings.HasSuffix(path, "/ready-for-delivery") {
+		return "http://127.0.0.1:8013"
 	}
 	type hit struct {
 		prefix, target string
@@ -81,13 +91,19 @@ func stripUpstreamCORS(h http.Header) {
 
 func corsAllowlist() map[string]struct{} {
 	allowed := map[string]struct{}{
-		"http://localhost:3000":    {},
-		"http://localhost:3001":    {},
-		"http://localhost:3002":    {},
-		"https://gayrat.uz":        {},
-		"https://www.gayrat.uz":    {},
-		"https://admin.gayrat.uz":  {},
-		"https://vendor.gayrat.uz": {},
+		"http://localhost:3000":     {},
+		"http://localhost:3001":     {},
+		"http://localhost:3002":     {},
+		"http://localhost:3003":     {},
+		"http://127.0.0.1:3000":     {},
+		"http://127.0.0.1:3001":     {},
+		"http://127.0.0.1:3002":     {},
+		"http://127.0.0.1:3003":     {},
+		"https://gayrat.uz":         {},
+		"https://www.gayrat.uz":     {},
+		"https://admin.gayrat.uz":   {},
+		"https://vendor.gayrat.uz":  {},
+		"https://courier.gayrat.uz": {},
 	}
 	if raw := os.Getenv("CORS_ORIGINS"); raw != "" {
 		allowed = map[string]struct{}{}

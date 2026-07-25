@@ -6,7 +6,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { formatUZS, type Locale } from "@gayrat/i18n";
 import { api, variantImageList, type Product, type Variant } from "@/lib/api";
 import { useWishlist } from "@/lib/wishlist";
-import { useCart } from "@/lib/cart";
+import { useCart, ensureCartHydrated } from "@/lib/cart";
 import { rewriteMediaUrl } from "@/lib/media";
 import { EmptyState, PageHeader } from "@/components/PageChrome";
 import { VariantSelectModal } from "@/components/VariantSelectModal";
@@ -34,12 +34,29 @@ export default function WishlistPage() {
     if (loadingId) return;
     setLoadingId(item.id);
     try {
-      const data = await api<{ product?: Product; variants?: Variant[] }>(
-        `/v1/products/${item.slug}`
-      );
-      const list = data.variants || [];
+      await ensureCartHydrated();
+      let list: Variant[] = [];
+      let product: Product | undefined;
+      try {
+        const data = await api<{ product?: Product; variants?: Variant[] | null }>(
+          `/v1/products/${item.slug}`
+        );
+        list = Array.isArray(data.variants) ? data.variants : [];
+        product = data.product;
+      } catch {
+        add({
+          product_id: item.id,
+          title: item.title,
+          unit_price: item.price,
+          quantity: 1,
+          slug: item.slug,
+          image: item.image,
+        });
+        flashAdded(item.id);
+        return;
+      }
       if (list.length > 0) {
-        const product: Product = data.product || {
+        const p: Product = product || {
           id: item.id,
           slug: item.slug,
           translations: {},
@@ -47,12 +64,12 @@ export default function WishlistPage() {
           currency: "UZS",
           images: item.image ? [item.image] : [],
         };
-        setModalProduct(product);
+        setModalProduct(p);
         setModalVariants(list);
         setModalName(item.title);
         setModalImages(
-          Array.isArray(product.images)
-            ? product.images.filter((x): x is string => typeof x === "string")
+          Array.isArray(p.images)
+            ? p.images.filter((x): x is string => typeof x === "string")
             : item.image
               ? [item.image]
               : []
@@ -69,8 +86,6 @@ export default function WishlistPage() {
         image: item.image,
       });
       flashAdded(item.id);
-    } catch {
-      // keep cart clean if we cannot resolve variants
     } finally {
       setLoadingId(null);
     }

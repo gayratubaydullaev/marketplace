@@ -570,7 +570,7 @@ func listAddresses(c *gin.Context, database *sqlx.DB) {
 	claims := middleware.GetClaims(c)
 	items := []Address{}
 	err := withTenant(c, database, func(tx *sqlx.Tx) error {
-		_ = tx.Select(&items, `SELECT id, tenant_id, user_id, label, full_name, phone, region, district, mahalla, street, building, apartment, postal_code, is_default FROM addresses WHERE user_id=$1 AND tenant_id=$2`, claims.UserID, middleware.GetTenantID(c))
+		_ = tx.Select(&items, `SELECT id, tenant_id, user_id, label, full_name, phone, region, district, mahalla, street, building, apartment, postal_code, lat, lng, is_default FROM addresses WHERE user_id=$1 AND tenant_id=$2`, claims.UserID, middleware.GetTenantID(c))
 		if items == nil {
 			items = []Address{}
 		}
@@ -595,7 +595,7 @@ func createAddress(c *gin.Context, database *sqlx.DB) {
 	}
 	id := uuid.NewString()
 	err := withTenant(c, database, func(tx *sqlx.Tx) error {
-		_, err := tx.Exec(`INSERT INTO addresses (id, tenant_id, user_id, label, full_name, phone, region, district, mahalla, street, building, apartment, postal_code, is_default) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`, id, middleware.GetTenantID(c), claims.UserID, body.Label, body.FullName, body.Phone, body.Region, body.District, body.Mahalla, body.Street, body.Building, body.Apartment, body.PostalCode, body.IsDefault)
+		_, err := tx.Exec(`INSERT INTO addresses (id, tenant_id, user_id, label, full_name, phone, region, district, mahalla, street, building, apartment, postal_code, lat, lng, is_default) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`, id, middleware.GetTenantID(c), claims.UserID, body.Label, body.FullName, body.Phone, body.Region, body.District, body.Mahalla, body.Street, body.Building, body.Apartment, body.PostalCode, body.Lat, body.Lng, body.IsDefault)
 		return err
 	})
 	if err != nil {
@@ -612,7 +612,7 @@ func updateAddress(c *gin.Context, database *sqlx.DB) {
 		return
 	}
 	err := withTenant(c, database, func(tx *sqlx.Tx) error {
-		_, err := tx.Exec(`UPDATE addresses SET label=$1, full_name=$2, phone=$3, region=$4, district=$5, mahalla=$6, street=$7, building=$8, apartment=$9, postal_code=$10, is_default=$11 WHERE id=$12 AND user_id=$13`, body.Label, body.FullName, body.Phone, body.Region, body.District, body.Mahalla, body.Street, body.Building, body.Apartment, body.PostalCode, body.IsDefault, c.Param("id"), claims.UserID)
+		_, err := tx.Exec(`UPDATE addresses SET label=$1, full_name=$2, phone=$3, region=$4, district=$5, mahalla=$6, street=$7, building=$8, apartment=$9, postal_code=$10, lat=$11, lng=$12, is_default=$13 WHERE id=$14 AND user_id=$15`, body.Label, body.FullName, body.Phone, body.Region, body.District, body.Mahalla, body.Street, body.Building, body.Apartment, body.PostalCode, body.Lat, body.Lng, body.IsDefault, c.Param("id"), claims.UserID)
 		return err
 	})
 	if err != nil {

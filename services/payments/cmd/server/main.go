@@ -52,7 +52,7 @@ func main() {
 	v1.GET("/providers", payments.ProvidersList)
 	v1.POST("/intent", middleware.JWT(tokens, true), payments.Intent)
 	v1.POST("/confirm", middleware.JWT(tokens, true), payments.Confirm)
-	v1.POST("/collect", middleware.JWT(tokens, false), middleware.RequireRoles(commonauth.RoleTenantAdmin, commonauth.RoleManager, commonauth.RoleVendor), payments.Collect)
+	v1.POST("/collect", middleware.JWT(tokens, false), middleware.RequireRoles(commonauth.RoleTenantAdmin, commonauth.RoleManager, commonauth.RoleVendor, commonauth.RoleCourier), payments.Collect)
 	v1.POST("/webhooks/:provider", payments.Webhook)
 	v1.GET("/order/:order_id", middleware.JWT(tokens, false), payments.List)
 	v1.GET("/:id/status", middleware.JWT(tokens, true), payments.GetStatus)

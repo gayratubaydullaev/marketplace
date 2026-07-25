@@ -1,11 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Input } from "@gayrat/ui";
 import { api, errMsg } from "@/lib/api";
 import { EmptyState, Msg, PageHeader, Pagination, Select, StatusBadge, TableShell } from "@/components/ui";
 import { useI18n } from "@/lib/i18n";
+import { usePoll } from "@/hooks/usePoll";
+import { deliveryStatusLabel } from "@/lib/status";
 
 type OrderRow = {
   order_id: string;
@@ -27,24 +30,60 @@ type Aggregated = {
   status: string;
   payment_status: string;
   created_at?: string;
+  delivery_status?: string;
 };
 
 const PAGE_SIZE = 20;
 
-export default function VendorOrders() {
+function OrdersInner() {
   const { t, locale } = useI18n();
+  const search = useSearchParams();
+  const statusFromUrl = search.get("status") || "all";
   const numberLocale = locale === "uz" ? "uz-UZ" : locale === "ru" ? "ru-RU" : locale === "ar" ? "ar" : "en";
   const [items, setItems] = useState<OrderRow[]>([]);
+  const [deliveryByOrder, setDeliveryByOrder] = useState<Record<string, string>>({});
   const [msg, setMsg] = useState("");
-  const [status, setStatus] = useState("all");
+  const [status, setStatus] = useState(statusFromUrl);
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
 
   useEffect(() => {
-    api<{ items: OrderRow[] }>("/v1/vendor/orders")
-      .then((d) => setItems(d.items || []))
-      .catch((e) => setMsg(errMsg(e)));
+    if (statusFromUrl) setStatus(statusFromUrl);
+  }, [statusFromUrl]);
+
+  const load = useCallback(async (soft = false) => {
+    const d = await api<{ items: OrderRow[] }>("/v1/vendor/orders");
+    const rows = d.items || [];
+    setItems(rows);
+    if (!soft) setMsg("");
+
+    const open = rows.filter(
+      (r) => r.status && !["delivered", "completed", "cancelled", "returned"].includes(r.status)
+    );
+    const openIds = Array.from(new Set(open.map((r) => String(r.order_id)))).slice(0, 25);
+
+    const entries = await Promise.all(
+      openIds.map(async (oid) => {
+        try {
+          const job = await api<{ status?: string }>(`/v1/delivery/orders/${oid}`);
+          return [oid, job.status || ""] as const;
+        } catch {
+          return [oid, ""] as const;
+        }
+      })
+    );
+    const next: Record<string, string> = {};
+    for (const [oid, st] of entries) {
+      if (st) next[oid] = st;
+    }
+    setDeliveryByOrder((prev) => ({ ...prev, ...next }));
   }, []);
+
+  useEffect(() => {
+    load().catch((e) => setMsg(errMsg(e)));
+  }, [load]);
+
+  usePoll(() => load(true).catch(() => {}), 20_000, true);
 
   const statusLabel = (s?: string) => {
     if (!s) return "—";
@@ -72,6 +111,7 @@ export default function VendorOrders() {
         status: row.status || "—",
         payment_status: row.payment_status || "",
         created_at: row.created_at,
+        delivery_status: deliveryByOrder[id],
       };
       if (row.order_number) cur.order_number = row.order_number;
       if (row.title) cur.titles.push(row.title);
@@ -79,10 +119,11 @@ export default function VendorOrders() {
       cur.total += Number(row.total_price || 0);
       if (row.status) cur.status = row.status;
       if (row.payment_status) cur.payment_status = row.payment_status;
+      cur.delivery_status = deliveryByOrder[id] || cur.delivery_status;
       map.set(id, cur);
     }
     return Array.from(map.values());
-  }, [items]);
+  }, [items, deliveryByOrder]);
 
   const filtered = useMemo(() => {
     return aggregated.filter((o) => {
@@ -141,6 +182,7 @@ export default function VendorOrders() {
               <th className="px-4 py-3">{t("orderColQty")}</th>
               <th className="px-4 py-3">{t("orderColTotal")}</th>
               <th className="px-4 py-3">{t("orderColStatus")}</th>
+              <th className="px-4 py-3">{t("orderColDelivery")}</th>
               <th className="px-4 py-3">{t("orderColPayment")}</th>
             </tr>
           </thead>
@@ -159,6 +201,13 @@ export default function VendorOrders() {
                   <StatusBadge status={o.status} label={statusLabel(o.status)} />
                 </td>
                 <td className="px-4 py-3">
+                  {o.delivery_status ? (
+                    <StatusBadge status={o.delivery_status} label={deliveryStatusLabel(t, o.delivery_status)} />
+                  ) : (
+                    <span className="text-xs text-slate-400">—</span>
+                  )}
+                </td>
+                <td className="px-4 py-3">
                   <StatusBadge status={o.payment_status} label={payLabel(o.payment_status)} />
                 </td>
               </tr>
@@ -168,5 +217,13 @@ export default function VendorOrders() {
       )}
       <Pagination page={page} pageSize={PAGE_SIZE} total={filtered.length} onPage={setPage} />
     </div>
+  );
+}
+
+export default function VendorOrders() {
+  return (
+    <Suspense fallback={<div className="h-40 animate-pulse rounded-2xl bg-white/80" />}>
+      <OrdersInner />
+    </Suspense>
   );
 }

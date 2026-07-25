@@ -59,6 +59,19 @@ func (h *PaymentHandler) canAccessOrder(c *gin.Context, orderID, tenantID string
 			return false
 		}
 		return n > 0
+	case commonauth.RoleCourier:
+		if claims.CourierID == "" {
+			return false
+		}
+		var n int
+		if err := h.Service.Repo.DB.Get(&n, `
+			SELECT COUNT(1) FROM delivery_jobs
+			WHERE order_id=$1 AND tenant_id=$2 AND courier_id::text=$3
+			  AND status IN ('assigned','accepted','at_pickup','picked_up','in_transit')`,
+			orderID, tenantID, claims.CourierID); err != nil {
+			return false
+		}
+		return n > 0
 	default:
 		return userID != nil && *userID == claims.UserID
 	}
@@ -202,7 +215,7 @@ func (h *PaymentHandler) Collect(c *gin.Context) {
 		return
 	}
 	switch claims.Role {
-	case commonauth.RoleTenantAdmin, commonauth.RoleManager, commonauth.RoleVendor:
+	case commonauth.RoleTenantAdmin, commonauth.RoleManager, commonauth.RoleVendor, commonauth.RoleCourier:
 	default:
 		httpx.Forbidden(c, "forbidden")
 		return

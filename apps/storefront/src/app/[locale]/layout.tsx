@@ -6,6 +6,7 @@ import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 import { CookieBanner } from "@/components/CookieBanner";
 import { MobileBottomNav } from "@/components/MobileBottomNav";
+import { CartHydrator } from "@/components/CartHydrator";
 import { HtmlLang } from "@/components/HtmlLang";
 
 export function generateStaticParams() {
@@ -36,6 +37,7 @@ export default async function LocaleLayout({
         <Footer locale={locale} />
         <MobileBottomNav locale={locale} />
         <CookieBanner />
+        <CartHydrator />
       </div>
     </NextIntlClientProvider>
   );

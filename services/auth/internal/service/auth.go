@@ -118,6 +118,9 @@ func (s *AuthService) Login(tenantID string, req model.LoginRequest) (*model.Use
 	if u.Status != "active" {
 		return nil, nil, errors.New("account is not active")
 	}
+	if u.Role == string(commonauth.RoleCourier) && !s.courierActive(u) {
+		return nil, nil, errors.New("courier account is not active")
+	}
 	if s.rdb != nil {
 		_ = s.rdb.Del(context.Background(), "loginfail:"+tenantID+":"+email).Err()
 	}
@@ -156,6 +159,14 @@ func (s *AuthService) Refresh(refreshToken, fingerprint string) (*commonauth.Tok
 	u, err := s.repo.FindByID(claims.UserID)
 	if err != nil || u == nil {
 		return nil, errors.New("user not found")
+	}
+	if u.Status != "active" {
+		_ = s.repo.RevokeRefreshToken(hash)
+		return nil, errors.New("account is not active")
+	}
+	if u.Role == string(commonauth.RoleCourier) && !s.courierActive(u) {
+		_ = s.repo.RevokeRefreshToken(hash)
+		return nil, errors.New("courier account is not active")
 	}
 	_ = s.repo.RevokeRefreshToken(hash)
 	if s.rdb != nil {
@@ -520,9 +531,30 @@ func (s *AuthService) lookupVendorID(u *model.User) string {
 	return id
 }
 
+func (s *AuthService) lookupCourierID(u *model.User) string {
+	if u == nil {
+		return ""
+	}
+	var id string
+	err := s.repo.DB().Get(&id, `
+		SELECT id::text FROM couriers
+		WHERE user_id=$1 AND tenant_id=$2 AND status='active'
+		ORDER BY created_at DESC
+		LIMIT 1`, u.ID, u.TenantID)
+	if err != nil {
+		return ""
+	}
+	return id
+}
+
+func (s *AuthService) courierActive(u *model.User) bool {
+	return s.lookupCourierID(u) != ""
+}
+
 func (s *AuthService) issueTokensWithFingerprint(u *model.User, fingerprint string) (*commonauth.TokenPair, error) {
 	vendorID := s.lookupVendorID(u)
-	pair, err := s.tokens.Issue(u.ID, u.TenantID, u.Email, commonauth.Role(u.Role), vendorID)
+	courierID := s.lookupCourierID(u)
+	pair, err := s.tokens.Issue(u.ID, u.TenantID, u.Email, commonauth.Role(u.Role), vendorID, courierID)
 	if err != nil {
 		return nil, err
 	}

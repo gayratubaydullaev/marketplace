@@ -6,7 +6,7 @@ import { useTranslations } from "next-intl";
 import { formatUZS, type Locale } from "@gayrat/i18n";
 import { api, productName, variantImageList, type Product, type Variant } from "@/lib/api";
 import { rewriteMediaUrls } from "@/lib/media";
-import { useCart } from "@/lib/cart";
+import { useCart, ensureCartHydrated } from "@/lib/cart";
 import { WishlistButton } from "@/components/WishlistButton";
 import { VariantSelectModal } from "@/components/VariantSelectModal";
 import { track, trackImpressionOnce } from "@/lib/track";
@@ -97,16 +97,24 @@ export function ProductCard({
 
     setLoading(true);
     try {
-      const data = await api<{ variants?: Variant[] }>(`/v1/products/${product.slug}`);
-      const list = data.variants || [];
+      await ensureCartHydrated();
+
+      let list: Variant[] = [];
+      try {
+        const data = await api<{ variants?: Variant[] | null }>(`/v1/products/${product.slug}`);
+        list = Array.isArray(data.variants) ? data.variants : [];
+      } catch {
+        // API hiccup must not block cart on mobile — add base SKU.
+        addLine(null);
+        return;
+      }
+
       if (list.length > 0) {
         setVariants(list);
         setModalOpen(true);
         return;
       }
       addLine(null);
-    } catch {
-      // Don't add without knowing variants — avoid wrong cart lines.
     } finally {
       setLoading(false);
     }
@@ -258,8 +266,9 @@ export function ProductCard({
           <button
             type="button"
             onClick={onAdd}
+            onPointerDown={(e) => e.stopPropagation()}
             disabled={loading}
-            className={`mt-2 w-full rounded-xl py-2.5 text-sm font-bold text-night transition disabled:opacity-60 ${
+            className={`relative z-[1] mt-2 w-full touch-manipulation rounded-xl py-2.5 text-sm font-bold text-night transition disabled:opacity-60 ${
               added ? "bg-teal text-paper" : "bg-accent hover:bg-accent-hover"
             }`}
           >

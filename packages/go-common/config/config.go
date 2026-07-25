@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"os"
 	"strconv"
 	"strings"
@@ -66,4 +67,26 @@ func getEnvInt(key string, fallback int) int {
 		}
 	}
 	return fallback
+}
+
+var insecureJWTSecrets = map[string]struct{}{
+	"": {},
+	"dev-jwt-secret-change-in-production-uz-marketplace": {},
+	"CHANGE_ME_USE_RS256_IN_PROD":                        {},
+	"CHANGE_ME": {},
+}
+
+// ValidateSecrets fails closed in production when JWT material is missing or still a placeholder.
+func (c Config) ValidateSecrets() error {
+	env := strings.ToLower(strings.TrimSpace(c.Env))
+	if env != "production" && env != "prod" {
+		return nil
+	}
+	if strings.TrimSpace(os.Getenv("JWT_PRIVATE_KEY_PEM")) != "" && strings.TrimSpace(os.Getenv("JWT_PUBLIC_KEY_PEM")) != "" {
+		return nil
+	}
+	if _, bad := insecureJWTSecrets[strings.TrimSpace(c.JWTSecret)]; bad {
+		return errors.New("APP_ENV=production requires JWT_PRIVATE_KEY_PEM/JWT_PUBLIC_KEY_PEM or a non-default JWT_SECRET")
+	}
+	return nil
 }

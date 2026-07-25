@@ -11,8 +11,8 @@ if [[ -f "$ROOT/.env" ]]; then
   set +a
 fi
 
-PORTS=(8001 8002 8003 8004 8005 8006 8007 8008 8009 8010 8011 8012)
-NAMES=(auth catalog search cart orders payments vendor reviews notifications analytics media realtime)
+PORTS=(8001 8002 8003 8004 8005 8006 8007 8008 8009 8010 8011 8012 8013)
+NAMES=(auth catalog search cart orders payments vendor reviews notifications analytics media realtime delivery)
 
 mkdir -p bin logs
 make build
@@ -44,6 +44,7 @@ for i in "${!NAMES[@]}"; do
   PAYMENTS_SANDBOX="${PAYMENTS_SANDBOX:-true}" \
   NOTIFY_TRANSPORT="${NOTIFY_TRANSPORT:-log}" \
   CATALOG_URL="${CATALOG_URL:-http://localhost:8002}" \
+  PAYMENTS_URL="${PAYMENTS_URL:-http://localhost:8006}" \
   "./bin/$name" >"logs/$name.log" 2>&1 &
   echo $! >"logs/$name.pid"
 done

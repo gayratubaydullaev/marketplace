@@ -151,8 +151,8 @@ body {
 }
 
 .home-product-card {
-  content-visibility: auto;
-  contain-intrinsic-size: 320px;
+  /* Keep layout containment without content-visibility — it can break hit-testing on mobile. */
+  contain: layout style;
 }
 
 .animate-rise {

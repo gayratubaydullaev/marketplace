@@ -183,7 +183,18 @@
     "stepPayment": "Оплата",
     "street": "Адрес улицы",
     "trust": "Безопасная sandbox-оплата · Payme, Click, Uzum",
-    "backToCart": "Назад в корзину"
+    "backToCart": "Назад в корзину",
+    "mapPin": "Точка на карте",
+    "mapSearch": "Поиск адреса…",
+    "mapPinHint": "Нажмите на карту или выберите результат",
+    "mapLocate": "Моё местоположение",
+    "mapLocating": "Определяем…",
+    "mapLocateDenied": "Нет доступа к геолокации — поставьте точку на карте",
+    "mapLocateUnavailable": "Не удалось определить место — поставьте точку на карте",
+    "mapEditHint": "Перетащите маркер или нажмите на карту",
+    "building": "Дом",
+    "apartment": "Квартира",
+    "mapAutoHint": "Укажите улицу и дом — точка на карте поставится сама"
   },
   "orders": {
     "title": "Мои заказы",
@@ -231,7 +242,19 @@
     "trackInTransit": "В пути",
     "trackDelivered": "Доставлен",
     "trackPending": "Ожидание",
-    "trackCreated": "Создан"
+    "trackCreated": "Создан",
+    "courierTitle": "Доставка курьером",
+    "courierStatus": "Статус",
+    "courierWaiting": "Курьер будет назначен скоро",
+    "courierChatPlaceholder": "Сообщение курьеру…",
+    "courierSend": "Отправить",
+    "courierRate": "Оценить курьера",
+    "courierRated": "Спасибо за оценку",
+    "courierRateComment": "Комментарий (необязательно)",
+    "courierRateSubmit": "Отправить оценку",
+    "liveMap": "Карта доставки",
+    "courierGpsUpdated": "Геопозиция обновлена: {time}",
+    "courierGpsMissing": "GPS курьера недоступен — ждём обновление"
   },
   "account": {
     "title": "Кабинет",
@@ -289,7 +312,15 @@
       "address_line": "Адрес"
     },
     "passwordPlaceholder": "Пароль",
-    "emailPlaceholder": "Email"
+    "emailPlaceholder": "Email",
+    "mapPin": "Точка на карте",
+    "mapSearch": "Поиск адреса…",
+    "mapPinHint": "Нажмите на карту или выберите результат",
+    "mapLocate": "Моё местоположение",
+    "mapLocating": "Определяем…",
+    "mapLocateDenied": "Нет доступа к геолокации — поставьте точку на карте",
+    "mapLocateUnavailable": "Не удалось определить место — поставьте точку на карте",
+    "mapEditHint": "Перетащите маркер или нажмите на карту"
   },
   "vendors": {
     "policies": "Правила магазина",

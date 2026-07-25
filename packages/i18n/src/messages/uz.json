@@ -183,7 +183,18 @@
     "stepPayment": "To'lov",
     "street": "Ko'cha manzili",
     "trust": "Xavfsiz sandbox to'lov · Payme, Click, Uzum",
-    "backToCart": "Savatga qaytish"
+    "backToCart": "Savatga qaytish",
+    "mapPin": "Xaritadagi nuqta",
+    "mapSearch": "Manzil qidirish…",
+    "mapPinHint": "Xaritani bosing yoki natijani tanlang",
+    "mapLocate": "Mening joylashuvim",
+    "mapLocating": "Aniqlanmoqda…",
+    "mapLocateDenied": "Geolokatsiya ruxsati yo‘q — xaritadan nuqtani belgilang",
+    "mapLocateUnavailable": "Joylashuv aniqlanmadi — xaritadan nuqtani belgilang",
+    "mapEditHint": "Markerni torting yoki xaritani bosing",
+    "building": "Uy",
+    "apartment": "Xonadon",
+    "mapAutoHint": "Ko‘cha va uy raqamini kiriting — nuqta avtomatik qo‘yiladi"
   },
   "orders": {
     "title": "Buyurtmalarim",
@@ -231,7 +242,19 @@
     "trackInTransit": "Yo'lda",
     "trackDelivered": "Yetkazildi",
     "trackPending": "Kutilmoqda",
-    "trackCreated": "Yaratildi"
+    "trackCreated": "Yaratildi",
+    "courierTitle": "Kuryer yetkazishi",
+    "courierStatus": "Holat",
+    "courierWaiting": "Kuryer tez orada tayinlanadi",
+    "courierChatPlaceholder": "Kuryerga xabar…",
+    "courierSend": "Yuborish",
+    "courierRate": "Kuryerni baholash",
+    "courierRated": "Bahongiz uchun rahmat",
+    "courierRateComment": "Izoh (ixtiyoriy)",
+    "courierRateSubmit": "Baholashni yuborish",
+    "liveMap": "Jonli xarita",
+    "courierGpsUpdated": "Joylashuv yangilandi: {time}",
+    "courierGpsMissing": "Kuryer GPS yo'q — keyingi yangilanishni kutamiz"
   },
   "account": {
     "title": "Kabinet",
@@ -289,7 +312,15 @@
       "address_line": "Manzil"
     },
     "passwordPlaceholder": "Parol",
-    "emailPlaceholder": "Email"
+    "emailPlaceholder": "Email",
+    "mapPin": "Xaritadagi nuqta",
+    "mapSearch": "Manzil qidirish…",
+    "mapPinHint": "Xaritani bosing yoki natijani tanlang",
+    "mapLocate": "Mening joylashuvim",
+    "mapLocating": "Aniqlanmoqda…",
+    "mapLocateDenied": "Geolokatsiya ruxsati yo‘q — xaritadan nuqtani belgilang",
+    "mapLocateUnavailable": "Joylashuv aniqlanmadi — xaritadan nuqtani belgilang",
+    "mapEditHint": "Markerni torting yoki xaritani bosing"
   },
   "vendors": {
     "policies": "Do'kon qoidalari",

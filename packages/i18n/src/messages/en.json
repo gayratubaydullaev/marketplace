@@ -182,8 +182,19 @@
     "stepDelivery": "Delivery",
     "stepPayment": "Payment",
     "street": "Street address",
+    "mapPin": "Pin on map",
+    "mapSearch": "Search place…",
+    "mapPinHint": "Tap the map or pick a search result",
     "trust": "Secure sandbox payment · Payme, Click, Uzum",
-    "backToCart": "Back to cart"
+    "backToCart": "Back to cart",
+    "mapLocate": "My location",
+    "mapLocating": "Detecting…",
+    "mapLocateDenied": "Location permission denied — set the pin on the map",
+    "mapLocateUnavailable": "Could not detect location — set the pin on the map",
+    "mapEditHint": "Drag the pin or tap the map to adjust",
+    "building": "House / building",
+    "apartment": "Apartment",
+    "mapAutoHint": "Fill street and house number — the pin will be set automatically"
   },
   "orders": {
     "title": "My orders",
@@ -231,7 +242,19 @@
     "trackInTransit": "In transit",
     "trackDelivered": "Delivered",
     "trackPending": "Pending",
-    "trackCreated": "Created"
+    "trackCreated": "Created",
+    "courierTitle": "Courier delivery",
+    "courierStatus": "Status",
+    "courierWaiting": "Courier will be assigned soon",
+    "courierChatPlaceholder": "Message courier…",
+    "courierSend": "Send",
+    "courierRate": "Rate courier",
+    "courierRated": "Thanks for your rating",
+    "courierRateComment": "Comment (optional)",
+    "courierRateSubmit": "Submit rating",
+    "liveMap": "Live map",
+    "courierGpsUpdated": "Location updated {time}",
+    "courierGpsMissing": "Courier GPS unavailable — waiting for next update"
   },
   "account": {
     "title": "Account",
@@ -289,7 +312,15 @@
       "address_line": "Address"
     },
     "passwordPlaceholder": "Password",
-    "emailPlaceholder": "Email"
+    "emailPlaceholder": "Email",
+    "mapPin": "Pin on map",
+    "mapSearch": "Search place…",
+    "mapPinHint": "Tap the map or pick a search result",
+    "mapLocate": "My location",
+    "mapLocating": "Detecting…",
+    "mapLocateDenied": "Location permission denied — set the pin on the map",
+    "mapLocateUnavailable": "Could not detect location — set the pin on the map",
+    "mapEditHint": "Drag the pin or tap the map to adjust"
   },
   "vendors": {
     "policies": "Store policies",

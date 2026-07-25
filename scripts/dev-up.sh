@@ -58,21 +58,34 @@ stop_web() {
 stop_web web-storefront
 stop_web web-admin
 stop_web web-vendor
+stop_web web-delivery
 
 NEXT_PUBLIC_API_BASE="${NEXT_PUBLIC_API_BASE:-http://localhost:8080}" \
+NEXT_PUBLIC_YANDEX_MAPS_API_KEY="${NEXT_PUBLIC_YANDEX_MAPS_API_KEY:-}" \
+NEXT_PUBLIC_MAP_TILE_URL="${NEXT_PUBLIC_MAP_TILE_URL:-}" \
   nohup pnpm --filter @gayrat/storefront dev >logs/web-storefront.log 2>&1 &
 echo $! >logs/web-storefront.pid
 
 NEXT_PUBLIC_API_BASE="${NEXT_PUBLIC_API_BASE:-http://localhost:8080}" \
+NEXT_PUBLIC_YANDEX_MAPS_API_KEY="${NEXT_PUBLIC_YANDEX_MAPS_API_KEY:-}" \
+NEXT_PUBLIC_MAP_TILE_URL="${NEXT_PUBLIC_MAP_TILE_URL:-}" \
   nohup pnpm --filter @gayrat/admin dev >logs/web-admin.log 2>&1 &
 echo $! >logs/web-admin.pid
 
 NEXT_PUBLIC_API_BASE="${NEXT_PUBLIC_API_BASE:-http://localhost:8080}" \
+NEXT_PUBLIC_YANDEX_MAPS_API_KEY="${NEXT_PUBLIC_YANDEX_MAPS_API_KEY:-}" \
+NEXT_PUBLIC_MAP_TILE_URL="${NEXT_PUBLIC_MAP_TILE_URL:-}" \
   nohup pnpm --filter @gayrat/vendor dev >logs/web-vendor.log 2>&1 &
 echo $! >logs/web-vendor.pid
 
+NEXT_PUBLIC_API_BASE="${NEXT_PUBLIC_API_BASE:-http://localhost:8080}" \
+NEXT_PUBLIC_YANDEX_MAPS_API_KEY="${NEXT_PUBLIC_YANDEX_MAPS_API_KEY:-}" \
+NEXT_PUBLIC_MAP_TILE_URL="${NEXT_PUBLIC_MAP_TILE_URL:-}" \
+  nohup pnpm --filter @gayrat/delivery dev >logs/web-delivery.log 2>&1 &
+echo $! >logs/web-delivery.pid
+
 echo "Waiting for Next.js…"
-for port in 3000 3001 3002; do
+for port in 3000 3001 3002 3003; do
   ok=0
   for _ in $(seq 1 60); do
     if curl -sf -o /dev/null "http://127.0.0.1:${port}/" 2>/dev/null; then
@@ -98,10 +111,12 @@ Ready.
   Storefront  http://localhost:3000/uz
   Admin       http://localhost:3001
   Vendor      http://localhost:3002
+  Courier     http://localhost:3003
   API gateway http://localhost:8080/health
 
-  Admin:  admin@gayrat.uz / Admin123!
-  Vendor: vendor@gayrat.uz / Vendor123!
+  Admin:   admin@gayrat.uz / Admin123!
+  Vendor:  vendor@gayrat.uz / Vendor123!
+  Courier: courier@gayrat.uz / Courier123!
 
   Seed:  ./scripts/seed.sh
   Smoke: ./scripts/e2e-smoke.sh

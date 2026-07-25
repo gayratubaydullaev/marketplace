@@ -7,6 +7,7 @@ import { Button, Input } from "@gayrat/ui";
 import { api, errMsg } from "@/lib/api";
 import { Msg, PageHeader, StatusBadge } from "@/components/ui";
 import { useI18n } from "@/lib/i18n";
+import { deliveryStatusLabel } from "@/lib/status";
 
 type OrderPayload = {
   order?: {
@@ -44,6 +45,15 @@ type OrderPayload = {
 const COD_METHODS = new Set(["cash_on_delivery", "card_on_delivery", "bank_transfer"]);
 
 type Tracking = { carrier?: string; tracking_number?: string; status?: string; tracking_url?: string };
+
+type DeliveryJob = {
+  id: string;
+  status: string;
+  courier_name?: string;
+  courier_phone?: string;
+  pickup_address?: string;
+  dropoff_address?: string;
+};
 
 const TIMELINE = ["pending", "confirmed", "processing", "shipped", "delivered", "completed"] as const;
 
@@ -108,6 +118,7 @@ export default function OrderDetailPage() {
   const [data, setData] = useState<OrderPayload>({});
   const [tracking, setTracking] = useState<Tracking | null>(null);
   const [trackingForm, setTrackingForm] = useState({ carrier: "", tracking_number: "" });
+  const [deliveryJob, setDeliveryJob] = useState<DeliveryJob | null>(null);
   const [msg, setMsg] = useState("");
   const [ok, setOk] = useState("");
 
@@ -142,6 +153,9 @@ export default function OrderDetailPage() {
         setTrackingForm({ carrier: result.carrier || "", tracking_number: result.tracking_number || "" });
       })
       .catch(() => setTracking(null));
+    api<DeliveryJob>(`/v1/delivery/orders/${id}`)
+      .then((job) => setDeliveryJob(job))
+      .catch(() => setDeliveryJob(null));
   }
 
   useEffect(() => {
@@ -337,6 +351,61 @@ export default function OrderDetailPage() {
             </div>
           </dl>
         </section>
+
+        {addr.delivery_method === "courier" || deliveryJob ? (
+          <section className="rounded-xl border border-teal/20 bg-teal/5 p-4 sm:col-span-2">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <h2 className="font-semibold">{t("orderDeliveryJob")}</h2>
+              {deliveryJob ? (
+                <Link
+                  href={`/deliveries?job=${deliveryJob.id}`}
+                  className="text-xs font-semibold text-teal hover:underline"
+                >
+                  {t("orderOpenDelivery")} →
+                </Link>
+              ) : null}
+            </div>
+            {deliveryJob ? (
+              <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
+                <div className="flex justify-between gap-3 sm:block">
+                  <dt className="text-slate-500">{t("commonStatus")}</dt>
+                  <dd className="sm:mt-1">
+                    <StatusBadge status={deliveryJob.status} label={deliveryStatusLabel(t, deliveryJob.status)} />
+                  </dd>
+                </div>
+                <div className="flex justify-between gap-3 sm:block">
+                  <dt className="text-slate-500">{t("navCouriers")}</dt>
+                  <dd className="font-medium sm:mt-1">
+                    {deliveryJob.courier_name || "—"}
+                    {deliveryJob.courier_phone ? ` · ${deliveryJob.courier_phone}` : ""}
+                  </dd>
+                </div>
+                {deliveryJob.dropoff_address ? (
+                  <div className="sm:col-span-2">
+                    <dt className="text-slate-500">{t("orderStreet")}</dt>
+                    <dd className="mt-0.5 font-medium">{deliveryJob.dropoff_address}</dd>
+                  </div>
+                ) : null}
+              </dl>
+            ) : (
+              <p className="mt-2 text-sm text-slate-500">{t("orderNoDeliveryJob")}</p>
+            )}
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Link
+                href="/deliveries"
+                className="rounded-lg border border-teal/30 bg-white px-3 py-1.5 text-xs font-semibold text-teal"
+              >
+                {t("navDeliveries")}
+              </Link>
+              <Link
+                href="/fleet"
+                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700"
+              >
+                {t("navFleet")}
+              </Link>
+            </div>
+          </section>
+        ) : null}
 
         <section className="rounded-xl border bg-white p-4">
           <h2 className="font-semibold">{t("orderTotals")}</h2>

@@ -48,14 +48,14 @@ export default function InventoryPage() {
       <Msg text={msg} />
       <Msg text={ok} tone="ok" />
       {items.length === 0 ? (
-        <EmptyState text="Нет товаров" />
+        <EmptyState text={t("inventoryEmpty")} />
       ) : (
         <TableShell>
           <thead>
             <tr className="border-b bg-slate-50/80 text-xs uppercase tracking-wide text-slate-500">
-              <th className="px-4 py-3">Product</th>
-              <th className="px-4 py-3">Status</th>
-              <th className="px-4 py-3">Qty</th>
+              <th className="px-4 py-3">{t("inventoryColProduct")}</th>
+              <th className="px-4 py-3">{t("commonStatus")}</th>
+              <th className="px-4 py-3">{t("inventoryColQty")}</th>
             </tr>
           </thead>
           <tbody>
@@ -68,7 +68,7 @@ export default function InventoryPage() {
                     <Link href={`/products/${p.id}`} className="font-medium text-teal hover:underline">
                       {p.translations?.uz?.name || p.slug}
                     </Link>
-                    {low ? <span className="ml-2 text-xs font-semibold text-amber-700">low</span> : null}
+                    {low ? <span className="ml-2 text-xs font-semibold text-amber-700">{t("inventoryLow")}</span> : null}
                   </td>
                   <td className="px-4 py-3">
                     <StatusBadge status={p.status} />

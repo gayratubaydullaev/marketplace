@@ -8,7 +8,8 @@
     "lint": "turbo run lint",
     "dev:storefront": "pnpm --filter @gayrat/storefront dev",
     "dev:admin": "pnpm --filter @gayrat/admin dev",
-    "dev:vendor": "pnpm --filter @gayrat/vendor dev"
+    "dev:vendor": "pnpm --filter @gayrat/vendor dev",
+    "dev:delivery": "pnpm --filter @gayrat/delivery dev"
   },
   "devDependencies": {
     "turbo": "^2.5.0",

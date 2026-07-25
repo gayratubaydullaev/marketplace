@@ -36,6 +36,8 @@ func (h *VendorHandler) MyProducts(c *gin.Context)     { myProducts(c, h.Service
 func (h *VendorHandler) Payouts(c *gin.Context)        { payouts(c, h.Service.Repo.DB) }
 func (h *VendorHandler) Settings(c *gin.Context)       { settings(c, h.Service.Repo.DB) }
 func (h *VendorHandler) UpdateSettings(c *gin.Context) { updateSettings(c, h.Service.Repo.DB) }
+func (h *VendorHandler) GetWarehouse(c *gin.Context)   { getWarehouse(c, h.Service.Repo.DB) }
+func (h *VendorHandler) PutWarehouse(c *gin.Context)   { putWarehouse(c, h.Service.Repo.DB) }
 func (h *VendorHandler) UpdateTenantSettings(c *gin.Context) {
 	updateTenantSettings(c, h.Service.Repo.DB)
 }
@@ -255,6 +257,62 @@ func settings(c *gin.Context, database *sqlx.DB) {
 		"kyc_documents": kycDocs,
 	})
 }
+
+func getWarehouse(c *gin.Context, database *sqlx.DB) {
+	vid, err := resolveVendorID(c, database)
+	if err != nil {
+		httpx.NotFound(c, "vendor not found")
+		return
+	}
+	var addr string
+	var lat, lng *float64
+	var updated *time.Time
+	err = database.QueryRow(`
+		SELECT COALESCE(warehouse_address,''), warehouse_lat, warehouse_lng, warehouse_updated_at
+		FROM vendors WHERE id=$1`, vid).Scan(&addr, &lat, &lng, &updated)
+	if err != nil {
+		httpx.NotFound(c, "vendor not found")
+		return
+	}
+	httpx.OK(c, gin.H{
+		"vendor_id": vid,
+		"address":   addr,
+		"lat":       lat,
+		"lng":       lng,
+		"updated_at": updated,
+	})
+}
+
+func putWarehouse(c *gin.Context, database *sqlx.DB) {
+	vid, err := resolveVendorID(c, database)
+	if err != nil {
+		httpx.NotFound(c, "vendor not found")
+		return
+	}
+	var body struct {
+		Address string   `json:"address"`
+		Lat     *float64 `json:"lat"`
+		Lng     *float64 `json:"lng"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		httpx.BadRequest(c, err.Error())
+		return
+	}
+	_, err = database.Exec(`
+		UPDATE vendors SET
+			warehouse_address=$1,
+			warehouse_lat=$2,
+			warehouse_lng=$3,
+			warehouse_updated_at=NOW(),
+			updated_at=NOW()
+		WHERE id=$4`, body.Address, body.Lat, body.Lng, vid)
+	if err != nil {
+		httpx.BadRequest(c, err.Error())
+		return
+	}
+	getWarehouse(c, database)
+}
+
 func updateSettings(c *gin.Context, database *sqlx.DB) {
 	vid, err := resolveVendorID(c, database)
 	if err != nil {

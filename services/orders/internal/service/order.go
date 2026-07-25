@@ -66,6 +66,23 @@ func (s *OrderService) Create(ctx context.Context, in CreateInput) (map[string]a
 	if region == "" {
 		return nil, fmt.Errorf("shipping_address.region required")
 	}
+	if in.AddressID != "" && in.UserID != "" {
+		var lat, lng *float64
+		_ = s.Repo.DB.QueryRow(
+			`SELECT lat, lng FROM addresses WHERE id=$1 AND user_id=$2 AND tenant_id=$3`,
+			in.AddressID, in.UserID, in.TenantID,
+		).Scan(&lat, &lng)
+		if lat != nil && lng != nil {
+			if _, ok := address["lat"]; !ok {
+				address["lat"] = *lat
+			}
+			if _, ok := address["lng"]; !ok {
+				address["lng"] = *lng
+			}
+		}
+	}
+	shipBytes, _ := json.Marshal(address)
+	in.ShippingAddress = shipBytes
 	var cartMeta struct {
 		UserID              *string `db:"user_id"`
 		GuestID             *string `db:"guest_id"`

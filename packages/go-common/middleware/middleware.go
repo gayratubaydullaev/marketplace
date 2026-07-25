@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -31,6 +32,11 @@ func CORSAllowlist() []string {
 			"http://localhost:3000",
 			"http://localhost:3001",
 			"http://localhost:3002",
+			"http://localhost:3003",
+			"http://127.0.0.1:3000",
+			"http://127.0.0.1:3001",
+			"http://127.0.0.1:3002",
+			"http://127.0.0.1:3003",
 		}
 	}
 	parts := strings.Split(raw, ",")
@@ -118,12 +124,24 @@ func CorrelationID() gin.HandlerFunc {
 
 func Tenant() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		path := c.Request.URL.Path
+		if path == "/health" || path == "/metrics" || strings.HasPrefix(path, "/.well-known/") {
+			c.Set(CtxTenantKey, "00000000-0000-0000-0000-000000000001")
+			c.Next()
+			return
+		}
 		tenantID := c.GetHeader("X-Tenant-ID")
-		if tenantID == "" {
+		env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
+		prod := env == "production" || env == "prod"
+		if tenantID == "" && !prod {
 			tenantID = c.Query("tenant_id")
 		}
 		if tenantID == "" {
-			tenantID = "00000000-0000-0000-0000-000000000001" // default seed tenant
+			if prod {
+				httpx.BadRequest(c, "X-Tenant-ID required")
+				return
+			}
+			tenantID = "00000000-0000-0000-0000-000000000001" // default seed tenant (dev only)
 		}
 		c.Set(CtxTenantKey, tenantID)
 		c.Next()
@@ -258,7 +276,17 @@ func Metrics(serviceName string) gin.HandlerFunc {
 }
 
 func MountMetrics(r *gin.Engine) {
-	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
+	r.GET("/metrics", func(c *gin.Context) {
+		env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
+		if env == "production" || env == "prod" {
+			ip := net.ParseIP(c.ClientIP())
+			if ip == nil || !ip.IsLoopback() {
+				c.Status(http.StatusNotFound)
+				return
+			}
+		}
+		promhttp.Handler().ServeHTTP(c.Writer, c.Request)
+	})
 }
 
 func GetClaims(c *gin.Context) *auth.Claims {

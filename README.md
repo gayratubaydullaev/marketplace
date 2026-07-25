@@ -17,6 +17,7 @@ Opens:
 | Storefront | http://localhost:3000/uz |
 | Admin | http://localhost:3001 |
 | Vendor | http://localhost:3002 |
+| Courier | http://localhost:3003 |
 | API gateway | http://localhost:8080 |
 
 ```bash
@@ -26,6 +27,7 @@ Opens:
 
 Default admin: `admin@gayrat.uz` / `Admin123!`  
 Vendor: `vendor@gayrat.uz` / `Vendor123!`  
+Courier: `courier@gayrat.uz` / `Courier123!`  
 Tenant: `00000000-0000-0000-0000-000000000001`
 
 ## Stack
@@ -47,11 +49,13 @@ go run scripts/dev-gateway/main.go
 pnpm dev:storefront   # :3000
 pnpm dev:admin        # :3001
 pnpm --filter @gayrat/vendor dev  # :3002
+pnpm --filter @gayrat/delivery dev  # :3003
 ```
 
 ## Production notes
 
 - Frontends use **only** `NEXT_PUBLIC_API_BASE` (gateway).
+- Maps: `@gayrat/map` uses **Yandex Maps JS** when `NEXT_PUBLIC_YANDEX_MAPS_API_KEY` is set; otherwise **Leaflet + OpenStreetMap** (`NEXT_PUBLIC_MAP_TILE_URL` optional). Courier deep-links include **Yandex Navigator** (`yandexnavi://`) plus Yandex Maps / Google. Geocoding stays server-side via `GET /v1/delivery/geo/search|reverse` (Nominatim + optional `YANDEX_GEOCODER_API_KEY`). Do not call geocoders from the browser.
 - RS256: set `JWT_PRIVATE_KEY_PEM` / `JWT_PUBLIC_KEY_PEM`; JWKS at `/.well-known/jwks.json`.
 - Migrations: `./scripts/migrate.sh` (RLS v4 + FX v5).
 - Monitoring: `infra/monitoring/docker-compose.monitoring.yml`

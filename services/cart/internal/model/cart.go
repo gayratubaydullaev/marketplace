@@ -24,20 +24,22 @@ type CartItem struct {
 }
 
 type Address struct {
-	ID         string  `db:"id" json:"id"`
-	TenantID   string  `db:"tenant_id" json:"tenant_id"`
-	UserID     string  `db:"user_id" json:"user_id"`
-	Label      *string `db:"label" json:"label"`
-	FullName   *string `db:"full_name" json:"full_name"`
-	Phone      *string `db:"phone" json:"phone"`
-	Region     string  `db:"region" json:"region"`
-	District   *string `db:"district" json:"district"`
-	Mahalla    *string `db:"mahalla" json:"mahalla"`
-	Street     *string `db:"street" json:"street"`
-	Building   *string `db:"building" json:"building"`
-	Apartment  *string `db:"apartment" json:"apartment"`
-	PostalCode *string `db:"postal_code" json:"postal_code"`
-	IsDefault  bool    `db:"is_default" json:"is_default"`
+	ID         string   `db:"id" json:"id"`
+	TenantID   string   `db:"tenant_id" json:"tenant_id"`
+	UserID     string   `db:"user_id" json:"user_id"`
+	Label      *string  `db:"label" json:"label"`
+	FullName   *string  `db:"full_name" json:"full_name"`
+	Phone      *string  `db:"phone" json:"phone"`
+	Region     string   `db:"region" json:"region"`
+	District   *string  `db:"district" json:"district"`
+	Mahalla    *string  `db:"mahalla" json:"mahalla"`
+	Street     *string  `db:"street" json:"street"`
+	Building   *string  `db:"building" json:"building"`
+	Apartment  *string  `db:"apartment" json:"apartment"`
+	PostalCode *string  `db:"postal_code" json:"postal_code"`
+	Lat        *float64 `db:"lat" json:"lat,omitempty"`
+	Lng        *float64 `db:"lng" json:"lng,omitempty"`
+	IsDefault  bool     `db:"is_default" json:"is_default"`
 }
 
 type WishlistItem struct {

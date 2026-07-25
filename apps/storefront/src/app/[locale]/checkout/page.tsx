@@ -8,6 +8,7 @@ import { useCart } from "@/lib/cart";
 import { api } from "@/lib/api";
 import { EmptyState, PageHeader } from "@/components/PageChrome";
 import { MobileStickyPortal } from "@/components/MobileStickyPortal";
+import { MapPinField, type Pin } from "@/components/MapPinField";
 import { UZ_REGIONS } from "@/lib/regions";
 
 const REGIONS = UZ_REGIONS;
@@ -30,7 +31,12 @@ type Address = {
   region?: string;
   district?: string;
   address_line1?: string;
+  street?: string;
+  building?: string;
+  apartment?: string;
   phone?: string;
+  lat?: number | null;
+  lng?: number | null;
 };
 
 const fieldClass =
@@ -47,7 +53,10 @@ export default function CheckoutPage() {
   const [region, setRegion] = useState("Toshkent shahri");
   const [district, setDistrict] = useState("");
   const [street, setStreet] = useState("");
+  const [building, setBuilding] = useState("");
+  const [apartment, setApartment] = useState("");
   const [phone, setPhone] = useState("+998");
+  const [pin, setPin] = useState<Pin | null>(null);
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [selectedAddress, setSelectedAddress] = useState("");
   const [shippingCost, setShippingCost] = useState(15000);
@@ -96,8 +105,13 @@ export default function CheckoutPage() {
     if (!address) return;
     setRegion(address.region || "Toshkent shahri");
     setDistrict(address.district || "");
-    setStreet(address.address_line1 || "");
+    setStreet(address.street || address.address_line1 || "");
+    setBuilding(address.building || "");
+    setApartment(address.apartment || "");
     setPhone(address.phone || "+998");
+    if (address.lat != null && address.lng != null) {
+      setPin({ lat: address.lat, lng: address.lng });
+    }
   }
 
   async function submit(e: React.FormEvent) {
@@ -120,10 +134,19 @@ export default function CheckoutPage() {
           shipping_address: {
             region: delivery === "pickup" ? "pickup" : region,
             district: delivery === "pickup" ? "store" : district,
-            address_line1: delivery === "pickup" ? undefined : street,
+            street: delivery === "pickup" ? undefined : street,
+            building: delivery === "pickup" ? undefined : building || undefined,
+            apartment: delivery === "pickup" ? undefined : apartment || undefined,
+            address_line1:
+              delivery === "pickup"
+                ? undefined
+                : [street, building && `uy ${building}`, apartment && `xonadon ${apartment}`]
+                    .filter(Boolean)
+                    .join(", "),
             phone,
             country: "UZ",
             delivery_method: delivery,
+            ...(delivery === "courier" && pin ? { lat: pin.lat, lng: pin.lng } : {}),
           },
           shipping_cost: shippingCost,
           address_id: selectedAddress || undefined,
@@ -368,8 +391,56 @@ export default function CheckoutPage() {
                   value={street}
                   onChange={(e) => setStreet(e.target.value)}
                   required={delivery === "courier"}
+                  placeholder="G'argali"
                 />
               </label>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="block text-sm font-medium">
+                  {t("building")}
+                  <input
+                    className={fieldClass}
+                    value={building}
+                    onChange={(e) => setBuilding(e.target.value)}
+                    required={delivery === "courier"}
+                    placeholder="94"
+                    inputMode="text"
+                  />
+                </label>
+                <label className="block text-sm font-medium">
+                  {t("apartment")}
+                  <input
+                    className={fieldClass}
+                    value={apartment}
+                    onChange={(e) => setApartment(e.target.value)}
+                    placeholder="12"
+                    inputMode="text"
+                  />
+                </label>
+              </div>
+              <p className="text-xs text-muted">{t("mapAutoHint")}</p>
+              <div>
+                <p className="mb-1.5 text-sm font-medium">{t("mapPin")}</p>
+                <MapPinField
+                  value={pin}
+                  onChange={setPin}
+                  searchHint={t("mapSearch")}
+                  pinHint={t("mapPinHint")}
+                  contextQuery={[street, building, district, region].filter(Boolean).join(", ")}
+                  lookupQuery={
+                    street.trim() && building.trim()
+                      ? [street.trim(), building.trim(), district.trim(), region.trim()]
+                          .filter(Boolean)
+                          .join(", ")
+                      : ""
+                  }
+                  autoLocate={!street && !building}
+                  locateLabel={t("mapLocate")}
+                  locatingLabel={t("mapLocating")}
+                  locateDeniedLabel={t("mapLocateDenied")}
+                  locateUnavailableLabel={t("mapLocateUnavailable")}
+                  editHint={t("mapEditHint")}
+                />
+              </div>
             </div>
           )}
 

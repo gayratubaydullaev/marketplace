@@ -4,6 +4,7 @@ import { Providers } from "@/components/Providers";
 export const metadata = {
   title: "Gayrat Vendor",
   description: "Seller console",
+  icons: { icon: "/favicon.svg" },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

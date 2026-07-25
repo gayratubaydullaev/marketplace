@@ -103,7 +103,7 @@ export default function VendorProducts() {
       <div className="mb-4 flex flex-wrap gap-2">
         <Input
           className="max-w-xs"
-          placeholder="Search name / slug"
+          placeholder={t("productsSearch")}
           value={q}
           onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
             setQ(e.target.value);
@@ -119,7 +119,7 @@ export default function VendorProducts() {
         >
           {["all", "active", "draft", "pending_review", "archived"].map((s) => (
             <option key={s} value={s}>
-              {s}
+              {s === "all" ? t("filterAll") : s}
             </option>
           ))}
         </Select>
@@ -130,31 +130,31 @@ export default function VendorProducts() {
         <Input placeholder="name" value={name} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setName(e.target.value)} />
         <Input type="number" value={price} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPrice(Number(e.target.value))} />
         <Select value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
-          {categories.length === 0 ? <option value="">No categories</option> : null}
+          {categories.length === 0 ? <option value="">—</option> : null}
           {categories.map((c) => (
             <option key={c.id} value={c.id}>
               {c.translations?.uz?.name || c.slug}
             </option>
           ))}
         </Select>
-        <Button onClick={() => create().catch((e) => setMsg(errMsg(e)))}>Create</Button>
+        <Button onClick={() => create().catch((e) => setMsg(errMsg(e)))}>{t("productsCreate")}</Button>
       </div>
       <Msg text={msg} />
       <Msg text={ok} tone="ok" />
 
       {pageItems.length === 0 ? (
         <div className="mt-6">
-          <EmptyState text="Нет товаров" />
+          <EmptyState text={t("productsEmpty")} />
         </div>
       ) : (
         <div className="mt-6">
           <TableShell>
             <thead>
               <tr className="border-b bg-slate-50/80 text-xs uppercase tracking-wide text-slate-500">
-                <th className="px-4 py-3">Name</th>
-                <th className="px-4 py-3">Price</th>
-                <th className="px-4 py-3">Qty</th>
-                <th className="px-4 py-3">Status</th>
+                <th className="px-4 py-3">{t("productsColName")}</th>
+                <th className="px-4 py-3">{t("productsColPrice")}</th>
+                <th className="px-4 py-3">{t("productsColStock")}</th>
+                <th className="px-4 py-3">{t("productsColStatus")}</th>
                 <th className="px-4 py-3" />
               </tr>
             </thead>

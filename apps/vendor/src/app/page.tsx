@@ -16,6 +16,8 @@ export default function VendorHome() {
   const [stats, setStats] = useState<{ revenue?: number; orders?: number }>({});
   const [pendingProducts, setPendingProducts] = useState(0);
   const [openOrders, setOpenOrders] = useState(0);
+  const [processingOrders, setProcessingOrders] = useState(0);
+  const [lowStock, setLowStock] = useState(0);
   const [dashErr, setDashErr] = useState("");
   const [dashLoading, setDashLoading] = useState(false);
 
@@ -29,19 +31,23 @@ export default function VendorHome() {
     setDashErr("");
     Promise.all([
       api<typeof stats>("/v1/vendor/dashboard/stats").catch(() => ({})),
-      api<{ items?: { status?: string }[] }>("/v1/vendor/products").catch(() => ({ items: [] })),
+      api<{ items?: { status?: string; inventory_quantity?: number }[] }>("/v1/vendor/products").catch(() => ({
+        items: [],
+      })),
       api<{ items?: { status?: string }[] }>("/v1/vendor/orders").catch(() => ({ items: [] })),
     ])
       .then(([s, products, orders]) => {
         setStats(s || {});
+        const productRows = products.items || [];
         setPendingProducts(
-          (products.items || []).filter((p) => p.status === "pending_review" || p.status === "draft").length
+          productRows.filter((p) => p.status === "pending_review" || p.status === "draft").length
         );
+        const orderRows = orders.items || [];
         setOpenOrders(
-          (orders.items || []).filter(
-            (o) => !["delivered", "completed", "cancelled", "returned"].includes(o.status || "")
-          ).length
+          orderRows.filter((o) => !["delivered", "completed", "cancelled", "returned"].includes(o.status || "")).length
         );
+        setProcessingOrders(orderRows.filter((o) => o.status === "processing").length);
+        setLowStock(productRows.filter((p) => Number(p.inventory_quantity ?? 0) <= 5).length);
       })
       .catch((e) => setDashErr(errMsg(e)))
       .finally(() => setDashLoading(false));
@@ -175,7 +181,7 @@ export default function VendorHome() {
       </div>
       <div className="mt-8">
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">{t("dashAttention")}</h2>
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <Link
             href="/products"
             className="flex items-center justify-between rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
@@ -195,6 +201,26 @@ export default function VendorHome() {
               <p className="mt-0.5 text-sm text-slate-500">{t("open")} →</p>
             </div>
             <CountPill value={openOrders} alert />
+          </Link>
+          <Link
+            href="/orders?status=processing"
+            className="flex items-center justify-between rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+          >
+            <div>
+              <p className="font-semibold text-night">{t("dashProcessingOrders")}</p>
+              <p className="mt-0.5 text-sm text-slate-500">{t("open")} →</p>
+            </div>
+            <CountPill value={processingOrders} alert />
+          </Link>
+          <Link
+            href="/inventory"
+            className="flex items-center justify-between rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+          >
+            <div>
+              <p className="font-semibold text-night">{t("dashLowStock")}</p>
+              <p className="mt-0.5 text-sm text-slate-500">{t("open")} →</p>
+            </div>
+            <CountPill value={lowStock} alert />
           </Link>
         </div>
       </div>

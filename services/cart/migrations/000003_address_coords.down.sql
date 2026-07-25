@@ -1,0 +1,3 @@
+ALTER TABLE addresses
+    DROP COLUMN IF EXISTS lng,
+    DROP COLUMN IF EXISTS lat;

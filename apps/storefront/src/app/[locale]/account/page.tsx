@@ -10,6 +10,7 @@ import { UZ_REGIONS } from "@/lib/regions";
 import { useWishlist } from "@/lib/wishlist";
 import { useCart } from "@/lib/cart";
 import { EmptyState, PageHeader, StatusBadge } from "@/components/PageChrome";
+import { MapPinField } from "@/components/MapPinField";
 
 type Tab = "profile" | "addresses" | "orders";
 
@@ -31,6 +32,8 @@ type Address = {
   street?: string | null;
   building?: string | null;
   apartment?: string | null;
+  lat?: number | null;
+  lng?: number | null;
   is_default?: boolean;
 };
 
@@ -52,6 +55,8 @@ type AddressForm = {
   building: string;
   apartment: string;
   is_default: boolean;
+  lat: number | null;
+  lng: number | null;
 };
 
 const emptyAddressForm = (): AddressForm => ({
@@ -64,6 +69,8 @@ const emptyAddressForm = (): AddressForm => ({
   building: "",
   apartment: "",
   is_default: false,
+  lat: null,
+  lng: null,
 });
 
 const fieldClass =
@@ -286,6 +293,8 @@ function AccountInner() {
       building: item.building || "",
       apartment: item.apartment || "",
       is_default: Boolean(item.is_default),
+      lat: item.lat ?? null,
+      lng: item.lng ?? null,
     });
     setShowAddressForm(true);
   }
@@ -303,6 +312,8 @@ function AccountInner() {
       building: addressForm.building || null,
       apartment: addressForm.apartment || null,
       is_default: addressForm.is_default,
+      lat: addressForm.lat,
+      lng: addressForm.lng,
     };
     try {
       if (editingId) {
@@ -953,6 +964,31 @@ function AccountInner() {
                     onChange={(e) => setAddressForm({ ...addressForm, apartment: e.target.value })}
                   />
                 </label>
+                <div className="sm:col-span-2">
+                  <p className="mb-1.5 text-sm font-medium text-night">{t("mapPin")}</p>
+                  <MapPinField
+                    value={
+                      addressForm.lat != null && addressForm.lng != null
+                        ? { lat: addressForm.lat, lng: addressForm.lng }
+                        : null
+                    }
+                    onChange={(p) =>
+                      setAddressForm({
+                        ...addressForm,
+                        lat: p?.lat ?? null,
+                        lng: p?.lng ?? null,
+                      })
+                    }
+                    searchHint={t("mapSearch")}
+                    pinHint={t("mapPinHint")}
+                    autoLocate={!(addressForm.lat != null && addressForm.lng != null)}
+                    locateLabel={t("mapLocate")}
+                    locatingLabel={t("mapLocating")}
+                    locateDeniedLabel={t("mapLocateDenied")}
+                    locateUnavailableLabel={t("mapLocateUnavailable")}
+                    editHint={t("mapEditHint")}
+                  />
+                </div>
               </div>
               <label className="flex items-center gap-2.5 text-sm font-medium text-night">
                 <input

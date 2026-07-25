@@ -2,11 +2,18 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { useParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { formatUZS, type Locale } from "@gayrat/i18n";
 import { api, productImage, type Product } from "@/lib/api";
 import { PageHeader, StatusBadge } from "@/components/PageChrome";
+import "@gayrat/map/styles.css";
+
+const TrackingMap = dynamic(() => import("@gayrat/map").then((m) => m.TrackingMap), {
+  ssr: false,
+  loading: () => <div className="gayrat-map-skeleton h-[280px]" />,
+});
 
 type OrderItem = {
   id?: string;
@@ -37,6 +44,15 @@ type Tracking = {
   tracking_number?: string;
   status?: string;
 };
+
+type DeliveryJob = {
+  id: string;
+  status: string;
+  courier_name?: string;
+  courier_phone?: string;
+};
+
+type DeliveryMsg = { id: string; sender_role: string; body: string };
 
 type ProductMeta = {
   slug?: string;
@@ -103,6 +119,19 @@ export default function OrderDetailPage() {
   const id = String(params.id || "");
   const [data, setData] = useState<OrderPayload>({});
   const [tracking, setTracking] = useState<Tracking | null>(null);
+  const [delivery, setDelivery] = useState<DeliveryJob | null>(null);
+  const [deliveryMsgs, setDeliveryMsgs] = useState<DeliveryMsg[]>([]);
+  const [chatBody, setChatBody] = useState("");
+  const [rateScore, setRateScore] = useState(5);
+  const [rateComment, setRateComment] = useState("");
+  const [rateDone, setRateDone] = useState(false);
+  const [deliveryMsg, setDeliveryMsg] = useState("");
+  const [liveTrack, setLiveTrack] = useState<{
+    job_status?: string;
+    dropoff_lat?: number | null;
+    dropoff_lng?: number | null;
+    courier?: { lat: number; lng: number; updated_at?: string } | null;
+  } | null>(null);
   const [productMeta, setProductMeta] = useState<Record<string, ProductMeta>>({});
   const [live, setLive] = useState(false);
   const [cancelMsg, setCancelMsg] = useState("");
@@ -133,7 +162,38 @@ export default function OrderDetailPage() {
     api<Tracking>(`/v1/orders/${id}/tracking`)
       .then((d) => !cancelled && setTracking(d))
       .catch(() => undefined);
-    const poll = setInterval(load, 5000);
+    const loadDelivery = () =>
+      api<DeliveryJob>(`/v1/delivery/orders/${id}`)
+        .then((d) => {
+          if (cancelled) return;
+          setDelivery(d);
+          return api<{ items: DeliveryMsg[] }>(`/v1/delivery/orders/${id}/messages`).then((m) => {
+            if (!cancelled) setDeliveryMsgs(m.items || []);
+          });
+        })
+        .catch(() => {
+          if (!cancelled) setDelivery(null);
+        });
+    loadDelivery();
+    const loadLive = () =>
+      api<{
+        job_status?: string;
+        dropoff_lat?: number | null;
+        dropoff_lng?: number | null;
+        courier?: { lat: number; lng: number; updated_at?: string } | null;
+      }>(`/v1/delivery/orders/${id}/live`)
+        .then((d) => {
+          if (!cancelled) setLiveTrack(d);
+        })
+        .catch(() => {
+          if (!cancelled) setLiveTrack(null);
+        });
+    loadLive();
+    const poll = setInterval(() => {
+      load();
+      loadDelivery();
+      loadLive();
+    }, 5000);
 
     let ws: WebSocket | null = null;
     const wsBase = process.env.NEXT_PUBLIC_WS_URL;
@@ -434,6 +494,139 @@ export default function OrderDetailPage() {
           {tracking.status ? (
             <p className="mt-1 text-sm text-teal">{trackStatusLabel(t, tracking.status)}</p>
           ) : null}
+        </section>
+      ) : null}
+
+      {delivery ? (
+        <section className="mt-4 rounded-3xl border border-night/8 bg-white p-5 sm:p-6">
+          <h2 className="text-xs font-bold uppercase tracking-wide text-muted">{t("courierTitle")}</h2>
+          {liveTrack &&
+          ((liveTrack.dropoff_lat != null && liveTrack.dropoff_lng != null) || liveTrack.courier) ? (
+            <div className="mt-3 overflow-hidden rounded-2xl border border-night/8">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-night/5 px-3 py-2">
+                <p className="text-xs font-semibold text-muted">{t("liveMap")}</p>
+                {liveTrack.courier?.updated_at ? (
+                  <p className="text-[11px] text-teal">
+                    {t("courierGpsUpdated", {
+                      time: new Date(liveTrack.courier.updated_at).toLocaleTimeString(locale),
+                    })}
+                  </p>
+                ) : liveTrack.dropoff_lat != null && !liveTrack.courier ? (
+                  <p className="text-[11px] text-amber-700">{t("courierGpsMissing")}</p>
+                ) : null}
+              </div>
+              <TrackingMap
+                height={280}
+                showRoute
+                empty={t("courierWaiting")}
+                dropoff={
+                  liveTrack.dropoff_lat != null && liveTrack.dropoff_lng != null
+                    ? { lat: liveTrack.dropoff_lat, lng: liveTrack.dropoff_lng }
+                    : null
+                }
+                courier={
+                  liveTrack.courier
+                    ? { lat: liveTrack.courier.lat, lng: liveTrack.courier.lng }
+                    : null
+                }
+              />
+            </div>
+          ) : null}
+          <p className="mt-2 text-sm font-semibold text-night">
+            {t("courierStatus")}: {delivery.status}
+          </p>
+          {delivery.courier_name ? (
+            <p className="mt-1 text-sm text-muted">
+              {delivery.courier_name}
+              {delivery.courier_phone ? ` · ${delivery.courier_phone}` : ""}
+            </p>
+          ) : (
+            <p className="mt-1 text-sm text-muted">{t("courierWaiting")}</p>
+          )}
+
+          <div className="mt-4 max-h-40 space-y-2 overflow-y-auto rounded-2xl bg-surface-muted/60 p-3 text-sm">
+            {deliveryMsgs.map((m) => (
+              <div key={m.id} className={m.sender_role === "customer" ? "text-right" : ""}>
+                <span className="inline-block rounded-2xl bg-white px-3 py-1.5">{m.body}</span>
+              </div>
+            ))}
+          </div>
+          <div className="mt-2 flex gap-2">
+            <input
+              className="flex-1 rounded-xl border border-night/10 px-3 py-2 text-sm"
+              value={chatBody}
+              onChange={(e) => setChatBody(e.target.value)}
+              placeholder={t("courierChatPlaceholder")}
+            />
+            <button
+              type="button"
+              className="rounded-xl bg-teal px-4 py-2 text-sm font-bold text-white"
+              onClick={async () => {
+                if (!chatBody.trim()) return;
+                try {
+                  await api(`/v1/delivery/orders/${id}/messages`, {
+                    method: "POST",
+                    body: JSON.stringify({ body: chatBody, to_role: "courier" }),
+                  });
+                  setChatBody("");
+                  const m = await api<{ items: DeliveryMsg[] }>(`/v1/delivery/orders/${id}/messages`);
+                  setDeliveryMsgs(m.items || []);
+                } catch (e) {
+                  setDeliveryMsg(e instanceof Error ? e.message : "chat error");
+                }
+              }}
+            >
+              {t("courierSend")}
+            </button>
+          </div>
+
+          {o.status === "delivered" || o.status === "completed" || delivery.status === "delivered" ? (
+            <div className="mt-5 border-t border-night/8 pt-4">
+              <h3 className="text-sm font-semibold">{t("courierRate")}</h3>
+              {rateDone ? (
+                <p className="mt-2 text-sm text-teal">{t("courierRated")}</p>
+              ) : (
+                <div className="mt-2 space-y-2">
+                  <select
+                    className="rounded-lg border px-2 py-1.5 text-sm"
+                    value={rateScore}
+                    onChange={(e) => setRateScore(Number(e.target.value))}
+                  >
+                    {[5, 4, 3, 2, 1].map((n) => (
+                      <option key={n} value={n}>
+                        {n}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    className="w-full rounded-xl border border-night/10 px-3 py-2 text-sm"
+                    value={rateComment}
+                    onChange={(e) => setRateComment(e.target.value)}
+                    placeholder={t("courierRateComment")}
+                  />
+                  <button
+                    type="button"
+                    className="rounded-xl border border-teal px-4 py-2 text-sm font-bold text-teal"
+                    onClick={async () => {
+                      try {
+                        await api(`/v1/delivery/orders/${id}/rate`, {
+                          method: "POST",
+                          body: JSON.stringify({ score: rateScore, comment: rateComment }),
+                        });
+                        setRateDone(true);
+                        setDeliveryMsg("");
+                      } catch (e) {
+                        setDeliveryMsg(e instanceof Error ? e.message : "rate error");
+                      }
+                    }}
+                  >
+                    {t("courierRateSubmit")}
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : null}
+          {deliveryMsg ? <p className="mt-2 text-xs text-muted break-all">{deliveryMsg}</p> : null}
         </section>
       ) : null}
 

@@ -1,7 +1,7 @@
 # Gayrat Marketplace Makefile
 
 export PATH := $(HOME)/.local/go/bin:$(PATH)
-SERVICES := auth catalog search cart orders payments vendor reviews notifications analytics media realtime
+SERVICES := auth catalog search cart orders payments vendor reviews notifications analytics media realtime delivery
 
 .PHONY: infra-up infra-down tidy build run-auth run-all frontend-install frontend-dev seed k6-health
 

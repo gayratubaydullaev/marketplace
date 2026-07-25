@@ -41,6 +41,8 @@ func main() {
 	dash.GET("/payouts", vendors.Payouts)
 	dash.GET("/settings", vendors.Settings)
 	dash.PUT("/settings", vendors.UpdateSettings)
+	dash.GET("/warehouse", vendors.GetWarehouse)
+	dash.PUT("/warehouse", vendors.PutWarehouse)
 
 	admin := v1.Group("/admin/vendors", middleware.JWT(tokens, false), middleware.RequireRoles(commonauth.RoleTenantAdmin, commonauth.RoleModerator))
 	admin.GET("", vendors.AdminList)

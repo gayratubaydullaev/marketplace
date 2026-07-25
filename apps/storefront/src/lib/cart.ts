@@ -28,6 +28,15 @@ function fingerprint(items: CartLine[]) {
   );
 }
 
+function mergeLine(items: CartLine[], item: CartLine): CartLine[] {
+  const key = lineKey(item);
+  const existing = items.find((i) => lineKey(i) === key);
+  if (existing) {
+    return items.map((i) => (lineKey(i) === key ? { ...i, quantity: i.quantity + item.quantity } : i));
+  }
+  return [...items, item];
+}
+
 type CartState = {
   items: CartLine[];
   add: (item: CartLine) => void;
@@ -42,19 +51,7 @@ export const useCart = create<CartState>()(
   persist(
     (set, get) => ({
       items: [],
-      add: (item) =>
-        set((s) => {
-          const key = lineKey(item);
-          const existing = s.items.find((i) => lineKey(i) === key);
-          if (existing) {
-            return {
-              items: s.items.map((i) =>
-                lineKey(i) === key ? { ...i, quantity: i.quantity + item.quantity } : i
-              ),
-            };
-          }
-          return { items: [...s.items, item] };
-        }),
+      add: (item) => set((s) => ({ items: mergeLine(s.items, item) })),
       setQty: (productId, qty, variantId) =>
         set((s) => ({
           items:
@@ -78,6 +75,7 @@ export const useCart = create<CartState>()(
       },
       total: () => get().items.reduce((a, i) => a + i.unit_price * i.quantity, 0),
       syncToServer: async (force = false) => {
+        await ensureCartHydrated();
         const items = get().items;
         if (typeof window === "undefined") return;
         const fp = fingerprint(items);
@@ -96,6 +94,36 @@ export const useCart = create<CartState>()(
         sessionStorage.setItem("cart_sync_fp", fp);
       },
     }),
-    { name: "gayrat-cart" }
+    {
+      name: "gayrat-cart",
+      // Avoid SSR/client race: empty store overwriting a tap made before rehydrate finishes.
+      skipHydration: true,
+    }
   )
 );
+
+let hydratePromise: Promise<void> | null = null;
+
+/** Wait until localStorage cart is loaded (Next.js client). Safe to call often. */
+export function ensureCartHydrated(): Promise<void> {
+  if (typeof window === "undefined") return Promise.resolve();
+  if (useCart.persist.hasHydrated()) return Promise.resolve();
+  if (!hydratePromise) {
+    hydratePromise = new Promise((resolve) => {
+      const finish = () => resolve();
+      const unsub = useCart.persist.onFinishHydration(finish);
+      void useCart.persist.rehydrate().then(() => {
+        unsub();
+        finish();
+      });
+      // Fail-open so a stuck rehydrate never blocks add-to-cart.
+      window.setTimeout(() => {
+        unsub();
+        finish();
+      }, 800);
+    }).finally(() => {
+      hydratePromise = null;
+    });
+  }
+  return hydratePromise;
+}

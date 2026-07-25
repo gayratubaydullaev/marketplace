@@ -183,7 +183,18 @@
     "stepPayment": "الدفع",
     "street": "عنوان الشارع",
     "trust": "دفع sandbox آمن · Payme، Click، Uzum",
-    "backToCart": "العودة إلى السلة"
+    "backToCart": "العودة إلى السلة",
+    "mapPin": "دبوس على الخريطة",
+    "mapSearch": "ابحث عن مكان…",
+    "mapPinHint": "اضغط على الخريطة أو اختر نتيجة",
+    "mapLocate": "موقعي",
+    "mapLocating": "جاري التحديد…",
+    "mapLocateDenied": "تم رفض إذن الموقع — ضع الدبوس على الخريطة",
+    "mapLocateUnavailable": "تعذر تحديد الموقع — ضع الدبوس على الخريطة",
+    "mapEditHint": "اسحب الدبوس أو اضغط على الخريطة للتعديل",
+    "building": "المبنى / رقم المنزل",
+    "apartment": "الشقة",
+    "mapAutoHint": "أدخل الشارع ورقم المنزل — سيُوضع الدبوس تلقائيًا"
   },
   "orders": {
     "title": "طلباتي",
@@ -231,7 +242,19 @@
     "trackInTransit": "قيد النقل",
     "trackDelivered": "تم التسليم",
     "trackPending": "قيد الانتظار",
-    "trackCreated": "تم الإنشاء"
+    "trackCreated": "تم الإنشاء",
+    "courierTitle": "توصيل المندوب",
+    "courierStatus": "الحالة",
+    "courierWaiting": "سيتم تعيين مندوب قريباً",
+    "courierChatPlaceholder": "رسالة للمندوب…",
+    "courierSend": "إرسال",
+    "courierRate": "تقييم المندوب",
+    "courierRated": "شكراً على تقييمك",
+    "courierRateComment": "تعليق (اختياري)",
+    "courierRateSubmit": "إرسال التقييم",
+    "liveMap": "خريطة مباشرة",
+    "courierGpsUpdated": "تم تحديث الموقع: {time}",
+    "courierGpsMissing": "موقع المندوب غير متاح — بانتظار التحديث"
   },
   "account": {
     "title": "الحساب",
@@ -289,7 +312,15 @@
       "address_line": "العنوان"
     },
     "passwordPlaceholder": "كلمة المرور",
-    "emailPlaceholder": "Email"
+    "emailPlaceholder": "Email",
+    "mapPin": "دبوس على الخريطة",
+    "mapSearch": "ابحث عن مكان…",
+    "mapPinHint": "اضغط على الخريطة أو اختر نتيجة",
+    "mapLocate": "موقعي",
+    "mapLocating": "جاري التحديد…",
+    "mapLocateDenied": "تم رفض إذن الموقع — ضع الدبوس على الخريطة",
+    "mapLocateUnavailable": "تعذر تحديد الموقع — ضع الدبوس على الخريطة",
+    "mapEditHint": "اسحب الدبوس أو اضغط على الخريطة للتعديل"
   },
   "vendors": {
     "policies": "سياسات المتجر",

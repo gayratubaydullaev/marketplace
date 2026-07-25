@@ -7,7 +7,7 @@ import { useTranslations } from "next-intl";
 import { formatUZS, type Locale } from "@gayrat/i18n";
 import type { Product, Variant } from "@/lib/api";
 import { variantImageList } from "@/lib/api";
-import { useCart } from "@/lib/cart";
+import { useCart, ensureCartHydrated } from "@/lib/cart";
 import { WishlistButton } from "@/components/WishlistButton";
 import { MobileStickyPortal } from "@/components/MobileStickyPortal";
 import { VariantPicker } from "@/components/VariantPicker";
@@ -122,15 +122,17 @@ export function ProductPurchase({
 
   function onAdd() {
     if (!inStock || inCart) return;
-    if (needsVariant) {
-      openVariantModal("add");
-      return;
-    }
-    add(lineItemFor(selected, 1));
-    track("add_to_cart", product.id, {
-      slug: product.slug,
-      variant_id: selected?.id || "",
-      source: "pdp",
+    void ensureCartHydrated().then(() => {
+      if (needsVariant) {
+        openVariantModal("add");
+        return;
+      }
+      add(lineItemFor(selected, 1));
+      track("add_to_cart", product.id, {
+        slug: product.slug,
+        variant_id: selected?.id || "",
+        source: "pdp",
+      });
     });
   }
 

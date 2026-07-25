@@ -204,8 +204,28 @@ curl -sf "${AUTH[@]}" -d '{"code":"GIFT100K","balance":100000,"currency":"UZS","
   && echo "  gift GIFT100K seeded" || echo "  gift skip/fail"
 
 echo
+echo "=== Courier ==="
+API_DELIVERY="${API_DELIVERY:-http://localhost:8013}"
+if curl -sf "${AUTH[@]}" -d '{"email":"courier@gayrat.uz","password":"Courier123!","full_name":"Jasur Kuryer","phone":"+998901000777","vehicle_type":"bike","approve":true}' \
+  "$API_DELIVERY/v1/admin/couriers" >/dev/null; then
+  echo "  courier@gayrat.uz created/approved via API"
+else
+  echo "  courier API seed skip — applying SQL seed if DB available"
+  if [[ -f "$(dirname "$0")/../.env" ]]; then
+    set -a
+    # shellcheck disable=SC1091
+    source "$(dirname "$0")/../.env"
+    set +a
+  fi
+  DB="${DATABASE_URL:-postgres://marketplace:marketplace@localhost:5432/marketplace?sslmode=disable}"
+  psql "$DB" -v ON_ERROR_STOP=0 -f "$(dirname "$0")/../services/delivery/migrations/000002_seed_courier.up.sql" >/dev/null \
+    && echo "  courier SQL seed applied" || echo "  courier seed skip/fail"
+fi
+
+echo
 echo "Seed done."
 echo "  Vendors: ali-shop=${VID1:-n/a}, toshkent-style=${VID2:-n/a}, uy-comfort=${VID3:-n/a}"
 echo "  Admin user id=${ADMIN_UID}"
 echo "  Logins: admin@gayrat.uz / Admin123!"
 echo "          vendor@gayrat.uz | dilshod@gayrat.uz | nilufar@gayrat.uz / Vendor123!"
+echo "          courier@gayrat.uz / Courier123!"

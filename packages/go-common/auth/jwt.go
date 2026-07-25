@@ -26,14 +26,16 @@ const (
 	RoleCustomer    Role = "customer"
 	RoleManager     Role = "manager"
 	RoleModerator   Role = "moderator"
+	RoleCourier     Role = "courier"
 )
 
 type Claims struct {
-	UserID   string `json:"user_id"`
-	TenantID string `json:"tenant_id"`
-	Email    string `json:"email"`
-	Role     Role   `json:"role"`
-	VendorID string `json:"vendor_id,omitempty"`
+	UserID    string `json:"user_id"`
+	TenantID  string `json:"tenant_id"`
+	Email     string `json:"email"`
+	Role      Role   `json:"role"`
+	VendorID  string `json:"vendor_id,omitempty"`
+	CourierID string `json:"courier_id,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -108,10 +110,10 @@ func getEnv(k, d string) string {
 func (m *Manager) Algorithm() string { return m.alg }
 func (m *Manager) Kid() string       { return m.kid }
 
-func (m *Manager) Issue(userID, tenantID, email string, role Role, vendorID string) (*TokenPair, error) {
+func (m *Manager) Issue(userID, tenantID, email string, role Role, vendorID, courierID string) (*TokenPair, error) {
 	now := time.Now()
 	accessClaims := Claims{
-		UserID: userID, TenantID: tenantID, Email: email, Role: role, VendorID: vendorID,
+		UserID: userID, TenantID: tenantID, Email: email, Role: role, VendorID: vendorID, CourierID: courierID,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ID: uuid.NewString(), Subject: userID,
 			IssuedAt: jwt.NewNumericDate(now), ExpiresAt: jwt.NewNumericDate(now.Add(m.accessTTL)),
@@ -119,7 +121,7 @@ func (m *Manager) Issue(userID, tenantID, email string, role Role, vendorID stri
 		},
 	}
 	refreshClaims := Claims{
-		UserID: userID, TenantID: tenantID, Email: email, Role: role, VendorID: vendorID,
+		UserID: userID, TenantID: tenantID, Email: email, Role: role, VendorID: vendorID, CourierID: courierID,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ID: uuid.NewString(), Subject: userID,
 			IssuedAt: jwt.NewNumericDate(now), ExpiresAt: jwt.NewNumericDate(now.Add(m.refreshTTL)),

@@ -8,7 +8,7 @@ if [[ -f "$ROOT/.env" ]]; then
   set +a
 fi
 DB="${DATABASE_URL:-postgres://marketplace:marketplace@localhost:5432/marketplace?sslmode=disable}"
-ORDER=(auth catalog vendor cart orders payments reviews search notifications media analytics realtime)
+ORDER=(auth catalog vendor cart orders payments reviews search notifications media analytics realtime delivery)
 
 echo "Migrating against $DB"
 for svc in "${ORDER[@]}"; do
