@@ -102,7 +102,7 @@ export function PromoBanner({ slides }: { slides: HeroSlide[] }) {
   if (!slide) return null;
 
   return (
-    <section className="home-section home-banner-bleed mt-6 sm:mt-8">
+    <section className="home-section mt-3 sm:mt-8">
       <div
         className={`relative overflow-hidden rounded-2xl bg-night md:rounded-3xl ${
           multi ? (drag.dragging ? "cursor-grabbing" : "cursor-grab") : ""
@@ -134,7 +134,7 @@ export function PromoBanner({ slides }: { slides: HeroSlide[] }) {
           </>
         ) : null}
 
-        <div className="relative aspect-[3/2] w-full max-h-[min(42dvh,18rem)] select-none sm:max-h-[20rem] md:max-h-[22rem]">
+        <div className="relative aspect-[5/2] w-full max-h-[min(28dvh,11rem)] select-none sm:aspect-[3/2] sm:max-h-[20rem] md:max-h-[22rem]">
           {list.map((item, i) => {
             const isActive = i === active;
             const near =

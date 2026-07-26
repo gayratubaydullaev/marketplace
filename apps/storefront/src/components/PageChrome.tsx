@@ -26,12 +26,16 @@ export function EmptyState({
   description,
   actionHref,
   actionLabel,
+  onAction,
 }: {
   title: string;
   description?: string;
   actionHref?: string;
   actionLabel?: string;
+  onAction?: () => void;
 }) {
+  const btnClass =
+    "mt-7 inline-block rounded-xl bg-accent px-6 py-3 text-sm font-bold text-night transition hover:bg-accent-hover";
   return (
     <div className="px-4 py-16 text-center sm:py-20">
       <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-teal/10 text-teal">
@@ -45,12 +49,13 @@ export function EmptyState({
       <p className="mt-5 font-display text-lg font-bold text-night">{title}</p>
       {description ? <p className="mx-auto mt-2 max-w-sm text-sm text-muted">{description}</p> : null}
       {actionHref && actionLabel ? (
-        <Link
-          href={actionHref}
-          className="mt-7 inline-block rounded-xl bg-accent px-6 py-3 text-sm font-bold text-night transition hover:bg-accent-hover"
-        >
+        <Link href={actionHref} className={btnClass}>
           {actionLabel}
         </Link>
+      ) : onAction && actionLabel ? (
+        <button type="button" onClick={onAction} className={btnClass}>
+          {actionLabel}
+        </button>
       ) : null}
     </div>
   );

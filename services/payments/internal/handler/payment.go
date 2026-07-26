@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
+	"strings"
 
 	commonauth "github.com/gayrat/marketplace/packages/go-common/auth"
 	"github.com/gayrat/marketplace/packages/go-common/httpx"
@@ -48,7 +50,7 @@ func (h *PaymentHandler) canAccessOrder(c *gin.Context, orderID, tenantID string
 		return stored != "" && stored == guestID
 	}
 	switch claims.Role {
-	case commonauth.RoleTenantAdmin, commonauth.RoleManager:
+	case commonauth.RoleTenantAdmin, commonauth.RoleManager, commonauth.RoleSuperAdmin:
 		return true
 	case commonauth.RoleVendor:
 		if claims.VendorID == "" {
@@ -191,6 +193,15 @@ func (h *PaymentHandler) Confirm(c *gin.Context) {
 		httpx.NotFound(c, "payment not found")
 		return
 	}
+	tenantID := middleware.GetTenantID(c)
+	if payment.TenantID != "" && payment.TenantID != tenantID {
+		httpx.NotFound(c, "payment not found")
+		return
+	}
+	if !h.canAccessOrder(c, payment.OrderID, tenantID) {
+		httpx.NotFound(c, "payment not found")
+		return
+	}
 	if payment.Status == "succeeded" {
 		httpx.OK(c, gin.H{"status": "succeeded", "order_id": payment.OrderID})
 		return
@@ -205,6 +216,41 @@ func (h *PaymentHandler) Confirm(c *gin.Context) {
 	}
 	middleware.WriteAudit(c, "mark_paid", "payment", payment.ID, nil, gin.H{"order_id": payment.OrderID})
 	httpx.OK(c, gin.H{"status": "succeeded", "order_id": payment.OrderID})
+}
+
+// safeReturnURL allows only configured storefront origins (blocks open redirects).
+func safeReturnURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+		return ""
+	}
+	allowed := map[string]struct{}{}
+	for _, base := range []string{
+		os.Getenv("NEXT_PUBLIC_STOREFRONT_URL"),
+		"http://localhost:3000",
+		"http://127.0.0.1:3000",
+		"https://gayrat.uz",
+		"https://www.gayrat.uz",
+	} {
+		base = strings.TrimSpace(base)
+		if base == "" {
+			continue
+		}
+		if bu, err := url.Parse(base); err == nil && bu.Host != "" {
+			allowed[strings.ToLower(bu.Host)] = struct{}{}
+		}
+	}
+	if _, ok := allowed[strings.ToLower(u.Host)]; !ok {
+		return ""
+	}
+	if strings.Contains(u.Path, "//") || strings.Contains(u.RawPath, "\\") {
+		return ""
+	}
+	return u.String()
 }
 
 // Collect marks cash/card-on-delivery (or bank transfer) as paid when money is received at handoff.
@@ -368,7 +414,7 @@ func (h *PaymentHandler) SandboxPayPage(c *gin.Context) {
 </div></body></html>`)
 		return
 	}
-	returnURL := c.Query("return_url")
+	returnURL := safeReturnURL(c.Query("return_url"))
 	if c.Request.Method == http.MethodPost {
 		if payment.Status == "succeeded" {
 			if returnURL != "" {

@@ -76,7 +76,37 @@ func (h *OrderHandler) List(c *gin.Context) {
 		httpx.OK(c, gin.H{"items": orders})
 		return
 	}
-	orders, err := h.Service.Repo.List(tenantID, claims.UserID, claims.Role == commonauth.RoleCustomer)
+
+	var (
+		orders []model.Order
+		err    error
+	)
+	switch claims.Role {
+	case commonauth.RoleTenantAdmin, commonauth.RoleSuperAdmin, commonauth.RoleManager, commonauth.RoleModerator:
+		orders, err = h.Service.Repo.List(tenantID, claims.UserID, false)
+	case commonauth.RoleVendor:
+		vendorID := claims.VendorID
+		if vendorID == "" {
+			_ = h.Service.Repo.DB.Get(&vendorID, `SELECT id::text FROM vendors WHERE user_id=$1 AND tenant_id=$2 ORDER BY CASE WHEN status='active' THEN 0 ELSE 1 END, created_at DESC LIMIT 1`, claims.UserID, tenantID)
+		}
+		if vendorID == "" {
+			httpx.OK(c, gin.H{"items": []model.Order{}})
+			return
+		}
+		orders, err = h.Service.Repo.ListByVendor(tenantID, vendorID)
+	case commonauth.RoleCourier:
+		courierID := claims.CourierID
+		if courierID == "" {
+			httpx.OK(c, gin.H{"items": []model.Order{}})
+			return
+		}
+		orders, err = h.Service.Repo.ListByCourier(tenantID, courierID)
+	case commonauth.RoleCustomer:
+		orders, err = h.Service.Repo.List(tenantID, claims.UserID, true)
+	default:
+		httpx.Forbidden(c, "insufficient permissions")
+		return
+	}
 	if err != nil {
 		httpx.Internal(c, err.Error())
 		return
@@ -109,8 +139,9 @@ func (h *OrderHandler) Lookup(c *gin.Context) {
 	}
 	number := strings.TrimSpace(body.OrderNumber)
 	phoneDigits := digitsOnly(body.Phone)
-	if number == "" || len(phoneDigits) < 9 {
-		httpx.BadRequest(c, "order_number and phone required")
+	if number == "" || len(phoneDigits) < 12 {
+		// Require full UZ numbers (+998XXXXXXXXX → 12 digits) to reduce guessing.
+		httpx.BadRequest(c, "order_number and full phone required")
 		return
 	}
 	order, items, err := h.Service.Repo.GetByNumber(number, middleware.GetTenantID(c))
@@ -122,17 +153,36 @@ func (h *OrderHandler) Lookup(c *gin.Context) {
 	_ = json.Unmarshal(order.ShippingAddress, &addr)
 	storedPhone, _ := addr["phone"].(string)
 	storedDigits := digitsOnly(storedPhone)
-	// Accept last 9 digits match (UZ mobile without country code variants).
-	ok := storedDigits != "" && (storedDigits == phoneDigits ||
-		(len(storedDigits) >= 9 && len(phoneDigits) >= 9 && storedDigits[len(storedDigits)-9:] == phoneDigits[len(phoneDigits)-9:]))
+	ok := storedDigits != "" && storedDigits == phoneDigits
+	if !ok && len(storedDigits) >= 12 && len(phoneDigits) >= 12 {
+		ok = storedDigits[len(storedDigits)-12:] == phoneDigits[len(phoneDigits)-12:]
+	}
 	if !ok {
 		httpx.NotFound(c, "order not found")
 		return
 	}
+	// Bind this browser's guest session so subsequent Get works without re-proving phone.
+	if guestID := strings.TrimSpace(c.GetHeader("X-Guest-ID")); guestID != "" && order.UserID == nil {
+		_, _ = h.Service.Repo.DB.Exec(`
+			UPDATE orders SET metadata = COALESCE(metadata,'{}'::jsonb) || jsonb_build_object('guest_id', $1::text), updated_at=NOW()
+			WHERE id=$2 AND tenant_id=$3 AND user_id IS NULL`, guestID, order.ID, order.TenantID)
+	}
 	if items == nil {
 		items = []model.OrderItem{}
 	}
-	httpx.OK(c, gin.H{"order": order, "items": items})
+	// Minimal public payload — full details via Get after guest binding.
+	httpx.OK(c, gin.H{
+		"order": gin.H{
+			"id":             order.ID,
+			"order_number":   order.OrderNumber,
+			"status":         order.Status,
+			"payment_status": order.PaymentStatus,
+			"created_at":     order.CreatedAt,
+			"total":          order.Total,
+			"currency":       order.Currency,
+		},
+		"items": items,
+	})
 }
 
 func (h *OrderHandler) Get(c *gin.Context) {
@@ -182,7 +232,7 @@ func (h *OrderHandler) canViewOrder(c *gin.Context, order model.Order) bool {
 		return h.guestOwnsOrder(order.ID, c.GetHeader("X-Guest-ID"))
 	}
 	switch claims.Role {
-	case commonauth.RoleTenantAdmin, commonauth.RoleManager:
+	case commonauth.RoleTenantAdmin, commonauth.RoleManager, commonauth.RoleSuperAdmin, commonauth.RoleModerator:
 		return true
 	case commonauth.RoleVendor:
 		vendorID := claims.VendorID
@@ -190,6 +240,19 @@ func (h *OrderHandler) canViewOrder(c *gin.Context, order model.Order) bool {
 			_ = h.Service.Repo.DB.Get(&vendorID, `SELECT id::text FROM vendors WHERE user_id=$1 AND tenant_id=$2 ORDER BY CASE WHEN status='active' THEN 0 ELSE 1 END, created_at DESC LIMIT 1`, claims.UserID, order.TenantID)
 		}
 		return h.vendorOwnsOrder(order.ID, vendorID)
+	case commonauth.RoleCourier:
+		if claims.CourierID == "" {
+			return false
+		}
+		var n int
+		if err := h.Service.Repo.DB.Get(&n, `
+			SELECT COUNT(1) FROM delivery_jobs
+			WHERE order_id=$1 AND tenant_id=$2 AND courier_id::text=$3
+			  AND status IN ('assigned','accepted','at_pickup','picked_up','in_transit')`,
+			order.ID, order.TenantID, claims.CourierID); err != nil {
+			return false
+		}
+		return n > 0
 	default:
 		return order.UserID != nil && *order.UserID == claims.UserID
 	}

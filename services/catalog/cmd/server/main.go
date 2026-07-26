@@ -17,6 +17,9 @@ import (
 
 func main() {
 	cfg := config.Load()
+	if err := cfg.ValidateSecrets(); err != nil {
+		log.Fatal(err)
+	}
 	database, err := db.Connect(cfg.DatabaseURL)
 	if err != nil {
 		log.Printf("db warning: %v", err)

@@ -4,8 +4,8 @@ import { getTranslations } from "next-intl/server";
 export async function Footer({ locale }: { locale: string }) {
   const t = await getTranslations();
   return (
-    <footer className="mt-10 border-t border-night/8 bg-night text-paper pb-[calc(var(--bottom-chrome)+1rem)] md:mt-12 md:pb-0">
-      <div className="site-container py-7 sm:py-8">
+    <footer className="mt-6 border-t border-night/8 bg-night text-paper pb-[calc(var(--bottom-chrome)+0.75rem)] md:mt-12 md:pb-0">
+      <div className="site-container py-5 sm:py-8">
         <div className="flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
           <div className="max-w-md">
             <p className="font-display text-xl font-bold tracking-tight">{t("brand")}</p>

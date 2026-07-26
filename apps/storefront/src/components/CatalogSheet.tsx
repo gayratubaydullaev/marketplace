@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { useTranslations } from "next-intl";
 import { api } from "@/lib/api";
 
@@ -13,32 +14,57 @@ export type CatalogCat = {
   sort_order?: number;
 };
 
+const NIL_UUID = "00000000-0000-0000-0000-000000000000";
+
 export function catName(c: CatalogCat, locale: string) {
   return c.translations?.[locale]?.name || c.translations?.uz?.name || c.slug;
 }
 
-export function useCategoryTree() {
-  const [cats, setCats] = useState<CatalogCat[]>([]);
+function isRootCat(c: CatalogCat) {
+  const p = c.parent_id;
+  return p == null || p === "" || p === NIL_UUID;
+}
+
+export function useCategoryTree(initial: CatalogCat[] = []) {
+  const seedKey = initial.map((c) => c.id).join(",");
+  const [cats, setCats] = useState<CatalogCat[]>(initial);
+  const [status, setStatus] = useState<"idle" | "loading" | "error">(
+    initial.length > 0 ? "idle" : "loading"
+  );
 
   useEffect(() => {
-    api<{ items: CatalogCat[] }>("/v1/categories")
-      .then((d) => setCats(d.items || []))
-      .catch(() => setCats([]));
-  }, []);
+    if (initial.length > 0) {
+      setCats(initial);
+      setStatus("idle");
+      return;
+    }
+    let cancelled = false;
+    setStatus("loading");
+    void api<{ items: CatalogCat[] }>("/v1/categories")
+      .then((d) => {
+        if (cancelled) return;
+        setCats(d.items || []);
+        setStatus("idle");
+      })
+      .catch(() => {
+        if (!cancelled) setStatus("error");
+      });
+    return () => {
+      cancelled = true;
+    };
+    // seedKey captures SSR category identity without relying on array reference
+  }, [seedKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const roots = useMemo(
-    () =>
-      cats
-        .filter((c) => !c.parent_id)
-        .slice()
-        .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)),
-    [cats]
-  );
+  const roots = useMemo(() => {
+    const filtered = cats.filter(isRootCat);
+    const list = filtered.length > 0 ? filtered : cats;
+    return list.slice().sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+  }, [cats]);
 
   const childrenOf = useMemo(() => {
     const map = new Map<string, CatalogCat[]>();
     for (const c of cats) {
-      if (!c.parent_id) continue;
+      if (isRootCat(c) || !c.parent_id) continue;
       const list = map.get(c.parent_id) || [];
       list.push(c);
       map.set(c.parent_id, list);
@@ -49,7 +75,21 @@ export function useCategoryTree() {
     return map;
   }, [cats]);
 
-  return { cats, roots, childrenOf };
+  return {
+    cats,
+    roots,
+    childrenOf,
+    status,
+    reload: () => {
+      setStatus("loading");
+      void api<{ items: CatalogCat[] }>("/v1/categories")
+        .then((d) => {
+          setCats(d.items || []);
+          setStatus("idle");
+        })
+        .catch(() => setStatus(cats.length > 0 ? "idle" : "error"));
+    },
+  };
 }
 
 /** Mobile catalog sheet: categories → tap to open subcategories → navigate. */
@@ -57,18 +97,26 @@ export function CatalogSheet({
   locale,
   open,
   onClose,
+  initialCategories = [],
 }: {
   locale: string;
   open: boolean;
   onClose: () => void;
+  initialCategories?: CatalogCat[];
 }) {
   const t = useTranslations();
-  const { roots, childrenOf } = useCategoryTree();
+  const { roots, childrenOf, status, reload } = useCategoryTree(initialCategories);
   const [activeRoot, setActiveRoot] = useState<CatalogCat | null>(null);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     if (!open) setActiveRoot(null);
-  }, [open]);
+    else if (roots.length === 0) reload();
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps -- refetch only when opening empty
 
   useEffect(() => {
     if (!open) return;
@@ -87,12 +135,17 @@ export function CatalogSheet({
     };
   }, [open, activeRoot, onClose]);
 
-  if (!open) return null;
+  if (!mounted || !open) return null;
 
   const kids = activeRoot ? childrenOf.get(activeRoot.id) || [] : [];
 
-  return (
-    <div className="fixed inset-0 z-[80] md:hidden" role="dialog" aria-modal="true" aria-label={t("nav.catalog")}>
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[100] md:hidden"
+      role="dialog"
+      aria-modal="true"
+      aria-label={t("nav.catalog")}
+    >
       <button
         type="button"
         className="absolute inset-0 bg-night/45 backdrop-blur-[2px]"
@@ -103,6 +156,7 @@ export function CatalogSheet({
         className="absolute inset-x-0 bottom-0 flex max-h-[min(78dvh,560px)] flex-col rounded-t-3xl bg-paper shadow-[0_-18px_50px_-24px_rgba(11,31,36,0.45)]"
         style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
       >
+        <div className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-night/15" aria-hidden />
         <div className="flex items-center gap-2 border-b border-night/8 px-4 py-3">
           {activeRoot ? (
             <button
@@ -132,6 +186,21 @@ export function CatalogSheet({
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 py-2">
           {!activeRoot ? (
             <ul>
+              {roots.length === 0 && status === "loading" ? (
+                <li className="px-3 py-8 text-center text-sm text-muted">{t("common.loading")}</li>
+              ) : null}
+              {roots.length === 0 && status === "error" ? (
+                <li className="px-3 py-6 text-center">
+                  <p className="text-sm text-muted">{t("common.error")}</p>
+                  <button
+                    type="button"
+                    onClick={() => reload()}
+                    className="mt-2 text-sm font-bold text-teal"
+                  >
+                    {t("common.retry")}
+                  </button>
+                </li>
+              ) : null}
               {roots.map((root) => {
                 const hasKids = (childrenOf.get(root.id) || []).length > 0;
                 return (
@@ -193,6 +262,7 @@ export function CatalogSheet({
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

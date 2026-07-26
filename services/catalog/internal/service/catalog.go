@@ -34,7 +34,7 @@ func (s *Catalog) BulkCreate(tenantID string, products []model.BulkProductReques
 	return createdIDs, nil
 }
 
-func (s *Catalog) ImportCSV(tenantID string, input io.Reader) ([]string, error) {
+func (s *Catalog) ImportCSV(tenantID string, input io.Reader, vendorID *string) ([]string, error) {
 	reader := csv.NewReader(input)
 	rows, err := reader.ReadAll()
 	if err != nil {
@@ -60,6 +60,7 @@ func (s *Catalog) ImportCSV(tenantID string, input io.Reader) ([]string, error) 
 		})
 		id := uuid.NewString()
 		request := model.CreateProductRequest{
+			VendorID:          vendorID,
 			CategoryID:        row[1],
 			Slug:              row[0],
 			Translations:      translations,

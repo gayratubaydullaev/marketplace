@@ -1,24 +1,20 @@
 "use client";
 
-import { useEffect, useState, Suspense } from "react";
+import { useEffect, useMemo, useState, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { api, type Product } from "@/lib/api";
+import { extractSearchItems, pushRecentSearch } from "@/lib/search";
+import { buildFilterHref, countActiveFilters, type FilterState } from "@/lib/filters";
 import { ProductGrid } from "@/components/ProductGrid";
 import { Pagination } from "@/components/Pagination";
 import { FilterSheet } from "@/components/FilterSheet";
+import { ActiveFilterChips, CatalogFilters, type FilterCategory } from "@/components/CatalogFilters";
 import { EmptyState } from "@/components/PageChrome";
+import { SearchLanding } from "@/components/HeaderSearch";
 
 const PAGE_SIZE = 12;
-
-function extractItems(data: {
-  items?: Product[];
-  result?: { hits?: { hits?: { _source?: Product }[] } };
-}): Product[] {
-  if (data.items?.length) return data.items;
-  return (data.result?.hits?.hits || []).map((h) => h._source!).filter(Boolean);
-}
 
 function SearchInner() {
   const locale = useLocale();
@@ -27,20 +23,50 @@ function SearchInner() {
   const q = searchParams.get("q") || "";
   const sort = searchParams.get("sort") || "relevance";
   const categoryId = searchParams.get("category_id") || "";
+  const min = searchParams.get("min") || "";
+  const max = searchParams.get("max") || "";
+  const featured = searchParams.get("featured") || "";
+  const onSale = searchParams.get("on_sale") || "";
+  const inStock = searchParams.get("in_stock") || "";
   const page = Math.max(1, Number(searchParams.get("page") || 1) || 1);
 
   const [items, setItems] = useState<Product[]>([]);
-  const [categories, setCategories] = useState<
-    { id?: string; slug: string; translations: Record<string, { name?: string }> }[]
-  >([]);
-  const [facets, setFacets] = useState<{ categories?: { category_id: string; count: number }[] }>({});
+  const [categories, setCategories] = useState<FilterCategory[]>([]);
+  const [facets, setFacets] = useState<{
+    categories?: { category_id: string; count: number }[];
+    price_ranges?: { min: number; max: number }[];
+  }>({});
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  const values: FilterState = {
+    q: q || undefined,
+    sort: sort !== "relevance" ? sort : undefined,
+    category_id: categoryId || undefined,
+    min: min || undefined,
+    max: max || undefined,
+    featured: featured ? "1" : undefined,
+    on_sale: onSale ? "1" : undefined,
+    in_stock: inStock ? "1" : undefined,
+  };
+  const basePath = `/${locale}/search`;
+  const clearHref = q ? `${basePath}?q=${encodeURIComponent(q)}` : basePath;
+  const activeCount = countActiveFilters(values, { ignoreSort: true });
+
+  const facetCountMap = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const c of facets.categories || []) {
+      if (c?.category_id) m.set(c.category_id, c.count);
+    }
+    return m;
+  }, [facets]);
 
   useEffect(() => {
     Promise.all([
       api<typeof facets>("/v1/search/facets"),
-      api<{ items: typeof categories }>("/v1/categories"),
+      api<{ items: FilterCategory[] }>("/v1/categories"),
     ])
       .then(([f, c]) => {
         setFacets(f || {});
@@ -54,10 +80,13 @@ function SearchInner() {
       setItems([]);
       setTotal(0);
       setLoading(false);
+      setError(false);
       return;
     }
+    pushRecentSearch(q);
     let cancelled = false;
     setLoading(true);
+    setError(false);
     const tmr = setTimeout(async () => {
       try {
         const params = new URLSearchParams({
@@ -68,6 +97,11 @@ function SearchInner() {
           limit: String(PAGE_SIZE),
         });
         if (categoryId) params.set("category_id", categoryId);
+        if (min) params.set("min_price", min);
+        if (max) params.set("max_price", max);
+        if (featured) params.set("featured", "true");
+        if (onSale) params.set("on_sale", "true");
+        if (inStock) params.set("in_stock", "true");
         const data = await api<{
           items?: Product[];
           results_count?: number;
@@ -75,100 +109,41 @@ function SearchInner() {
           result?: { hits?: { hits?: { _source?: Product }[] } };
         }>(`/v1/search?${params.toString()}`);
         if (cancelled) return;
-        const list = extractItems(data);
+        const list = extractSearchItems(data);
         setItems(list);
         setTotal(data.results_count ?? data.total ?? list.length);
       } catch {
         if (!cancelled) {
           setItems([]);
           setTotal(0);
+          setError(true);
         }
       } finally {
         if (!cancelled) setLoading(false);
       }
-    }, 120);
+    }, 80);
     return () => {
       cancelled = true;
       clearTimeout(tmr);
     };
-  }, [q, locale, sort, page, categoryId]);
-
-  function href(next: Record<string, string | undefined>) {
-    const params = new URLSearchParams();
-    const merged = {
-      q: q || undefined,
-      sort: sort !== "relevance" ? sort : undefined,
-      category_id: categoryId || undefined,
-      page: page > 1 ? String(page) : undefined,
-      ...next,
-    };
-    Object.entries(merged).forEach(([k, v]) => {
-      if (v) params.set(k, v);
-    });
-    const s = params.toString();
-    return s ? `/${locale}/search?${s}` : `/${locale}/search`;
-  }
-
-  function catLabel(id?: string) {
-    if (!id) return "?";
-    const c = categories.find((x) => x.id === id);
-    return c?.translations?.[locale]?.name || c?.slug || id.slice(0, 8);
-  }
-
-  const facetCategories = (facets.categories || []).filter(
-    (c): c is { category_id: string; count: number } => Boolean(c?.category_id)
-  );
-  const activeCount = (categoryId ? 1 : 0) + (sort !== "relevance" ? 1 : 0);
+  }, [q, locale, sort, page, categoryId, min, max, featured, onSale, inStock, reloadKey]);
 
   if (!q.trim()) {
-    return (
-      <EmptyState
-        title={t("search.title")}
-        description={t("search.hint")}
-        actionHref={`/${locale}/products`}
-        actionLabel={t("nav.catalog")}
-      />
-    );
+    return <SearchLanding locale={locale} />;
   }
 
   return (
-    <div className="animate-rise lg:grid lg:grid-cols-[220px_1fr] lg:gap-10">
-      <FilterSheet activeCount={activeCount}>
-        <p className="text-sm font-bold uppercase tracking-wide text-muted">{t("nav.categories")}</p>
-        <ul className="mt-2 space-y-1 text-sm">
-          <li>
-            <Link
-              href={href({ category_id: undefined, page: undefined })}
-              className={`block rounded-lg px-3 py-1.5 ${
-                !categoryId ? "bg-accent-muted font-semibold text-teal" : "hover:bg-night/4"
-              }`}
-            >
-              {t("catalog.all")}
-            </Link>
-          </li>
-          {facetCategories.slice(0, 12).map((c) => (
-            <li key={c.category_id}>
-              <Link
-                href={href({ category_id: c.category_id, page: undefined })}
-                className={`block rounded-lg px-3 py-1.5 ${
-                  categoryId === c.category_id
-                    ? "bg-accent-muted font-semibold text-teal"
-                    : "hover:bg-night/4"
-                }`}
-              >
-                {catLabel(c.category_id)} ({c.count})
-              </Link>
-            </li>
-          ))}
-        </ul>
-        {categoryId ? (
-          <Link
-            href={href({ category_id: undefined, page: undefined })}
-            className="inline-block text-sm font-semibold text-teal hover:underline"
-          >
-            {t("catalog.clearFilters")}
-          </Link>
-        ) : null}
+    <div className="animate-rise lg:grid lg:grid-cols-[240px_1fr] lg:gap-10">
+      <FilterSheet activeCount={activeCount} resultCount={total} clearHref={clearHref}>
+        <CatalogFilters
+          locale={locale}
+          basePath={basePath}
+          values={values}
+          categories={categories}
+          mode="search"
+          priceRanges={facets.price_ranges}
+          facetCounts={facetCountMap}
+        />
       </FilterSheet>
 
       <div>
@@ -183,15 +158,26 @@ function SearchInner() {
           </div>
         </div>
 
-        <div className="mt-4 flex gap-2 overflow-x-auto pb-1 text-sm sm:flex-wrap sm:overflow-visible">
+        <ActiveFilterChips
+          locale={locale}
+          basePath={basePath}
+          values={values}
+          categories={categories}
+          clearHref={clearHref}
+        />
+
+        <div className="mt-2 flex gap-2 overflow-x-auto pb-1 text-sm sm:flex-wrap sm:overflow-visible">
           {[
             { sort: "relevance", label: t("catalog.sortRelevance") },
             { sort: "price_asc", label: t("catalog.sortPriceAsc") },
             { sort: "price_desc", label: t("catalog.sortPriceDesc") },
+            { sort: "newest", label: t("catalog.sortNewest") },
           ].map((s) => (
             <Link
               key={s.sort}
-              href={href({ sort: s.sort === "relevance" ? undefined : s.sort, page: undefined })}
+              href={buildFilterHref(basePath, values, {
+                sort: s.sort === "relevance" ? undefined : s.sort,
+              })}
               className={`shrink-0 rounded-full px-3.5 py-1.5 font-medium ${
                 sort === s.sort
                   ? "bg-accent text-night"
@@ -212,6 +198,18 @@ function SearchInner() {
               </div>
             ))}
           </div>
+        ) : error ? (
+          <div className="px-4 py-16 text-center sm:py-20">
+            <p className="font-display text-lg font-bold text-night">{t("common.error")}</p>
+            <p className="mx-auto mt-2 max-w-sm text-sm text-muted">{t("search.tryDifferent")}</p>
+            <button
+              type="button"
+              onClick={() => setReloadKey((k) => k + 1)}
+              className="mt-7 inline-block rounded-xl bg-accent px-6 py-3 text-sm font-bold text-night transition hover:bg-accent-hover"
+            >
+              {t("common.retry")}
+            </button>
+          </div>
         ) : items.length === 0 ? (
           <EmptyState
             title={t("search.noResults")}
@@ -224,15 +222,11 @@ function SearchInner() {
             <ProductGrid products={items} locale={locale} columns={5} />
             <Pagination
               locale={locale}
-              basePath={`/${locale}/search`}
+              basePath={basePath}
               page={page}
               pageSize={PAGE_SIZE}
               total={Math.max(total, items.length)}
-              params={{
-                q: q || undefined,
-                sort: sort !== "relevance" ? sort : undefined,
-                category_id: categoryId || undefined,
-              }}
+              params={values}
             />
           </>
         )}

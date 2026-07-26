@@ -36,6 +36,10 @@ func NewAuthService(repo *repository.UserRepo, tokens *commonauth.Manager, rdb *
 }
 
 func (s *AuthService) BootstrapAdmin() error {
+	env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
+	if env == "production" || env == "prod" {
+		return nil // never seed default admin in production
+	}
 	hash, err := bcrypt.GenerateFromPassword([]byte("Admin123!"), bcrypt.DefaultCost)
 	if err != nil {
 		return err
@@ -51,13 +55,8 @@ func (s *AuthService) Register(tenantID string, req model.RegisterRequest) (*mod
 	if existing != nil {
 		return nil, nil, errors.New("email already registered")
 	}
-	role := req.Role
-	if role == "" {
-		role = string(commonauth.RoleCustomer)
-	}
-	if role != string(commonauth.RoleCustomer) && role != string(commonauth.RoleVendor) {
-		role = string(commonauth.RoleCustomer)
-	}
+	// Public registration is customer-only; vendor role is granted via apply/approve.
+	role := string(commonauth.RoleCustomer)
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
 		return nil, nil, err
@@ -222,12 +221,15 @@ func (s *AuthService) ForgotPassword(tenantID, email string) (string, error) {
 	if err != nil || u == nil {
 		return "", nil // do not leak
 	}
+	if s.rdb == nil {
+		return "", errors.New("reset unavailable")
+	}
 	tokenBytes := make([]byte, 32)
 	_, _ = rand.Read(tokenBytes)
 	token := hex.EncodeToString(tokenBytes)
-	if s.rdb != nil {
-		key := fmt.Sprintf("pwdreset:%s", token)
-		_ = s.rdb.Set(context.Background(), key, u.ID, time.Hour).Err()
+	key := fmt.Sprintf("pwdreset:%s", token)
+	if err := s.rdb.Set(context.Background(), key, u.ID, time.Hour).Err(); err != nil {
+		return "", errors.New("reset unavailable")
 	}
 	return token, nil
 }
@@ -260,13 +262,13 @@ func (s *AuthService) ResetPassword(token, newPassword string) error {
 
 func (s *AuthService) throttleOTP(key string, perMinute, perHour int64) error {
 	if s.rdb == nil {
-		return nil
+		return errors.New("otp unavailable")
 	}
 	ctx := context.Background()
 	minKey, hourKey := key+":m", key+":h"
 	nMin, err := s.rdb.Incr(ctx, minKey).Result()
 	if err != nil {
-		return nil
+		return errors.New("otp unavailable")
 	}
 	if nMin == 1 {
 		_ = s.rdb.Expire(ctx, minKey, time.Minute).Err()
@@ -276,7 +278,7 @@ func (s *AuthService) throttleOTP(key string, perMinute, perHour int64) error {
 	}
 	nHour, err := s.rdb.Incr(ctx, hourKey).Result()
 	if err != nil {
-		return nil
+		return errors.New("otp unavailable")
 	}
 	if nHour == 1 {
 		_ = s.rdb.Expire(ctx, hourKey, time.Hour).Err()
@@ -292,13 +294,16 @@ func (s *AuthService) SendOTP(phone string) (string, error) {
 	if !ok {
 		return "", errors.New("invalid Uzbekistan phone")
 	}
+	if s.rdb == nil {
+		return "", errors.New("otp unavailable")
+	}
 	if err := s.throttleOTP("otp:send:"+normalized, 1, 5); err != nil {
 		return "", err
 	}
 	n, _ := rand.Int(rand.Reader, big.NewInt(900000))
 	code := fmt.Sprintf("%06d", n.Int64()+100000)
-	if s.rdb != nil {
-		_ = s.rdb.Set(context.Background(), "otp:"+normalized, code, 5*time.Minute).Err()
+	if err := s.rdb.Set(context.Background(), "otp:"+normalized, code, 5*time.Minute).Err(); err != nil {
+		return "", errors.New("otp unavailable")
 	}
 	msg := fmt.Sprintf("Gayrat code: %s", code)
 	_ = sms.FromEnv().Send(normalized, msg)
@@ -314,13 +319,14 @@ func (s *AuthService) VerifyOTP(tenantID, phone, code string) (*model.User, *com
 	if !ok {
 		return nil, nil, errors.New("invalid phone")
 	}
-	if s.rdb != nil {
-		stored, err := s.rdb.Get(context.Background(), "otp:"+normalized).Result()
-		if err != nil || stored != code {
-			return nil, nil, errors.New("invalid otp")
-		}
-		_ = s.rdb.Del(context.Background(), "otp:"+normalized).Err()
+	if s.rdb == nil {
+		return nil, nil, errors.New("otp unavailable")
 	}
+	stored, err := s.rdb.Get(context.Background(), "otp:"+normalized).Result()
+	if err != nil || stored != code {
+		return nil, nil, errors.New("invalid otp")
+	}
+	_ = s.rdb.Del(context.Background(), "otp:"+normalized).Err()
 	email := strings.ReplaceAll(normalized, "+", "") + "@otp.gayrat.uz"
 	u, err := s.repo.FindByEmail(tenantID, email)
 	if err != nil {

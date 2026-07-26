@@ -179,12 +179,30 @@ export default function CheckoutPage() {
       let redirectHref = intent.redirect_url;
       try {
         const redirect = new URL(intent.redirect_url, window.location.origin);
+        const apiBase = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8080";
+        const paymentsBase = process.env.NEXT_PUBLIC_PAYMENTS_BASE || "";
+        const allowedHosts = new Set<string>([
+          window.location.hostname,
+          "localhost",
+          "127.0.0.1",
+        ]);
+        for (const base of [apiBase, paymentsBase]) {
+          try {
+            if (base) allowedHosts.add(new URL(base, window.location.origin).hostname);
+          } catch {
+            /* ignore */
+          }
+        }
+        if (!allowedHosts.has(redirect.hostname)) {
+          setStatus("unsafe payment redirect");
+          return;
+        }
         redirect.searchParams.set("payment_id", intent.id);
         redirect.searchParams.set("return_url", returnUrl);
         redirectHref = redirect.toString();
       } catch {
-        const join = intent.redirect_url.includes("?") ? "&" : "?";
-        redirectHref = `${intent.redirect_url}${join}payment_id=${encodeURIComponent(intent.id)}&return_url=${encodeURIComponent(returnUrl)}`;
+        setStatus("invalid payment redirect");
+        return;
       }
       window.location.assign(redirectHref);
     } catch (err) {

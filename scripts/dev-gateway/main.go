@@ -134,7 +134,8 @@ func writeSecurityHeaders(w http.ResponseWriter) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("X-Frame-Options", "DENY")
 	w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
-	w.Header().Set("Content-Security-Policy", "default-src 'self'; frame-ancestors 'none'")
+	// API/gateway JSON only — full script CSP belongs on HTML frontends.
+	w.Header().Set("Content-Security-Policy", "frame-ancestors 'none'")
 }
 
 func main() {

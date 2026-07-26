@@ -1,7 +1,9 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import "@gayrat/map/styles.css";
 
 export const metadata: Metadata = {
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"),
   icons: {
     icon: [{ url: "/favicon.ico", sizes: "any" }],
     shortcut: "/favicon.ico",

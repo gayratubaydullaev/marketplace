@@ -21,6 +21,9 @@ type Product struct {
 	InventoryPolicy   string          `db:"inventory_policy" json:"inventory_policy"`
 	Status            string          `db:"status" json:"status"`
 	IsFeatured        bool            `db:"is_featured" json:"is_featured"`
+	Rating            float64         `db:"rating" json:"rating"`
+	ReviewCount       int             `db:"review_count" json:"review_count"`
+	SalesCount        int             `db:"sales_count" json:"sales_count"`
 	SEO               json.RawMessage `db:"seo" json:"seo"`
 	Attributes        json.RawMessage `db:"attributes" json:"attributes"`
 	Images            json.RawMessage `db:"images" json:"images"`

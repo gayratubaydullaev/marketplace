@@ -178,6 +178,8 @@ func (h *Handler) listProducts(c *gin.Context) {
 	opts := repository.ProductListOpts{
 		Status:   c.DefaultQuery("status", "active"),
 		Featured: c.Query("featured"),
+		OnSale:   c.Query("on_sale"),
+		InStock:  c.Query("in_stock"),
 		VendorID: c.Query("vendor_id"),
 		Sort:     c.Query("sort"),
 		Limit:    limit,
@@ -217,9 +219,12 @@ func (h *Handler) listProductsByCategory(c *gin.Context) {
 		limit = 50
 	}
 	opts := repository.ProductListOpts{
-		Sort:   c.Query("sort"),
-		Limit:  limit,
-		Offset: (page - 1) * limit,
+		Featured: c.Query("featured"),
+		OnSale:   c.Query("on_sale"),
+		InStock:  c.Query("in_stock"),
+		Sort:     c.Query("sort"),
+		Limit:    limit,
+		Offset:   (page - 1) * limit,
 	}
 	if v := c.Query("min_price"); v != "" {
 		if f, err := strconv.ParseFloat(v, 64); err == nil {
@@ -286,8 +291,16 @@ func (h *Handler) createProduct(c *gin.Context) {
 		body.Images = json.RawMessage(`[]`)
 	}
 	claims := middleware.GetClaims(c)
-	if claims.Role == commonauth.RoleVendor && claims.VendorID != "" {
+	if claims.Role == commonauth.RoleVendor {
 		vendorID := claims.VendorID
+		if vendorID == "" {
+			resolved, err := h.repo().ResolveVendorID(middleware.GetTenantID(c), claims.UserID)
+			if err != nil || resolved == "" {
+				httpx.Forbidden(c, "vendor profile required")
+				return
+			}
+			vendorID = resolved
+		}
 		body.VendorID = &vendorID
 	}
 	id, tenantID := uuid.NewString(), middleware.GetTenantID(c)
@@ -431,7 +444,24 @@ func (h *Handler) bulkCreate(c *gin.Context) {
 		httpx.BadRequest(c, "max 10000 products per bulk")
 		return
 	}
-	ids, _ := h.Service.BulkCreate(middleware.GetTenantID(c), body.Products)
+	claims := middleware.GetClaims(c)
+	tenantID := middleware.GetTenantID(c)
+	if claims.Role == commonauth.RoleVendor {
+		vendorID := claims.VendorID
+		if vendorID == "" {
+			resolved, err := h.repo().ResolveVendorID(tenantID, claims.UserID)
+			if err != nil || resolved == "" {
+				httpx.Forbidden(c, "vendor profile required")
+				return
+			}
+			vendorID = resolved
+		}
+		for i := range body.Products {
+			vid := vendorID
+			body.Products[i].VendorID = &vid
+		}
+	}
+	ids, _ := h.Service.BulkCreate(tenantID, body.Products)
 	for _, id := range ids {
 		h.publish(c, "product.created", id, gin.H{"id": id})
 	}
@@ -509,7 +539,22 @@ func (h *Handler) importProducts(c *gin.Context, format string) {
 		return
 	}
 	defer input.Close()
-	ids, err := h.Service.ImportCSV(middleware.GetTenantID(c), input)
+	claims := middleware.GetClaims(c)
+	tenantID := middleware.GetTenantID(c)
+	var vendorID *string
+	if claims.Role == commonauth.RoleVendor {
+		vid := claims.VendorID
+		if vid == "" {
+			resolved, err := h.repo().ResolveVendorID(tenantID, claims.UserID)
+			if err != nil || resolved == "" {
+				httpx.Forbidden(c, "vendor profile required")
+				return
+			}
+			vid = resolved
+		}
+		vendorID = &vid
+	}
+	ids, err := h.Service.ImportCSV(tenantID, input, vendorID)
 	if err != nil {
 		httpx.BadRequest(c, err.Error())
 		return

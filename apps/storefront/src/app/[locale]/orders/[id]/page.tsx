@@ -8,7 +8,6 @@ import { useLocale, useTranslations } from "next-intl";
 import { formatUZS, type Locale } from "@gayrat/i18n";
 import { api, productImage, type Product } from "@/lib/api";
 import { PageHeader, StatusBadge } from "@/components/PageChrome";
-import "@gayrat/map/styles.css";
 
 const TrackingMap = dynamic(() => import("@gayrat/map").then((m) => m.TrackingMap), {
   ssr: false,

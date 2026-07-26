@@ -10,7 +10,6 @@ import { Msg, PageHeader, StatusBadge } from "@/components/ui";
 import { useI18n } from "@/lib/i18n";
 import { usePoll } from "@/hooks/usePoll";
 import { deliveryStatusLabel } from "@/lib/status";
-import "@gayrat/map/styles.css";
 
 const RouteMap = dynamic(() => import("@gayrat/map").then((m) => m.RouteMap), {
   ssr: false,

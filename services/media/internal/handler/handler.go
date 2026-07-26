@@ -113,7 +113,11 @@ func (h *Handler) upload(c *gin.Context) {
 
 func isAllowedUpload(contentType, filename string) bool {
 	ext := strings.ToLower(filepath.Ext(filename))
-	if service.IsRasterImage(contentType, filename) || contentType == "image/svg+xml" || ext == ".svg" {
+	// SVG is rejected: stored XSS risk when served inline.
+	if contentType == "image/svg+xml" || ext == ".svg" {
+		return false
+	}
+	if service.IsRasterImage(contentType, filename) {
 		return true
 	}
 	switch ext {

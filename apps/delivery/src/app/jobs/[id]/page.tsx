@@ -12,7 +12,6 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { Msg } from "@/components/ui";
 import { usePoll } from "@/hooks/usePoll";
 import { JOB_STEPS, money, stepIndex } from "@/lib/status";
-import "@gayrat/map/styles.css";
 
 const RouteMap = dynamic(() => import("@gayrat/map").then((m) => m.RouteMap), {
   ssr: false,

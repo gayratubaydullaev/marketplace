@@ -25,6 +25,9 @@ import (
 
 func main() {
 	cfg := config.Load("analytics-service")
+	if err := cfg.ValidateSecrets(); err != nil {
+		log.Fatal(err)
+	}
 	if os.Getenv("HTTP_PORT") == "" {
 		cfg.HTTPPort = "8010"
 	}

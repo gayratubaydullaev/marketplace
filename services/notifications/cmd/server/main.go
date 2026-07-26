@@ -22,6 +22,9 @@ import (
 
 func main() {
 	cfg := config.Load("notifications-service")
+	if err := cfg.ValidateSecrets(); err != nil {
+		log.Fatal(err)
+	}
 	if os.Getenv("HTTP_PORT") == "" {
 		cfg.HTTPPort = "8009"
 	}

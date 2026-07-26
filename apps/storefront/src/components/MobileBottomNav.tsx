@@ -5,9 +5,15 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { useTranslations } from "next-intl";
 import { useCart } from "@/lib/cart";
-import { CatalogSheet } from "@/components/CatalogSheet";
+import { CatalogSheet, type CatalogCat } from "@/components/CatalogSheet";
 
-export function MobileBottomNav({ locale }: { locale: string }) {
+export function MobileBottomNav({
+  locale,
+  categories = [],
+}: {
+  locale: string;
+  categories?: CatalogCat[];
+}) {
   const t = useTranslations("nav");
   const pathname = usePathname();
   const count = useCart((s) => s.items.reduce((a, i) => a + i.quantity, 0));
@@ -30,15 +36,16 @@ export function MobileBottomNav({ locale }: { locale: string }) {
       >
         <ul className="mx-auto grid h-[var(--bottom-nav-h)] max-w-lg grid-cols-5 gap-0 px-1">
           {tabs.map((tab) => {
-            const active = catalogOpen && "catalog" in tab && tab.catalog ? true : tab.match(pathname);
+            const isCatalog = "catalog" in tab && tab.catalog === true;
+            const active = isCatalog ? catalogOpen || tab.match(pathname) : tab.match(pathname);
             const Icon = tab.icon;
-            if ("catalog" in tab && tab.catalog) {
+            if (isCatalog) {
               return (
                 <li key="catalog" className="flex">
                   <button
                     type="button"
                     onClick={() => setCatalogOpen(true)}
-                    className={`relative flex min-h-0 w-full flex-col items-center justify-center gap-0.5 rounded-xl px-1 py-1 text-[10px] font-semibold ${
+                    className={`relative flex min-h-0 w-full touch-manipulation flex-col items-center justify-center gap-0.5 rounded-xl px-1 py-1 text-[10px] font-semibold ${
                       active ? "text-teal" : "text-night/45"
                     }`}
                     aria-expanded={catalogOpen}
@@ -56,7 +63,7 @@ export function MobileBottomNav({ locale }: { locale: string }) {
               <li key={tab.href} className="flex">
                 <Link
                   href={tab.href}
-                  className={`relative flex min-h-0 w-full flex-col items-center justify-center gap-0.5 rounded-xl px-1 py-1 text-[10px] font-semibold ${
+                  className={`relative flex min-h-0 w-full touch-manipulation flex-col items-center justify-center gap-0.5 rounded-xl px-1 py-1 text-[10px] font-semibold ${
                     active ? "text-teal" : "text-night/45"
                   }`}
                 >
@@ -76,7 +83,12 @@ export function MobileBottomNav({ locale }: { locale: string }) {
         </ul>
       </nav>
 
-      <CatalogSheet locale={locale} open={catalogOpen} onClose={() => setCatalogOpen(false)} />
+      <CatalogSheet
+        locale={locale}
+        open={catalogOpen}
+        onClose={() => setCatalogOpen(false)}
+        initialCategories={categories}
+      />
     </>
   );
 }

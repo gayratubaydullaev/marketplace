@@ -68,13 +68,17 @@ export function ProductGallery({
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setLightbox(false);
+      if (e.key === "Escape") {
+        setLightbox(false);
+        return;
+      }
+      if (!lightbox) return;
       if (e.key === "ArrowLeft") go(-1);
       if (e.key === "ArrowRight") go(1);
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [go]);
+  }, [go, lightbox]);
 
   useEffect(() => {
     if (!lightbox) return;
@@ -99,12 +103,12 @@ export function ProductGallery({
   }
 
   return (
-    <div className="w-full min-w-0 max-w-full overflow-x-clip">
+    <div className="w-full min-w-0 max-w-full lg:overflow-visible overflow-x-clip">
       <div className="flex w-full min-w-0 flex-col items-stretch gap-3 lg:flex-row lg:items-start lg:gap-4">
         {total > 1 ? (
           <div
             ref={desktopStripRef}
-            className="hidden w-[5.25rem] shrink-0 flex-col gap-2.5 overflow-y-auto overscroll-contain [scrollbar-width:none] xl:w-24 lg:flex [&::-webkit-scrollbar]:hidden"
+            className="hidden w-[5.25rem] shrink-0 flex-col gap-2.5 overflow-y-auto overscroll-contain [scrollbar-width:none] lg:flex xl:w-24 [&::-webkit-scrollbar]:hidden"
             style={{ maxHeight: "min(84dvh, 44rem)", height: "min(84dvh, 44rem)" }}
           >
             {list.map((img, i) => (
@@ -145,7 +149,7 @@ export function ProductGallery({
           </div>
         ) : null}
 
-        <div className="relative mx-auto w-full min-w-0 lg:mx-0 lg:w-auto lg:flex-1">
+        <div className="relative mx-auto w-full min-w-0 lg:mx-0 lg:w-auto lg:flex-1 lg:min-w-0">
           {/*
             Aspect-correct frame that still fits the viewport:
             width = min(parent, maxHeight * ratio) so aspect-ratio never breaks.
@@ -168,6 +172,7 @@ export function ProductGallery({
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
+                  key={src}
                   src={src}
                   alt={name}
                   loading={active === 0 ? "eager" : "lazy"}
@@ -175,7 +180,7 @@ export function ProductGallery({
                   width={1200}
                   height={1500}
                   sizes="(max-width: 1023px) 100vw, 56vw"
-                  className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.03]"
+                  className="h-full w-full object-contain transition duration-500 group-hover:scale-[1.02] animate-rise"
                 />
                 <span className="pointer-events-none absolute inset-x-0 bottom-0 hidden bg-gradient-to-t from-night/50 to-transparent px-5 pb-4 pt-16 text-xs font-semibold text-paper/95 opacity-0 transition duration-300 group-hover:opacity-100 lg:block">
                   {t("zoomHint")}
@@ -193,7 +198,7 @@ export function ProductGallery({
               <>
                 <button
                   type="button"
-                  aria-label="Previous"
+                  aria-label={t("galleryPrev")}
                   onClick={() => go(-1)}
                   className="absolute start-3 top-1/2 z-[1] hidden h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-white/95 text-night shadow-md transition hover:bg-white lg:flex"
                 >
@@ -203,7 +208,7 @@ export function ProductGallery({
                 </button>
                 <button
                   type="button"
-                  aria-label="Next"
+                  aria-label={t("galleryNext")}
                   onClick={() => go(1)}
                   className="absolute end-3 top-1/2 z-[1] hidden h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-white/95 text-night shadow-md transition hover:bg-white lg:flex"
                 >
@@ -285,7 +290,7 @@ export function ProductGallery({
             <button
               type="button"
               className="absolute inset-0"
-              aria-label="Close"
+              aria-label={t("galleryClose")}
               onClick={() => setLightbox(false)}
             />
             <button
@@ -293,7 +298,7 @@ export function ProductGallery({
               onClick={() => setLightbox(false)}
               className="absolute end-4 z-10 flex h-11 w-11 items-center justify-center rounded-full bg-white/15 text-paper transition hover:bg-white/25"
               style={{ top: "max(1rem, env(safe-area-inset-top))" }}
-              aria-label="Close"
+              aria-label={t("galleryClose")}
             >
               ✕
             </button>
@@ -307,7 +312,7 @@ export function ProductGallery({
                 </p>
                 <button
                   type="button"
-                  aria-label="Previous"
+                  aria-label={t("galleryPrev")}
                   onClick={() => go(-1)}
                   className="absolute start-4 z-10 flex h-11 w-11 items-center justify-center rounded-full bg-white/15 text-paper transition hover:bg-white/25"
                 >
@@ -315,7 +320,7 @@ export function ProductGallery({
                 </button>
                 <button
                   type="button"
-                  aria-label="Next"
+                  aria-label={t("galleryNext")}
                   onClick={() => go(1)}
                   className="absolute end-4 z-10 flex h-11 w-11 items-center justify-center rounded-full bg-white/15 text-paper transition hover:bg-white/25 md:end-16"
                 >

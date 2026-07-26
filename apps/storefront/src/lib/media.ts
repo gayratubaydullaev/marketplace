@@ -74,15 +74,18 @@ export function rewriteMediaUrl(
 
 export function rewriteMediaUrls(
   urls: Array<string | null | undefined>,
-  opts?: { kind?: "product" | "hero"; fallbackKey?: string }
+  opts?: { kind?: "product" | "hero"; fallbackKey?: string; unique?: boolean }
 ): string[] {
+  const unique = opts?.unique !== false;
   const out: string[] = [];
   for (let i = 0; i < urls.length; i++) {
     const rewritten = rewriteMediaUrl(urls[i], {
       kind: opts?.kind,
       fallbackKey: `${opts?.fallbackKey || "img"}:${i}:${urls[i] || ""}`,
     });
-    if (rewritten && !out.includes(rewritten)) out.push(rewritten);
+    if (!rewritten) continue;
+    if (unique && out.includes(rewritten)) continue;
+    out.push(rewritten);
   }
   return out;
 }

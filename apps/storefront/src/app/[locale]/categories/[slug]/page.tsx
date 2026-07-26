@@ -1,20 +1,13 @@
 import Link from "next/link";
 import { setRequestLocale, getTranslations } from "next-intl/server";
 import { api, type Product } from "@/lib/api";
+import { buildFilterHref, countActiveFilters, type FilterState } from "@/lib/filters";
 import { ProductGrid } from "@/components/ProductGrid";
 import { Pagination } from "@/components/Pagination";
 import { FilterSheet } from "@/components/FilterSheet";
+import { ActiveFilterChips, CatalogFilters } from "@/components/CatalogFilters";
 
 const PAGE_SIZE = 12;
-
-function buildHref(locale: string, slug: string, next: Record<string, string | undefined>) {
-  const q = new URLSearchParams();
-  Object.entries(next).forEach(([k, v]) => {
-    if (v) q.set(k, v);
-  });
-  const s = q.toString();
-  return s ? `/${locale}/categories/${slug}?${s}` : `/${locale}/categories/${slug}`;
-}
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string; slug: string }> }) {
   const { locale, slug } = await params;
@@ -39,7 +32,15 @@ export default async function CategoryPage({
   searchParams,
 }: {
   params: Promise<{ locale: string; slug: string }>;
-  searchParams: Promise<{ page?: string; sort?: string; min?: string; max?: string }>;
+  searchParams: Promise<{
+    page?: string;
+    sort?: string;
+    min?: string;
+    max?: string;
+    featured?: string;
+    on_sale?: string;
+    in_stock?: string;
+  }>;
 }) {
   const { locale, slug } = await params;
   const sp = await searchParams;
@@ -53,6 +54,7 @@ export default async function CategoryPage({
   let parentSlug: string | null = null;
   let parentName: string | null = null;
   let childLinks: { slug: string; name: string }[] = [];
+  let priceRanges: { min: number; max: number }[] | undefined;
 
   const qs = new URLSearchParams();
   qs.set("limit", String(PAGE_SIZE));
@@ -60,9 +62,12 @@ export default async function CategoryPage({
   if (sp.sort) qs.set("sort", sp.sort);
   if (sp.min) qs.set("min_price", sp.min);
   if (sp.max) qs.set("max_price", sp.max);
+  if (sp.featured) qs.set("featured", "true");
+  if (sp.on_sale) qs.set("on_sale", "true");
+  if (sp.in_stock) qs.set("in_stock", "true");
 
   try {
-    const [cats, prod] = await Promise.all([
+    const [cats, prod, facets] = await Promise.all([
       api<{
         items: {
           id: string;
@@ -72,12 +77,16 @@ export default async function CategoryPage({
         }[];
       }>("/v1/categories"),
       api<{ items: Product[]; total?: number }>(`/v1/categories/${slug}/products?${qs.toString()}`),
+      api<{ price_ranges?: { min: number; max: number }[] }>("/v1/search/facets").catch(
+        () => ({ price_ranges: undefined })
+      ),
     ]);
     const all = cats.items || [];
     const cat = all.find((c) => c.slug === slug);
     categoryName = cat?.translations?.[locale]?.name || cat?.translations?.uz?.name || slug;
     products = prod.items || [];
     total = prod.total ?? products.length;
+    priceRanges = facets.price_ranges;
     const parent = cat?.parent_id ? all.find((c) => c.id === cat.parent_id) : null;
     if (parent) {
       parentSlug = parent.slug;
@@ -93,47 +102,28 @@ export default async function CategoryPage({
     products = [];
   }
 
-  const keep = { sort: sp.sort, min: sp.min, max: sp.max };
-  const activeCount = (sp.min || sp.max ? 1 : 0) + (sp.sort ? 1 : 0);
+  const values: FilterState = {
+    sort: sp.sort,
+    min: sp.min,
+    max: sp.max,
+    featured: sp.featured ? "1" : undefined,
+    on_sale: sp.on_sale ? "1" : undefined,
+    in_stock: sp.in_stock ? "1" : undefined,
+  };
+  const basePath = `/${locale}/categories/${slug}`;
+  const activeCount = countActiveFilters(values, { ignoreSort: true });
 
   return (
-    <div className="animate-rise lg:grid lg:grid-cols-[220px_1fr] lg:gap-10">
-      <FilterSheet activeCount={activeCount}>
-        <h2 className="text-sm font-bold uppercase tracking-wide text-muted">{t("catalog.price")}</h2>
-        <ul className="mt-2 space-y-1 text-sm">
-          {[
-            { min: 0, max: 100000 },
-            { min: 100000, max: 500000 },
-            { min: 500000, max: 2000000 },
-          ].map((r) => {
-            const active = sp.min === String(r.min) && sp.max === String(r.max);
-            return (
-              <li key={`${r.min}-${r.max}`}>
-                <Link
-                  href={buildHref(locale, slug, {
-                    ...keep,
-                    min: String(r.min),
-                    max: String(r.max),
-                    page: undefined,
-                  })}
-                  className={`block rounded-lg px-3 py-1.5 ${
-                    active ? "bg-accent-muted font-semibold text-teal" : "hover:bg-night/4"
-                  }`}
-                >
-                  {r.min.toLocaleString()} – {r.max.toLocaleString()}
-                </Link>
-              </li>
-            );
-          })}
-        </ul>
-        {(sp.min || sp.max || sp.sort) && (
-          <Link
-            href={`/${locale}/categories/${slug}`}
-            className="inline-block text-sm font-semibold text-teal hover:underline"
-          >
-            {t("catalog.clearFilters")}
-          </Link>
-        )}
+    <div className="animate-rise lg:grid lg:grid-cols-[240px_1fr] lg:gap-10">
+      <FilterSheet activeCount={activeCount} resultCount={total} clearHref={basePath}>
+        <CatalogFilters
+          locale={locale}
+          basePath={basePath}
+          values={values}
+          mode="category"
+          priceRanges={priceRanges}
+          showCategories={false}
+        />
       </FilterSheet>
       <div>
         <nav className="flex flex-wrap items-center gap-1.5 text-xs text-muted sm:text-sm">
@@ -168,15 +158,22 @@ export default async function CategoryPage({
             ))}
           </div>
         ) : null}
-        <div className="mt-4 flex gap-2 overflow-x-auto pb-1 text-sm">
+
+        <div className="mt-4">
+          <ActiveFilterChips locale={locale} basePath={basePath} values={values} clearHref={basePath} />
+        </div>
+
+        <div className="mt-2 flex gap-2 overflow-x-auto pb-1 text-sm">
           {[
+            { sort: "newest", label: t("catalog.sortNewest") },
             { sort: "price_asc", label: t("catalog.sortPriceAsc") },
             { sort: "price_desc", label: t("catalog.sortPriceDesc") },
-            { sort: "newest", label: t("catalog.sortNewest") },
           ].map((s) => (
             <Link
               key={s.sort}
-              href={buildHref(locale, slug, { ...keep, sort: s.sort })}
+              href={buildFilterHref(basePath, values, {
+                sort: values.sort === s.sort ? undefined : s.sort,
+              })}
               className={`shrink-0 rounded-full px-3.5 py-1.5 font-medium ${
                 sp.sort === s.sort
                   ? "bg-accent text-night"
@@ -190,11 +187,11 @@ export default async function CategoryPage({
         <ProductGrid products={products} locale={locale} columns={5} />
         <Pagination
           locale={locale}
-          basePath={`/${locale}/categories/${slug}`}
+          basePath={basePath}
           page={page}
           pageSize={PAGE_SIZE}
           total={total}
-          params={keep}
+          params={values}
         />
       </div>
     </div>

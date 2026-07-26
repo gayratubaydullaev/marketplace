@@ -71,7 +71,9 @@ export function track(
     },
   });
 
-  void fetch(`${API_BASE}/v1/analytics/events`, {
+  // Same-origin in the browser (Next rewrites `/v1` → gateway).
+  const url = typeof window !== "undefined" ? "/v1/analytics/events" : `${API_BASE}/v1/analytics/events`;
+  void fetch(url, {
     method: "POST",
     headers,
     body,

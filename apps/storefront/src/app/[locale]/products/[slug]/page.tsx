@@ -6,6 +6,28 @@ import { rewriteMediaUrls } from "@/lib/media";
 import { ProductReviews } from "@/components/ProductReviews";
 import { ProductDetail } from "@/components/ProductDetail";
 import { ProductGrid } from "@/components/ProductGrid";
+import { ProductInfoSection } from "@/components/ProductInfoSection";
+import { EmptyState } from "@/components/PageChrome";
+
+type CategoryItem = {
+  id: string;
+  slug: string;
+  parent_id?: string | null;
+  translations?: Record<string, { name?: string }>;
+};
+
+type VendorItem = {
+  id: string;
+  name: string;
+  slug: string;
+  logo_url?: string | null;
+  rating?: number;
+};
+
+function catLabel(cat: CategoryItem | undefined, locale: string) {
+  if (!cat) return "";
+  return cat.translations?.[locale]?.name || cat.translations?.uz?.name || cat.slug;
+}
 
 export async function generateMetadata({
   params,
@@ -25,7 +47,8 @@ export async function generateMetadata({
         ? data.product.images.filter((x): x is string => typeof x === "string")
         : [],
       { fallbackKey: data.product.id || slug }
-    );    return {
+    );
+    return {
       title: `${name} | Gayrat Market`,
       description: desc.slice(0, 160),
       openGraph: {
@@ -61,6 +84,10 @@ export default async function ProductPage({
   let variants: Variant[] = [];
   let related: Product[] = [];
   let catalogJsonLd: Record<string, unknown> | null = null;
+  let category: CategoryItem | null = null;
+  let parentCategory: CategoryItem | null = null;
+  let vendor: VendorItem | null = null;
+
   try {
     const data = await api<{
       product: Product;
@@ -70,30 +97,45 @@ export default async function ProductPage({
     product = data.product;
     variants = data.variants || [];
     catalogJsonLd = data.json_ld || null;
-    const rel = await api<{ items: Product[] }>(`/v1/products/${slug}/related`).catch(() => ({
-      items: [] as Product[],
-    }));
+
+    const [rel, cats, vendors] = await Promise.all([
+      api<{ items: Product[] }>(`/v1/products/${slug}/related`).catch(() => ({
+        items: [] as Product[],
+      })),
+      api<{ items: CategoryItem[] }>("/v1/categories").catch(() => ({
+        items: [] as CategoryItem[],
+      })),
+      product.vendor_id
+        ? api<{ items: VendorItem[] }>("/v1/vendors").catch(() => ({
+            items: [] as VendorItem[],
+          }))
+        : Promise.resolve({ items: [] as VendorItem[] }),
+    ]);
+
     related = rel.items || [];
+    const allCats = cats.items || [];
+    if (product.category_id) {
+      category = allCats.find((c) => c.id === product!.category_id) || null;
+      if (category?.parent_id) {
+        parentCategory = allCats.find((c) => c.id === category!.parent_id) || null;
+      }
+    }
+    if (product.vendor_id) {
+      vendor = (vendors.items || []).find((v) => v.id === product!.vendor_id) || null;
+    }
   } catch {
     product = null;
   }
 
   if (!product) {
     const te = await getTranslations("errors");
-    const tc = await getTranslations("common");
     return (
-      <div className="mx-auto max-w-md py-16 text-center">
-        <p className="text-lg font-semibold text-night">{te("notFound")}</p>
-        <Link
-          href={`/${locale}/products`}
-          className="mt-6 inline-block rounded-xl bg-accent px-5 py-2.5 text-sm font-bold text-night"
-        >
-          {tn("catalog")}
-        </Link>
-        <Link href={`/${locale}`} className="mt-3 block text-sm text-night/55 hover:text-teal">
-          {tc("goHome")}
-        </Link>
-      </div>
+      <EmptyState
+        title={te("notFound")}
+        description={t("notFoundHint")}
+        actionHref={`/${locale}/products`}
+        actionLabel={tn("catalog")}
+      />
     );
   }
 
@@ -120,65 +162,104 @@ export default async function ProductPage({
     },
   };
   const jsonLd = catalogJsonLd || fallbackJsonLd;
+  const categoryName = category ? catLabel(category, locale) : null;
+  const parentName = parentCategory ? catLabel(parentCategory, locale) : null;
 
   return (
-    <div className="w-full min-w-0 max-w-full pb-[calc(var(--sticky-action-h)+1rem)] md:pb-10 lg:pb-14">
+    <div className="animate-rise w-full min-w-0 max-w-full pb-[calc(var(--sticky-action-h)+1rem)] md:pb-10 lg:pb-14">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, "\\u003c") }}
       />
 
-      <nav className="mb-4 flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-night/45 sm:mb-6 sm:text-sm lg:mb-8" aria-label="Breadcrumb">
-        <Link href={`/${locale}`} className="hover:text-teal">
+      <nav
+        className="mb-4 flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-night/45 sm:mb-6 sm:text-sm lg:mb-8"
+        aria-label="Breadcrumb"
+      >
+        <Link href={`/${locale}`} className="shrink-0 transition hover:text-teal">
           {t("breadcrumbHome")}
         </Link>
-        <span aria-hidden>/</span>
-        <Link href={`/${locale}/products`} className="hover:text-teal">
+        <span aria-hidden className="shrink-0 text-night/25">
+          /
+        </span>
+        <Link href={`/${locale}/products`} className="shrink-0 transition hover:text-teal">
           {tn("catalog")}
         </Link>
-        <span aria-hidden>/</span>
+        {parentCategory && parentName ? (
+          <>
+            <span aria-hidden className="shrink-0 text-night/25">
+              /
+            </span>
+            <Link
+              href={`/${locale}/categories/${parentCategory.slug}`}
+              className="max-w-[10rem] truncate transition hover:text-teal sm:max-w-[14rem]"
+            >
+              {parentName}
+            </Link>
+          </>
+        ) : null}
+        {category && categoryName ? (
+          <>
+            <span aria-hidden className="shrink-0 text-night/25">
+              /
+            </span>
+            <Link
+              href={`/${locale}/categories/${category.slug}`}
+              className="max-w-[10rem] truncate transition hover:text-teal sm:max-w-[14rem]"
+            >
+              {categoryName}
+            </Link>
+          </>
+        ) : null}
+        <span aria-hidden className="shrink-0 text-night/25">
+          /
+        </span>
         <span className="min-w-0 flex-1 truncate font-medium text-night/70">{name}</span>
       </nav>
 
-      <ProductDetail product={product} variants={variants} locale={locale} name={name} />
+      <ProductDetail
+        product={product}
+        variants={variants}
+        locale={locale}
+        name={name}
+        vendorSlug={vendor?.slug}
+        vendorName={vendor?.name}
+        vendorLogo={vendor?.logo_url || undefined}
+        vendorRating={vendor?.rating}
+        info={
+          <ProductInfoSection
+            product={product}
+            locale={locale}
+            description={description}
+            categoryName={categoryName}
+            vendorName={vendor?.name}
+          />
+        }
+      />
 
-      {description ? (
-        <section className="mt-12 border-t border-night/8 pt-10 sm:mt-14 sm:pt-12 lg:mt-16 lg:pt-14">
-          <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,0.7fr)] lg:gap-16 xl:gap-20">
-            <div>
-              <h2 className="font-display text-xl font-bold text-night sm:text-2xl">{t("description")}</h2>
-              <div className="mt-4 max-w-3xl whitespace-pre-line text-sm leading-relaxed text-night/75 sm:text-[15px] lg:mt-5 lg:text-base lg:leading-7">
-                {description}
-              </div>
-            </div>
-            <aside className="mt-8 hidden rounded-2xl border border-night/8 bg-white/60 p-6 lg:mt-0 lg:block">
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted">{t("deliverySoon")}</p>
-              <ul className="mt-4 space-y-3 text-sm text-night/70">
-                <li className="flex gap-2.5">
-                  <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-teal" />
-                  {t("trustDelivery")}
-                </li>
-                <li className="flex gap-2.5">
-                  <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-teal" />
-                  {t("trustReturn")}
-                </li>
-                <li className="flex gap-2.5">
-                  <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-teal" />
-                  {t("trustPayment")}
-                </li>
-              </ul>
-            </aside>
-          </div>
-        </section>
-      ) : null}
-
-      <ProductReviews productId={product.id} locale={locale} />
+      <ProductReviews
+        productId={product.id}
+        productSlug={product.slug}
+        locale={locale}
+        initialRating={typeof product.rating === "number" ? product.rating : null}
+        initialCount={typeof product.review_count === "number" ? product.review_count : null}
+      />
 
       {related.length > 0 ? (
         <section className="mt-12 border-t border-night/8 pt-10 sm:mt-16 sm:pt-12 lg:mt-20 lg:pt-14">
-          <h2 className="font-display text-xl font-bold text-night sm:text-2xl">{t("related")}</h2>
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <h2 className="font-display text-xl font-bold text-night sm:text-2xl">{t("related")}</h2>
+            {category ? (
+              <Link
+                href={`/${locale}/categories/${category.slug}`}
+                className="text-sm font-semibold text-teal transition hover:underline"
+              >
+                {t("seeCategory")}
+              </Link>
+            ) : null}
+          </div>
           <div className="mt-6 lg:mt-8">
-            <ProductGrid products={related} locale={locale} columns={5} />
+            <ProductGrid products={related} locale={locale} columns={4} />
           </div>
         </section>
       ) : null}

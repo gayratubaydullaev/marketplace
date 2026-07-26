@@ -1,17 +1,30 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import Link from "next/link";
+import { Suspense, useEffect, useState } from "react";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 
-export function FilterSheet({
+function FilterSheetInner({
   children,
   activeCount = 0,
+  resultCount,
+  clearHref,
 }: {
   children: React.ReactNode;
   activeCount?: number;
+  resultCount?: number;
+  clearHref?: string;
 }) {
   const t = useTranslations("catalog");
   const [open, setOpen] = useState(false);
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const searchKey = searchParams.toString();
+
+  useEffect(() => {
+    setOpen(false);
+  }, [pathname, searchKey]);
 
   useEffect(() => {
     if (!open) return;
@@ -33,7 +46,7 @@ export function FilterSheet({
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="flex min-h-12 w-full items-center justify-between rounded-xl border border-night/10 bg-white px-4 py-3 text-sm font-bold"
+          className="flex min-h-12 w-full items-center justify-between rounded-xl border border-night/10 bg-white px-4 py-3 text-sm font-bold shadow-sm"
           aria-expanded={open}
         >
           <span className="flex items-center gap-2">
@@ -65,18 +78,29 @@ export function FilterSheet({
           >
             <div className="shrink-0 px-5 pt-3">
               <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-night/15" />
-              <div className="mb-3 flex items-center justify-between">
+              <div className="mb-3 flex items-center justify-between gap-3">
                 <h2 className="font-display text-lg font-bold">{t("filters")}</h2>
-                <button
-                  type="button"
-                  onClick={() => setOpen(false)}
-                  className="min-h-10 rounded-lg px-3 text-sm font-semibold text-muted hover:text-night"
-                >
-                  {t("closeFilters")}
-                </button>
+                <div className="flex items-center gap-1">
+                  {clearHref && activeCount > 0 ? (
+                    <Link
+                      href={clearHref}
+                      className="min-h-10 rounded-lg px-3 text-sm font-semibold text-teal"
+                      onClick={() => setOpen(false)}
+                    >
+                      {t("clearFilters")}
+                    </Link>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => setOpen(false)}
+                    className="min-h-10 rounded-lg px-3 text-sm font-semibold text-muted hover:text-night"
+                  >
+                    {t("closeFilters")}
+                  </button>
+                </div>
               </div>
             </div>
-            <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 pb-4 [&>ul>li>a]:min-h-11 [&>ul>li>a]:py-3">
+            <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 pb-4 [&_a]:min-h-11">
               {children}
             </div>
             <div className="shrink-0 border-t border-night/8 bg-paper px-5 pb-3 pt-3">
@@ -85,17 +109,45 @@ export function FilterSheet({
                 onClick={() => setOpen(false)}
                 className="min-h-12 w-full rounded-xl bg-accent py-3.5 text-sm font-bold text-night transition hover:bg-accent-hover"
               >
-                {t("applyFilters")}
+                {typeof resultCount === "number"
+                  ? t("applyFiltersCount", { count: resultCount })
+                  : t("applyFilters")}
               </button>
             </div>
           </div>
         </div>
       ) : null}
 
-      <aside className="mb-6 hidden space-y-5 lg:mb-0 lg:block lg:sticky lg:top-24 lg:self-start">
-        <h2 className="text-sm font-bold uppercase tracking-wide text-muted">{t("filters")}</h2>
-        {children}
+      <aside className="mb-6 hidden space-y-4 lg:mb-0 lg:block lg:sticky lg:top-24 lg:self-start">
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="text-sm font-bold uppercase tracking-wide text-muted">{t("filters")}</h2>
+          {clearHref && activeCount > 0 ? (
+            <Link href={clearHref} className="text-xs font-bold text-teal hover:underline">
+              {t("clearFilters")}
+            </Link>
+          ) : null}
+        </div>
+        <div className="rounded-2xl border border-night/8 bg-white/60 p-4 shadow-sm">{children}</div>
       </aside>
     </>
+  );
+}
+
+export function FilterSheet(props: {
+  children: React.ReactNode;
+  activeCount?: number;
+  resultCount?: number;
+  clearHref?: string;
+}) {
+  return (
+    <Suspense
+      fallback={
+        <aside className="mb-6 hidden lg:mb-0 lg:block">
+          <div className="h-40 animate-pulse rounded-2xl bg-night/5" />
+        </aside>
+      }
+    >
+      <FilterSheetInner {...props} />
+    </Suspense>
   );
 }

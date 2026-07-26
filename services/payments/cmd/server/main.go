@@ -16,6 +16,9 @@ import (
 
 func main() {
 	cfg := config.Load()
+	if err := cfg.ValidateSecrets(); err != nil {
+		log.Fatal(err)
+	}
 	database, _ := db.Connect(cfg.DatabaseURL)
 	if database != nil {
 		_, _ = database.Exec(`CREATE TABLE IF NOT EXISTS payment_splits (

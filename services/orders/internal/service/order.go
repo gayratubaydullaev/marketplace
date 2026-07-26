@@ -2,11 +2,11 @@ package service
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"log"
 	"os"
-	"time"
 
 	"github.com/gayrat/marketplace/packages/go-common/commerce"
 	kafkax "github.com/gayrat/marketplace/packages/go-common/kafka"
@@ -169,7 +169,7 @@ func (s *OrderService) Create(ctx context.Context, in CreateInput) (map[string]a
 	shippingCost := commerce.EstimateShipping(region, merchandise)
 	orderTotal := merchandise + shippingCost
 
-	id, number := uuid.NewString(), fmt.Sprintf("GZ-%d", time.Now().Unix()%100000000)
+	id, number := uuid.NewString(), randomOrderNumber()
 	var userID, guestEmail *string
 	if in.UserID != "" {
 		userID = &in.UserID
@@ -358,4 +358,17 @@ func nullableString(v string) any {
 		return nil
 	}
 	return v
+}
+
+// randomOrderNumber returns an unpredictable public order reference (not time-based).
+func randomOrderNumber() string {
+	const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+	buf := make([]byte, 10)
+	if _, err := rand.Read(buf); err != nil {
+		return fmt.Sprintf("GZ-%s", uuid.NewString()[:10])
+	}
+	for i := range buf {
+		buf[i] = alphabet[int(buf[i])%len(alphabet)]
+	}
+	return "GZ-" + string(buf)
 }

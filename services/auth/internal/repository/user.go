@@ -79,9 +79,14 @@ func (r *UserRepo) IsRefreshValid(tokenHash string) (bool, error) {
 }
 
 func (r *UserRepo) EnsureAdminPassword(hash string) error {
+	// Create seed admin only when missing — never overwrite an existing password.
 	_, err := r.db.Exec(`
-		UPDATE users SET password_hash=$1
-		WHERE email='admin@gayrat.uz' AND tenant_id='00000000-0000-0000-0000-000000000001'
+		INSERT INTO users (id, tenant_id, email, password_hash, role, first_name, last_name, locale, email_verified, phone_verified, status)
+		SELECT gen_random_uuid(), '00000000-0000-0000-0000-000000000001', 'admin@gayrat.uz', $1, 'tenant_admin', 'Admin', 'Gayrat', 'uz', true, false, 'active'
+		WHERE NOT EXISTS (
+			SELECT 1 FROM users
+			WHERE email='admin@gayrat.uz' AND tenant_id='00000000-0000-0000-0000-000000000001'
+		)
 	`, hash)
 	return err
 }

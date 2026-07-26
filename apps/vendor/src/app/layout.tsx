@@ -1,4 +1,5 @@
 import "./globals.css";
+import "@gayrat/map/styles.css";
 import { Providers } from "@/components/Providers";
 
 export const metadata = {

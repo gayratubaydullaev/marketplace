@@ -84,24 +84,27 @@ export default async function HomePage({
   const t = await getTranslations();
 
   let products: Product[] = [];
+  let productsTotal = 0;
   let categories: { slug: string; image_url?: string | null; translations: Record<string, { name?: string }> }[] = [];
   let cmsBanners: ApiHeroBanner[] = [];
   let cmsPromos: ApiHeroBanner[] = [];
   try {
-    const [feat, cats, banners, promos] = await Promise.all([
-      api<{ items: Product[] }>("/v1/products?featured=true&limit=18").catch(() =>
-        api<{ items: Product[] }>("/v1/products?limit=18")
+    const [feed, cats, banners, promos] = await Promise.all([
+      api<{ items: Product[]; total?: number }>("/v1/products?sort=home&limit=24&page=1").catch(() =>
+        api<{ items: Product[]; total?: number }>("/v1/products?limit=24&page=1")
       ),
       api<{ items: typeof categories }>("/v1/categories"),
       api<{ items: ApiHeroBanner[] }>("/v1/home/banners").catch(() => ({ items: [] })),
       api<{ items: ApiHeroBanner[] }>("/v1/home/promo-banners").catch(() => ({ items: [] })),
     ]);
-    products = feat.items || [];
+    products = feed.items || [];
+    productsTotal = feed.total ?? products.length;
     categories = cats.items || [];
     cmsBanners = banners.items || [];
     cmsPromos = promos.items || [];
   } catch {
     products = [];
+    productsTotal = 0;
   }
 
   const homeCategory =
@@ -148,13 +151,14 @@ export default async function HomePage({
       <HomeHero brand={t("brand")} slides={heroSlides} />
 
       {categories.length > 0 ? (
-        <section className="home-section mt-6 sm:mt-8" aria-label={t("home.categoriesLead")}>
+        <section className="home-section mt-3 sm:mt-8" aria-label={t("home.categoriesLead")}>
           <CategoryRail categories={categories} locale={locale} />
         </section>
       ) : null}
 
       <HomeProductsWithPromo
         products={products}
+        total={productsTotal}
         locale={locale}
         promoSlides={promoSlides.length > 0 ? promoSlides : promoFallback}
         emptyLabel={t("common.emptyProducts")}

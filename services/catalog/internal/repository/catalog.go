@@ -12,7 +12,7 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
-const productColumns = `id, tenant_id, vendor_id, category_id, slug, translations, sku, price, compare_at_price, cost_price, currency, inventory_quantity, inventory_policy, status, is_featured, seo, attributes, images, created_at, updated_at`
+const productColumns = `id, tenant_id, vendor_id, category_id, slug, translations, sku, price, compare_at_price, cost_price, currency, inventory_quantity, inventory_policy, status, is_featured, rating, review_count, sales_count, seo, attributes, images, created_at, updated_at`
 
 type Catalog struct {
 	db *sqlx.DB
@@ -24,6 +24,16 @@ func New(database *sqlx.DB) *Catalog {
 
 func (r *Catalog) Available() bool {
 	return r != nil && r.db != nil
+}
+
+func (r *Catalog) ResolveVendorID(tenantID, userID string) (string, error) {
+	var vendorID string
+	err := r.db.Get(&vendorID, `
+		SELECT id::text FROM vendors
+		WHERE user_id=$1 AND tenant_id=$2
+		ORDER BY CASE WHEN status='active' THEN 0 ELSE 1 END, created_at DESC
+		LIMIT 1`, userID, tenantID)
+	return vendorID, err
 }
 
 func (r *Catalog) ListCategories(tenantID string) ([]model.Category, error) {
@@ -89,6 +99,8 @@ func (r *Catalog) DeleteCategory(tenantID, id string) error {
 type ProductListOpts struct {
 	Status   string
 	Featured string
+	OnSale   string
+	InStock  string
 	VendorID string
 	Sort     string
 	MinPrice *float64
@@ -105,6 +117,10 @@ func productOrderBy(sort string) string {
 		return ` ORDER BY price DESC, created_at DESC`
 	case "newest":
 		return ` ORDER BY created_at DESC`
+	case "rating":
+		return ` ORDER BY rating DESC, review_count DESC, created_at DESC`
+	case "popular":
+		return ` ORDER BY sales_count DESC, created_at DESC`
 	default:
 		return ` ORDER BY created_at DESC`
 	}
@@ -119,12 +135,20 @@ func productOrderByPrefixed(sort, alias string) string {
 		return ` ORDER BY ` + p + `price DESC, ` + p + `created_at DESC`
 	case "newest":
 		return ` ORDER BY ` + p + `created_at DESC`
+	case "rating":
+		return ` ORDER BY ` + p + `rating DESC, ` + p + `review_count DESC, ` + p + `created_at DESC`
+	case "popular":
+		return ` ORDER BY ` + p + `sales_count DESC, ` + p + `created_at DESC`
 	default:
 		return ` ORDER BY ` + p + `created_at DESC`
 	}
 }
 
 func (r *Catalog) ListProducts(tenantID string, opts ProductListOpts) ([]model.Product, int, error) {
+	if opts.Sort == "home" {
+		return r.ListHomeFeed(tenantID, opts.Limit, opts.Offset)
+	}
+
 	where := ` FROM products WHERE tenant_id=$1`
 	args := []any{tenantID}
 	status := opts.Status
@@ -137,6 +161,12 @@ func (r *Catalog) ListProducts(tenantID string, opts ProductListOpts) ([]model.P
 	}
 	if opts.Featured == "true" {
 		where += ` AND is_featured=true`
+	}
+	if opts.OnSale == "true" {
+		where += ` AND compare_at_price IS NOT NULL AND compare_at_price > price`
+	}
+	if opts.InStock == "true" {
+		where += ` AND inventory_quantity > 0`
 	}
 	if opts.VendorID != "" {
 		where += ` AND vendor_id=$` + strconv.Itoa(len(args)+1)
@@ -170,6 +200,157 @@ func (r *Catalog) ListProducts(tenantID string, opts ProductListOpts) ([]model.P
 	return products, total, err
 }
 
+// ListHomeFeed builds a mixed feed: top-rated, popular (sales), and newest —
+// round-robin merged with category diversity for the homepage.
+func (r *Catalog) ListHomeFeed(tenantID string, limit, offset int) ([]model.Product, int, error) {
+	if limit < 1 {
+		limit = 24
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	need := offset + limit
+	poolSize := need * 2
+	if poolSize < 200 {
+		poolSize = 200
+	}
+	if poolSize > 400 {
+		poolSize = 400
+	}
+
+	var total int
+	if err := r.db.Get(&total, `SELECT COUNT(*) FROM products WHERE tenant_id=$1 AND status='active'`, tenantID); err != nil {
+		return nil, 0, err
+	}
+
+	fetch := func(orderSQL string) ([]model.Product, error) {
+		var items []model.Product
+		q := `SELECT ` + productColumns + ` FROM products WHERE tenant_id=$1 AND status='active'` + orderSQL + ` LIMIT $2`
+		err := r.db.Select(&items, q, tenantID, poolSize)
+		return items, err
+	}
+
+	rated, err := fetch(` ORDER BY rating DESC, review_count DESC, created_at DESC`)
+	if err != nil {
+		return nil, 0, err
+	}
+	popular, err := fetch(` ORDER BY sales_count DESC, created_at DESC`)
+	if err != nil {
+		return nil, 0, err
+	}
+	newest, err := fetch(` ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	mixed := mixHomePools(rated, popular, newest)
+	diversified := diversifyByCategory(mixed, 8, 2)
+
+	// If diversity+dedupe left us short of the requested window, top up from newest.
+	if len(diversified) < need {
+		seen := make(map[string]struct{}, len(diversified))
+		for _, p := range diversified {
+			seen[p.ID] = struct{}{}
+		}
+		for _, p := range newest {
+			if _, ok := seen[p.ID]; ok {
+				continue
+			}
+			diversified = append(diversified, p)
+			seen[p.ID] = struct{}{}
+			if len(diversified) >= need {
+				break
+			}
+		}
+	}
+
+	if offset >= len(diversified) {
+		return []model.Product{}, total, nil
+	}
+	end := offset + limit
+	if end > len(diversified) {
+		end = len(diversified)
+	}
+	return diversified[offset:end], total, nil
+}
+
+func mixHomePools(pools ...[]model.Product) []model.Product {
+	seen := make(map[string]struct{})
+	out := make([]model.Product, 0)
+	maxLen := 0
+	for _, p := range pools {
+		if len(p) > maxLen {
+			maxLen = len(p)
+		}
+	}
+	for i := 0; i < maxLen; i++ {
+		for _, pool := range pools {
+			if i >= len(pool) {
+				continue
+			}
+			p := pool[i]
+			if _, ok := seen[p.ID]; ok {
+				continue
+			}
+			seen[p.ID] = struct{}{}
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// diversifyByCategory limits how often the same category appears in a sliding window.
+func diversifyByCategory(items []model.Product, window, maxPerCat int) []model.Product {
+	if window < 1 || maxPerCat < 1 || len(items) == 0 {
+		return items
+	}
+	out := make([]model.Product, 0, len(items))
+	deferred := make([]model.Product, 0)
+	catInWindow := func(cat string) int {
+		start := len(out) - window
+		if start < 0 {
+			start = 0
+		}
+		n := 0
+		for _, p := range out[start:] {
+			if p.CategoryID == cat {
+				n++
+			}
+		}
+		return n
+	}
+
+	tryPlace := func(p model.Product) bool {
+		if catInWindow(p.CategoryID) >= maxPerCat {
+			return false
+		}
+		out = append(out, p)
+		return true
+	}
+
+	for _, p := range items {
+		if !tryPlace(p) {
+			deferred = append(deferred, p)
+		}
+	}
+	// Drain deferred with relaxed retries.
+	progress := true
+	for progress && len(deferred) > 0 {
+		progress = false
+		next := deferred[:0]
+		for _, p := range deferred {
+			if tryPlace(p) {
+				progress = true
+			} else {
+				next = append(next, p)
+			}
+		}
+		deferred = next
+	}
+	out = append(out, deferred...)
+	return out
+}
+
 func (r *Catalog) CategoryIDBySlug(tenantID, slug string) (string, error) {
 	var id string
 	err := r.db.Get(&id, `SELECT id FROM categories WHERE tenant_id=$1 AND slug=$2`, tenantID, slug)
@@ -191,6 +372,15 @@ func (r *Catalog) ListProductsByCategory(tenantID, categoryID string, opts Produ
 			SELECT id FROM cat_tree
 		)`
 	args := []any{tenantID, categoryID}
+	if opts.Featured == "true" {
+		where += ` AND p.is_featured=true`
+	}
+	if opts.OnSale == "true" {
+		where += ` AND p.compare_at_price IS NOT NULL AND p.compare_at_price > p.price`
+	}
+	if opts.InStock == "true" {
+		where += ` AND p.inventory_quantity > 0`
+	}
 	if opts.MinPrice != nil {
 		where += ` AND p.price>=$` + strconv.Itoa(len(args)+1)
 		args = append(args, *opts.MinPrice)
@@ -349,9 +539,9 @@ func (r *Catalog) CreateBulkProduct(id, tenantID string, product model.BulkProdu
 }
 
 func (r *Catalog) CreateImportedProduct(id, tenantID string, request model.CreateProductRequest) error {
-	_, err := r.db.Exec(`INSERT INTO products (id, tenant_id, category_id, slug, translations, price, currency, inventory_quantity, status, seo, attributes, images)
-		VALUES ($1,$2,$3,$4,$5,$6,'UZS',$7,'draft','{}','{}','[]') ON CONFLICT DO NOTHING`,
-		id, tenantID, request.CategoryID, request.Slug, request.Translations, request.Price, request.InventoryQuantity)
+	_, err := r.db.Exec(`INSERT INTO products (id, tenant_id, vendor_id, category_id, slug, translations, price, currency, inventory_quantity, status, seo, attributes, images)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,'UZS',$8,'draft','{}','{}','[]') ON CONFLICT DO NOTHING`,
+		id, tenantID, request.VendorID, request.CategoryID, request.Slug, request.Translations, request.Price, request.InventoryQuantity)
 	return err
 }
 

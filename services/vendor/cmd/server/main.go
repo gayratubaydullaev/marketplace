@@ -16,6 +16,9 @@ import (
 
 func main() {
 	cfg := config.Load()
+	if err := cfg.ValidateSecrets(); err != nil {
+		log.Fatal(err)
+	}
 	database, _ := db.Connect(cfg.DatabaseURL)
 	producer := kafkax.NewProducer(cfg.KafkaBrokers)
 	defer producer.Close()

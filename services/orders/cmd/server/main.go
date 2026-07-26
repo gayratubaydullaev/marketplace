@@ -7,6 +7,7 @@ import (
 	"github.com/gayrat/marketplace/packages/go-common/db"
 	kafkax "github.com/gayrat/marketplace/packages/go-common/kafka"
 	"github.com/gayrat/marketplace/packages/go-common/middleware"
+	"github.com/gayrat/marketplace/packages/go-common/redisx"
 	"github.com/gayrat/marketplace/services/orders/internal/config"
 	"github.com/gayrat/marketplace/services/orders/internal/handler"
 	"github.com/gayrat/marketplace/services/orders/internal/repository"
@@ -16,7 +17,15 @@ import (
 
 func main() {
 	cfg := config.Load()
+	if err := cfg.ValidateSecrets(); err != nil {
+		log.Fatal(err)
+	}
 	database, _ := db.Connect(cfg.DatabaseURL)
+	rdb, err := redisx.Connect(cfg.RedisURL)
+	if err != nil {
+		log.Printf("redis: %v", err)
+		rdb = nil
+	}
 	producer := kafkax.NewProducer(cfg.KafkaBrokers)
 	defer producer.Close()
 	tokens := commonauth.NewManager(cfg.JWTSecret, cfg.JWTAccessTTLMinutes, cfg.JWTRefreshTTLDays)
@@ -24,6 +33,9 @@ func main() {
 
 	r := gin.New()
 	r.Use(gin.Recovery(), middleware.CORS(), middleware.SecurityHeaders(), middleware.MaxBodyBytes(0), middleware.Tenant(), middleware.TenantDB(database), middleware.AuditLogger(database), middleware.Metrics(cfg.ServiceName))
+	if rdb != nil {
+		r.Use(middleware.RateLimit(rdb, 60, 600))
+	}
 	middleware.MountMetrics(r)
 	r.GET("/health", func(c *gin.Context) { c.JSON(200, gin.H{"status": "ok"}) })
 	v1 := r.Group("/v1/orders")

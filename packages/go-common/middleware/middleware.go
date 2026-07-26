@@ -78,13 +78,16 @@ func CORS() gin.HandlerFunc {
 	}
 }
 
-// SecurityHeaders mirrors Kong response-transformer defaults.
+// SecurityHeaders mirrors Kong response-transformer defaults for APIs.
+// Do not set document script CSP (default-src/script-src) on JSON APIs — it is
+// ignored for fetch bodies but Chrome still reports eval violations against it,
+// and it is the wrong place to lock down Next.js/map scripts.
 func SecurityHeaders() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Header("X-Content-Type-Options", "nosniff")
 		c.Header("X-Frame-Options", "DENY")
 		c.Header("Referrer-Policy", "strict-origin-when-cross-origin")
-		c.Header("Content-Security-Policy", "default-src 'self'; frame-ancestors 'none'")
+		c.Header("Content-Security-Policy", "frame-ancestors 'none'")
 		if os.Getenv("APP_ENV") == "production" || os.Getenv("APP_ENV") == "prod" {
 			c.Header("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 		}

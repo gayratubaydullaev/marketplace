@@ -19,9 +19,15 @@ import (
 	"github.com/google/uuid"
 )
 
-// Sandbox is deliberately opt-out so local and preview deployments cannot
-// accidentally initiate a live payment.
-func Sandbox() bool { return os.Getenv("PAYMENTS_SANDBOX") != "false" }
+// Sandbox is opt-out in development and opt-in in production so a missing
+// PAYMENTS_SANDBOX cannot mark orders paid or accept unsigned webhooks in prod.
+func Sandbox() bool {
+	env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
+	if env == "production" || env == "prod" {
+		return strings.EqualFold(strings.TrimSpace(os.Getenv("PAYMENTS_SANDBOX")), "true")
+	}
+	return os.Getenv("PAYMENTS_SANDBOX") != "false"
+}
 
 type Provider interface {
 	Name() string
@@ -44,7 +50,9 @@ func (p HMACProvider) VerifyWebhook(payload []byte, signature string) (string, s
 }
 
 func verifyHMAC(payload []byte, signature, secret string) error {
-	if Sandbox() && (signature == "" || signature == "sandbox") {
+	env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
+	prod := env == "production" || env == "prod"
+	if !prod && Sandbox() && (signature == "" || signature == "sandbox") {
 		return nil
 	}
 	if signature == "" {

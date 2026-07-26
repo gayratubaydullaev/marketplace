@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/gayrat/marketplace/packages/go-common/httpx"
@@ -17,6 +18,11 @@ type Handler struct {
 
 func New(svc *service.AuthService) *Handler {
 	return &Handler{svc: svc}
+}
+
+func exposeDevSecrets() bool {
+	env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
+	return env != "production" && env != "prod"
 }
 
 func (h *Handler) Register(c *gin.Context) {
@@ -115,9 +121,13 @@ func (h *Handler) ForgotPassword(c *gin.Context) {
 		httpx.BadRequest(c, err.Error())
 		return
 	}
-	token, _ := h.svc.ForgotPassword(middleware.GetTenantID(c), req.Email)
+	token, err := h.svc.ForgotPassword(middleware.GetTenantID(c), req.Email)
+	if err != nil {
+		httpx.BadRequest(c, err.Error())
+		return
+	}
 	resp := gin.H{"message": "if the email exists, a reset link was sent"}
-	if token != "" {
+	if exposeDevSecrets() && token != "" {
 		resp["dev_token"] = token
 	}
 	httpx.OK(c, resp)
@@ -151,7 +161,11 @@ func (h *Handler) SendOTP(c *gin.Context) {
 		httpx.BadRequest(c, err.Error())
 		return
 	}
-	httpx.OK(c, gin.H{"message": "otp sent", "dev_code": code})
+	resp := gin.H{"message": "otp sent"}
+	if exposeDevSecrets() && code != "" {
+		resp["dev_code"] = code
+	}
+	httpx.OK(c, resp)
 }
 
 func (h *Handler) VerifyOTP(c *gin.Context) {
@@ -183,7 +197,11 @@ func (h *Handler) SendEmailOTP(c *gin.Context) {
 		httpx.BadRequest(c, err.Error())
 		return
 	}
-	httpx.OK(c, gin.H{"message": "otp sent", "dev_code": code})
+	resp := gin.H{"message": "otp sent"}
+	if exposeDevSecrets() && code != "" {
+		resp["dev_code"] = code
+	}
+	httpx.OK(c, resp)
 }
 
 func (h *Handler) VerifyEmailOTP(c *gin.Context) {
@@ -224,7 +242,7 @@ func (h *Handler) RequestEmailVerification(c *gin.Context) {
 		return
 	}
 	resp := gin.H{"message": "verification email queued"}
-	if token != "" {
+	if exposeDevSecrets() && token != "" {
 		resp["dev_token"] = token
 	}
 	httpx.OK(c, resp)

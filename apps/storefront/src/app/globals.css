@@ -51,15 +51,6 @@ body {
   @apply mx-auto w-full max-w-[90rem] min-w-0 px-4 sm:px-6 lg:px-8;
 }
 
-/* Optional wider bleed from sm up; mobile keeps site-container inset so corner radius is visible. */
-@media (min-width: 640px) and (max-width: 1023px) {
-  .home-banner-bleed {
-    width: calc(100% + 3rem);
-    margin-left: -1.5rem;
-    margin-right: -1.5rem;
-  }
-}
-
 @media (max-width: 767px) {
   input,
   select,
@@ -180,7 +171,6 @@ body {
 }
 
 .home-cat-rail > li {
-  scroll-snap-align: start;
   animation: catReveal 0.65s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
@@ -197,21 +187,13 @@ body {
   animation: fadeUp 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
-.home-cat-rail {
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-  -webkit-overflow-scrolling: touch;
-  overscroll-behavior-x: contain;
-  touch-action: pan-x;
-}
-.home-cat-rail::-webkit-scrollbar {
-  display: none;
+.home-cat-rail-viewport {
+  touch-action: none;
+  user-select: none;
 }
 
-@media (min-width: 768px) {
-  .home-cat-rail {
-    scroll-snap-type: x mandatory;
-  }
+.home-cat-rail {
+  backface-visibility: hidden;
 }
 
 .hero-texture {

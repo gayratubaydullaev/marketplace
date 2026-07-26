@@ -37,6 +37,30 @@ function mergeLine(items: CartLine[], item: CartLine): CartLine[] {
   return [...items, item];
 }
 
+/** Union storage + in-memory lines so a late rehydrate cannot wipe a just-added item. */
+function mergeCartItems(fromStorage: CartLine[], fromMemory: CartLine[]): CartLine[] {
+  const map = new Map<string, CartLine>();
+  for (const i of fromStorage) map.set(lineKey(i), i);
+  for (const i of fromMemory) {
+    const k = lineKey(i);
+    const prev = map.get(k);
+    if (!prev) {
+      map.set(k, i);
+      continue;
+    }
+    map.set(k, {
+      ...prev,
+      ...i,
+      title: i.title || prev.title,
+      slug: i.slug || prev.slug,
+      image: i.image || prev.image,
+      unit_price: i.unit_price || prev.unit_price,
+      quantity: Math.max(prev.quantity, i.quantity),
+    });
+  }
+  return [...map.values()];
+}
+
 type CartState = {
   items: CartLine[];
   add: (item: CartLine) => void;
@@ -56,7 +80,9 @@ export const useCart = create<CartState>()(
         set((s) => ({
           items:
             qty < 1
-              ? s.items.filter((i) => !(i.product_id === productId && (i.variant_id || "") === (variantId || "")))
+              ? s.items.filter(
+                  (i) => !(i.product_id === productId && (i.variant_id || "") === (variantId || ""))
+                )
               : s.items.map((i) =>
                   i.product_id === productId && (i.variant_id || "") === (variantId || "")
                     ? { ...i, quantity: qty }
@@ -98,6 +124,16 @@ export const useCart = create<CartState>()(
       name: "gayrat-cart",
       // Avoid SSR/client race: empty store overwriting a tap made before rehydrate finishes.
       skipHydration: true,
+      merge: (persistedState, currentState) => {
+        const persisted = (persistedState ?? {}) as Partial<CartState>;
+        const current = currentState as CartState;
+        const fromStorage = Array.isArray(persisted.items) ? persisted.items : [];
+        return {
+          ...current,
+          ...persisted,
+          items: mergeCartItems(fromStorage, current.items),
+        };
+      },
     }
   )
 );
@@ -110,17 +146,26 @@ export function ensureCartHydrated(): Promise<void> {
   if (useCart.persist.hasHydrated()) return Promise.resolve();
   if (!hydratePromise) {
     hydratePromise = new Promise<void>((resolve) => {
-      const finish = () => resolve();
-      const unsub = useCart.persist.onFinishHydration(finish);
-      void Promise.resolve(useCart.persist.rehydrate()).then(() => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        resolve();
+      };
+      if (useCart.persist.hasHydrated()) {
+        finish();
+        return;
+      }
+      const unsub = useCart.persist.onFinishHydration(() => {
         unsub();
         finish();
       });
-      // Fail-open so a stuck rehydrate never blocks add-to-cart.
-      window.setTimeout(() => {
-        unsub();
-        finish();
-      }, 800);
+      void Promise.resolve(useCart.persist.rehydrate()).then(() => {
+        if (useCart.persist.hasHydrated()) {
+          unsub();
+          finish();
+        }
+      });
     }).finally(() => {
       hydratePromise = null;
     });

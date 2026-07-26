@@ -16,6 +16,9 @@ import (
 
 func main() {
 	cfg := config.Load("media-service")
+	if err := cfg.ValidateSecrets(); err != nil {
+		log.Fatal(err)
+	}
 	if os.Getenv("HTTP_PORT") == "" {
 		cfg.HTTPPort = "8011"
 	}

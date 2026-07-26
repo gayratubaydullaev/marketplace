@@ -7,7 +7,11 @@ export const TENANT_ID =
 const API_BASE = (process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8080").replace(/\/$/, "");
 
 function resolve(path: string) {
-  return `${API_BASE}${path.startsWith("/") ? path : `/${path}`}`;
+  const p = path.startsWith("/") ? path : `/${path}`;
+  // Browser: same-origin `/v1/*` (Next rewrites → gateway). Avoids CORS and
+  // broken `localhost:8080` when the storefront is opened via LAN IP on a phone.
+  if (typeof window !== "undefined") return p;
+  return `${API_BASE}${p}`;
 }
 
 let refreshPromise: Promise<boolean> | null = null;
@@ -107,10 +111,97 @@ export type Product = {
   inventory_quantity?: number;
   vendor_id?: string | null;
   category_id?: string | null;
+  sku?: string | null;
+  attributes?: Record<string, unknown> | unknown;
+  is_featured?: boolean;
   created_at?: string;
   rating?: number;
   review_count?: number;
+  sales_count?: number;
 };
+
+export type ProductBadge = {
+  kind: "sale" | "new" | "hit" | "low";
+  labelKey: "badgeSale" | "badgeNew" | "badgeHit" | "badgeLowStock";
+  /** For sale badge: percent off */
+  percent?: number;
+};
+
+const NEW_DAYS = 30;
+
+function asMoney(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() !== "") {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
+/** Resolve up to 2 marketplace badges for a product card. */
+export function productBadges(product: Product, now = Date.now()): ProductBadge[] {
+  const badges: ProductBadge[] = [];
+  const price = asMoney(product.price) ?? 0;
+  const compareRaw = asMoney(product.compare_at_price);
+  const compare = compareRaw != null && compareRaw > price ? compareRaw : null;
+  if (compare != null && price > 0) {
+    const percent = Math.round((1 - price / compare) * 100);
+    if (percent > 0) {
+      badges.push({ kind: "sale", labelKey: "badgeSale", percent });
+    }
+  }
+
+  if (product.is_featured) {
+    badges.push({ kind: "hit", labelKey: "badgeHit" });
+  }
+
+  if (product.created_at) {
+    const created = new Date(product.created_at).getTime();
+    if (!Number.isNaN(created) && now - created < NEW_DAYS * 24 * 60 * 60 * 1000) {
+      badges.push({ kind: "new", labelKey: "badgeNew" });
+    }
+  }
+
+  const stock = product.inventory_quantity;
+  if (typeof stock === "number" && stock > 0 && stock <= 5) {
+    badges.push({ kind: "low", labelKey: "badgeLowStock" });
+  }
+
+  // Prefer sale + one secondary; avoid overcrowding
+  const sale = badges.find((b) => b.kind === "sale");
+  const rest = badges.filter((b) => b.kind !== "sale");
+  if (sale) return [sale, ...rest].slice(0, 2);
+  return badges.slice(0, 2);
+}
+
+export function productCompareAt(product: Product): number | null {
+  const price = asMoney(product.price);
+  const compare = asMoney(product.compare_at_price);
+  if (price == null || compare == null) return null;
+  return compare > price ? compare : null;
+}
+
+export function productDiscountPercent(product: Product): number {
+  const price = asMoney(product.price);
+  const compare = productCompareAt(product);
+  if (price == null || compare == null || compare <= 0) return 0;
+  return Math.max(0, Math.round((1 - price / compare) * 100));
+}
+
+/** Flatten product.attributes into display rows (skips nested/media keys). */
+export function productAttributeRows(
+  attributes: Product["attributes"]
+): { key: string; value: string }[] {
+  if (!attributes || typeof attributes !== "object" || Array.isArray(attributes)) return [];
+  const skip = new Set(["images", "image", "image_url", "gallery"]);
+  const rows: { key: string; value: string }[] = [];
+  for (const [key, raw] of Object.entries(attributes as Record<string, unknown>)) {
+    if (skip.has(key.toLowerCase()) || raw == null || raw === "") continue;
+    if (typeof raw === "object") continue;
+    rows.push({ key, value: String(raw) });
+  }
+  return rows;
+}
 
 export function productImage(p: Product): string | undefined {
   if (!Array.isArray(p.images) || typeof p.images[0] !== "string") return undefined;
@@ -155,6 +246,7 @@ export function variantImageList(variant: Variant | null | undefined): string[] 
  * Gallery set for the selected variant:
  * - variant-only photos lead, then remaining product photos
  * - if variant cover is already in product gallery, keep full set and jump to it
+ * Preserves duplicate URLs so multi-slot galleries (e.g. seeded identical paths) still show a thumb strip.
  */
 export function resolveGalleryImages(
   productImages: string[],
@@ -162,7 +254,7 @@ export function resolveGalleryImages(
 ): { images: string[]; focusIndex: number } {
   const base = rewriteMediaUrls(
     productImages.filter((u) => typeof u === "string" && u.length > 0),
-    { fallbackKey: "product" }
+    { fallbackKey: "product", unique: false }
   );
   const vImgs = variantImageList(variant);
   if (vImgs.length === 0) {

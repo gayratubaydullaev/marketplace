@@ -12,10 +12,14 @@ import (
 	"github.com/gayrat/marketplace/packages/go-common/middleware"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/jmoiron/sqlx"
 )
 
 func main() {
 	cfg := config.Load("reviews-service")
+	if err := cfg.ValidateSecrets(); err != nil {
+		log.Fatal(err)
+	}
 	if os.Getenv("HTTP_PORT") == "" {
 		cfg.HTTPPort = "8008"
 	}
@@ -85,11 +89,15 @@ func main() {
 				httpx.BadRequest(c, err.Error())
 				return
 			}
+			productID := c.Param("id")
+			if status == "approved" {
+				refreshProductRating(database, productID)
+			}
 			if body.VendorID != nil {
 				_, _ = database.Exec(`UPDATE vendors SET rating=(SELECT AVG(rating)::numeric(2,1) FROM reviews WHERE vendor_id=$1 AND status='approved'),
 					review_count=(SELECT COUNT(*) FROM reviews WHERE vendor_id=$1 AND status='approved') WHERE id=$1`, *body.VendorID)
 			}
-			_ = producer.Publish(c.Request.Context(), "review.submitted", id, gin.H{"review_id": id, "product_id": c.Param("id")})
+			_ = producer.Publish(c.Request.Context(), "review.submitted", id, gin.H{"review_id": id, "product_id": productID})
 			httpx.Created(c, gin.H{"id": id, "status": status})
 		})
 		v1.POST("/reviews/:id/helpful", middleware.JWT(tokenMgr, false), func(c *gin.Context) {
@@ -133,7 +141,10 @@ func main() {
 				Status string `json:"status" binding:"required"`
 			}
 			_ = c.ShouldBindJSON(&body)
-			res, err := database.Exec(`UPDATE reviews SET status=$1 WHERE id=$2 AND tenant_id=$3`, body.Status, c.Param("id"), middleware.GetTenantID(c))
+			tenantID := middleware.GetTenantID(c)
+			var productID string
+			_ = database.Get(&productID, `SELECT product_id::text FROM reviews WHERE id=$1 AND tenant_id=$2`, c.Param("id"), tenantID)
+			res, err := database.Exec(`UPDATE reviews SET status=$1 WHERE id=$2 AND tenant_id=$3`, body.Status, c.Param("id"), tenantID)
 			if err != nil {
 				httpx.Internal(c, err.Error())
 				return
@@ -141,6 +152,9 @@ func main() {
 			if n, _ := res.RowsAffected(); n == 0 {
 				httpx.NotFound(c, "review not found")
 				return
+			}
+			if productID != "" {
+				refreshProductRating(database, productID)
 			}
 			httpx.OK(c, gin.H{"status": body.Status})
 		})
@@ -185,4 +199,16 @@ func stringContains(s, sub string) bool {
 		}
 	}
 	return false
+}
+
+func refreshProductRating(db *sqlx.DB, productID string) {
+	if productID == "" {
+		return
+	}
+	_, _ = db.Exec(`
+		UPDATE products SET
+			rating = COALESCE((SELECT AVG(rating)::numeric(2,1) FROM reviews WHERE product_id=$1 AND status='approved'), 0),
+			review_count = (SELECT COUNT(*) FROM reviews WHERE product_id=$1 AND status='approved'),
+			updated_at = NOW()
+		WHERE id=$1`, productID)
 }

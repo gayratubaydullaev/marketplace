@@ -48,7 +48,18 @@ function formatDate(iso: string | undefined, locale: string) {
   }
 }
 
-export function ProductReviews({ productId }: { productId: string; locale?: string }) {
+export function ProductReviews({
+  productId,
+  productSlug,
+  initialRating,
+  initialCount,
+}: {
+  productId: string;
+  productSlug?: string;
+  locale?: string;
+  initialRating?: number | null;
+  initialCount?: number | null;
+}) {
   const t = useTranslations("product");
   const locale = useLocale();
   const [items, setItems] = useState<Review[]>([]);
@@ -77,8 +88,20 @@ export function ProductReviews({ productId }: { productId: string; locale?: stri
     load();
   }, [productId]);
 
-  const avg =
+  const liveAvg =
     items.length > 0 ? items.reduce((a, r) => a + (r.rating || 0), 0) / items.length : null;
+  const avg =
+    liveAvg ??
+    (typeof initialRating === "number" && initialRating > 0 ? initialRating : null);
+  const reviewCount =
+    items.length > 0
+      ? items.length
+      : typeof initialCount === "number" && initialCount > 0
+        ? initialCount
+        : 0;
+  const loginHref = productSlug
+    ? `/${locale}/account?next=${encodeURIComponent(`/${locale}/products/${productSlug}#reviews`)}`
+    : `/${locale}/account`;
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -102,17 +125,44 @@ export function ProductReviews({ productId }: { productId: string; locale?: stri
   }
 
   return (
-    <section className="mt-12 border-t border-night/8 pt-10 sm:mt-16 sm:pt-12 lg:mt-20 lg:pt-14">
+    <section id="reviews" className="scroll-mt-28 mt-12 border-t border-night/8 pt-10 sm:mt-16 sm:pt-12 lg:mt-20 lg:pt-14">
       <div className="flex flex-wrap items-end justify-between gap-4">
-        <h2 className="font-display text-xl font-bold text-night sm:text-2xl">{t("reviews")}</h2>
+        <div>
+          <h2 className="font-display text-xl font-bold text-night sm:text-2xl">{t("reviews")}</h2>
+          {avg != null && reviewCount > 0 ? (
+            <p className="mt-1.5 text-sm text-muted">
+              {t("reviewsSummary", { avg: avg.toFixed(1), count: reviewCount })}
+            </p>
+          ) : null}
+        </div>
         {avg != null ? (
-          <div className="flex items-center gap-2 text-sm text-muted">
+          <div className="flex items-center gap-2 rounded-2xl border border-night/8 bg-white/60 px-3.5 py-2 text-sm">
             <Stars value={Math.round(avg)} size={16} />
             <span className="font-bold text-night">{avg.toFixed(1)}</span>
-            <span>· {t("reviewsCount", { count: items.length })}</span>
           </div>
         ) : null}
       </div>
+
+      {!loading && items.length > 0 ? (
+        <div className="mt-5 max-w-sm space-y-1.5">
+          {[5, 4, 3, 2, 1].map((star) => {
+            const count = items.filter((r) => Math.round(r.rating) === star).length;
+            const pct = items.length ? Math.round((count / items.length) * 100) : 0;
+            return (
+              <div key={star} className="grid grid-cols-[1.25rem_1fr_2rem] items-center gap-2 text-xs">
+                <span className="font-semibold tabular-nums text-muted">{star}</span>
+                <div className="h-2 overflow-hidden rounded-full bg-night/[0.06]">
+                  <div
+                    className="h-full rounded-full bg-saffron/85 transition-[width] duration-500"
+                    style={{ width: `${pct}%` }}
+                  />
+                </div>
+                <span className="text-end tabular-nums text-muted">{count}</span>
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
 
       <div className="mt-6 lg:mt-8 lg:grid lg:grid-cols-[minmax(0,1.15fr)_minmax(280px,0.85fr)] lg:items-start lg:gap-12 xl:gap-16">
         <div>
@@ -130,7 +180,7 @@ export function ProductReviews({ productId }: { productId: string; locale?: stri
                 return (
                   <li
                     key={r.id || i}
-                    className="rounded-2xl border border-night/6 bg-white/50 px-4 py-4 lg:px-5 lg:py-5"
+                    className="rounded-2xl border border-night/6 bg-white/50 px-4 py-4 transition hover:border-night/12 lg:px-5 lg:py-5"
                   >
                     <div className="flex flex-wrap items-center gap-2">
                       <Stars value={r.rating} />
@@ -146,7 +196,10 @@ export function ProductReviews({ productId }: { productId: string; locale?: stri
                 );
               })}
               {items.length === 0 && (
-                <p className="py-8 text-center text-sm text-muted lg:py-12">{t("noReviews")}</p>
+                <div className="rounded-2xl border border-dashed border-night/12 bg-white/40 px-5 py-10 text-center lg:py-14">
+                  <p className="text-sm font-semibold text-night/70">{t("noReviews")}</p>
+                  <p className="mx-auto mt-1.5 max-w-xs text-xs text-muted">{t("noReviewsHint")}</p>
+                </div>
               )}
             </ul>
           )}
@@ -212,7 +265,7 @@ export function ProductReviews({ productId }: { productId: string; locale?: stri
           ) : (
             <p className="rounded-2xl border border-night/8 bg-white/60 px-5 py-4 text-sm text-muted">
               {t("loginToReview")}{" "}
-              <Link href={`/${locale}/account`} className="font-semibold text-teal hover:underline">
+              <Link href={loginHref} className="font-semibold text-teal hover:underline">
                 {t("loginLink")}
               </Link>
             </p>

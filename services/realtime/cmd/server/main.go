@@ -14,6 +14,9 @@ import (
 
 func main() {
 	cfg := config.Load()
+	if err := cfg.ValidateSecrets(); err != nil {
+		log.Fatal(err)
+	}
 	if cfg.CentrifugoURL == "http://localhost:8000" {
 		cfg.CentrifugoURL = "http://localhost:8100"
 	}

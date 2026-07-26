@@ -7,7 +7,6 @@ import { Button } from "@gayrat/ui";
 import { Msg, PageHeader, Select } from "@/components/ui";
 import { api, errMsg } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
-import "@gayrat/map/styles.css";
 
 const FleetMap = dynamic(() => import("@gayrat/map").then((m) => m.FleetMap), {
   ssr: false,

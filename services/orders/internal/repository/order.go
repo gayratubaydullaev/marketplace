@@ -25,6 +25,41 @@ func (r *OrderRepository) List(tenantID, userID string, customerOnly bool) ([]mo
 	return orders, r.DB.Select(&orders, q, args...)
 }
 
+func (r *OrderRepository) ListByVendor(tenantID, vendorID string) ([]model.Order, error) {
+	var orders []model.Order
+	err := r.DB.Select(&orders, `
+		SELECT DISTINCT o.id, o.tenant_id, o.user_id, o.guest_email, o.order_number, o.status,
+		       COALESCE(o.payment_status,'unpaid') AS payment_status,
+		       COALESCE(o.payment_method,'') AS payment_method,
+		       COALESCE(o.fulfillment_status,'unfulfilled') AS fulfillment_status,
+		       o.currency, o.subtotal, o.discount, o.shipping_cost, COALESCE(o.tax_total,0) AS tax_total, o.total,
+		       o.coupon_code, o.shipping_address, o.notes, o.tracking_carrier, o.tracking_number, o.tracking_url, o.shipped_at, o.created_at
+		FROM orders o
+		INNER JOIN order_items oi ON oi.order_id = o.id
+		WHERE o.tenant_id=$1 AND oi.vendor_id::text=$2
+		ORDER BY o.created_at DESC
+		LIMIT 50`, tenantID, vendorID)
+	return orders, err
+}
+
+func (r *OrderRepository) ListByCourier(tenantID, courierID string) ([]model.Order, error) {
+	var orders []model.Order
+	err := r.DB.Select(&orders, `
+		SELECT o.id, o.tenant_id, o.user_id, o.guest_email, o.order_number, o.status,
+		       COALESCE(o.payment_status,'unpaid') AS payment_status,
+		       COALESCE(o.payment_method,'') AS payment_method,
+		       COALESCE(o.fulfillment_status,'unfulfilled') AS fulfillment_status,
+		       o.currency, o.subtotal, o.discount, o.shipping_cost, COALESCE(o.tax_total,0) AS tax_total, o.total,
+		       o.coupon_code, o.shipping_address, o.notes, o.tracking_carrier, o.tracking_number, o.tracking_url, o.shipped_at, o.created_at
+		FROM orders o
+		INNER JOIN delivery_jobs d ON d.order_id = o.id AND d.tenant_id = o.tenant_id
+		WHERE o.tenant_id=$1 AND d.courier_id::text=$2
+		  AND d.status IN ('assigned','accepted','at_pickup','picked_up','in_transit')
+		ORDER BY o.created_at DESC
+		LIMIT 50`, tenantID, courierID)
+	return orders, err
+}
+
 func (r *OrderRepository) ListByGuest(tenantID, guestID string) ([]model.Order, error) {
 	var orders []model.Order
 	err := r.DB.Select(&orders, `

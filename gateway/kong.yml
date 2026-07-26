@@ -26,6 +26,8 @@ services:
     url: http://host.docker.internal:8011
   - name: realtime-service
     url: http://host.docker.internal:8012
+  - name: delivery-service
+    url: http://host.docker.internal:8013
 
 routes:
   - name: auth
@@ -49,6 +51,15 @@ routes:
     paths: [/v1/admin/coupons, /v1/admin/gift-certificates, /v1/admin/hero-banners, /v1/admin/products]
     service: catalog-service
     strip_path: false
+  - name: admin-delivery
+    paths:
+      - /v1/admin/couriers
+      - /v1/admin/courier-shifts
+      - /v1/admin/courier-ratings
+      - /v1/admin/courier-payouts
+      - /v1/admin/deliveries
+    service: delivery-service
+    strip_path: false
   - name: admin-users
     paths: [/v1/admin/users]
     service: auth-service
@@ -62,6 +73,16 @@ routes:
   - name: orders
     paths: [/v1/orders]
     service: orders-service
+  - name: delivery
+    paths: [/v1/delivery, /v1/courier]
+    service: delivery-service
+    strip_path: false
+  - name: order-ready-delivery
+    paths:
+      - ~/v1/orders/[^/]+/ready-for-delivery
+    regex_priority: 200
+    service: delivery-service
+    strip_path: false
   - name: payments
     paths: [/v1/payments]
     service: payments-service
@@ -92,7 +113,7 @@ routes:
   - name: realtime
     paths: [/v1/realtime]
     service: realtime-service
-# CORS allowlist — replace with production storefront/admin/vendor origins.
+# CORS allowlist — replace with production storefront/admin/vendor/courier origins.
 # Never use "*" with credentials: true.
 plugins:
   - name: cors
@@ -101,10 +122,12 @@ plugins:
         - "http://localhost:3000"
         - "http://localhost:3001"
         - "http://localhost:3002"
+        - "http://localhost:3003"
         - "https://gayrat.uz"
         - "https://www.gayrat.uz"
         - "https://admin.gayrat.uz"
         - "https://vendor.gayrat.uz"
+        - "https://courier.gayrat.uz"
       headers:
         - Authorization
         - Content-Type
@@ -134,7 +157,7 @@ plugins:
           - "X-Content-Type-Options: nosniff"
           - "X-Frame-Options: DENY"
           - "Referrer-Policy: strict-origin-when-cross-origin"
-          - "Content-Security-Policy: default-src 'self'; frame-ancestors 'none'"
+          - "Content-Security-Policy: frame-ancestors 'none'"
 
 # Higher limit for authenticated cart/orders (services also enforce 1000/min via Redis).
 # Kong JWT validation is optional when services validate JWKS; document JWKS URL for ops:

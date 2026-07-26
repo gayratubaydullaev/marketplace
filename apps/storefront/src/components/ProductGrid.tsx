@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useTranslations } from "next-intl";
 import type { Product } from "@/lib/api";
 import { ProductCard } from "@/components/ProductCard";
+import { useVendorMap } from "@/lib/vendors";
 
 const colClass = {
   2: "grid-cols-2",
@@ -26,6 +27,7 @@ export function ProductGrid({
   className?: string;
 }) {
   const t = useTranslations();
+  const vendors = useVendorMap();
 
   if (products.length === 0) {
     return (
@@ -45,10 +47,17 @@ export function ProductGrid({
 
   return (
     <div
-      className={`${marginClass} grid gap-x-2.5 gap-y-4 sm:gap-x-3.5 sm:gap-y-5 ${colClass[columns]} ${className}`}
+      className={`${marginClass} grid gap-x-2 gap-y-3 sm:gap-x-3.5 sm:gap-y-5 ${colClass[columns]} ${className}`}
     >
       {products.map((p, i) => (
-        <ProductCard key={p.id} product={p} locale={locale} index={i} animate={animate} />
+        <ProductCard
+          key={p.id}
+          product={p}
+          locale={locale}
+          index={i}
+          animate={animate}
+          vendor={p.vendor_id ? vendors[p.vendor_id] : undefined}
+        />
       ))}
     </div>
   );

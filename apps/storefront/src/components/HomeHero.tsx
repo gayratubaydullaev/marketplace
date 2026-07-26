@@ -116,7 +116,7 @@ export function HomeHero({
 
   return (
     <section
-      className="home-hero home-banner-bleed mt-0"
+      className="home-hero mt-0"
       aria-roledescription="carousel"
       aria-label={brand}
     >
@@ -151,7 +151,7 @@ export function HomeHero({
           </>
         ) : null}
 
-        <div className="relative aspect-[3/2] w-full max-h-[min(56dvh,28rem)] select-none sm:max-h-[min(52vh,30rem)] lg:max-h-[32rem]">
+        <div className="relative aspect-[2/1] w-full max-h-[min(38dvh,16rem)] select-none sm:aspect-[3/2] sm:max-h-[min(52vh,30rem)] lg:max-h-[32rem]">
           {list.map((item, i) => {
             const isActive = i === active;
             const near = Math.abs(i - active) <= 1 || (active === 0 && i === total - 1) || (active === total - 1 && i === 0);

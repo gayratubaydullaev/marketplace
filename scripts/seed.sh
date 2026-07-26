@@ -84,6 +84,14 @@ photos = {
 }
 n = (int(hashlib.md5(slug.encode()).hexdigest(), 16) % 10) + 1
 imgs = photos.get(slug, [f"/products/p{n}.svg"])
+price_i = int(price)
+# Demo sale: ~12–28% off for featured / some SKUs so cards show old price + −% badge
+sale_pct = (int(hashlib.md5((slug + ":sale").encode()).hexdigest(), 16) % 17) + 12
+compare_at = None
+if featured.lower() == "true" or sale_pct % 2 == 0:
+  compare_at = int(round(price_i * (100 + sale_pct) / 100 / 1000) * 1000)
+  if compare_at <= price_i:
+    compare_at = price_i + max(10000, price_i // 10)
 body = {
   "category_id": category_id,
   "slug": slug,
@@ -91,13 +99,15 @@ body = {
     "uz": {"name": name_uz, "description": desc_uz},
     "ru": {"name": name_ru, "description": desc_ru},
   },
-  "price": int(price),
+  "price": price_i,
   "currency": "UZS",
   "inventory_quantity": int(qty),
   "status": "active",
   "is_featured": featured.lower() == "true",
   "images": imgs,
 }
+if compare_at:
+  body["compare_at_price"] = compare_at
 if vendor_id:
   body["vendor_id"] = vendor_id
 print(json.dumps(body))
