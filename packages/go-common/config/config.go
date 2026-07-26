@@ -82,9 +82,17 @@ func IsProduction() bool {
 	return env == "production" || env == "prod"
 }
 
+func (c Config) isProductionEnv() bool {
+	env := strings.ToLower(strings.TrimSpace(c.Env))
+	if env == "" {
+		env = strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
+	}
+	return env == "production" || env == "prod"
+}
+
 // ValidateSecrets fails closed in production when JWT material is missing or still a placeholder.
 func (c Config) ValidateSecrets() error {
-	if !IsProduction() {
+	if !c.isProductionEnv() {
 		return nil
 	}
 	if strings.TrimSpace(os.Getenv("JWT_PRIVATE_KEY_PEM")) != "" && strings.TrimSpace(os.Getenv("JWT_PUBLIC_KEY_PEM")) != "" {
