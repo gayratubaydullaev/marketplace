@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"os"
 
@@ -8,6 +9,7 @@ import (
 	"github.com/gayrat/marketplace/packages/go-common/config"
 	"github.com/gayrat/marketplace/packages/go-common/db"
 	"github.com/gayrat/marketplace/packages/go-common/middleware"
+	"github.com/gayrat/marketplace/packages/go-common/otelx"
 	"github.com/gayrat/marketplace/services/media/internal/handler"
 	"github.com/gayrat/marketplace/services/media/internal/repository"
 	"github.com/gayrat/marketplace/services/media/internal/service"
@@ -29,8 +31,10 @@ func main() {
 	tokenMgr := commonauth.NewManager(cfg.JWTSecret, cfg.JWTAccessTTLMinutes, cfg.JWTRefreshTTLDays)
 	storage := service.NewStorage(cfg)
 
+	shutdown, _ := otelx.Init(cfg.ServiceName)
+	defer func() { _ = shutdown(context.Background()) }()
 	r := gin.New()
-	r.Use(gin.Recovery(), middleware.CORS(), middleware.SecurityHeaders(), middleware.MaxBodyBytes(0), middleware.Tenant(), middleware.Metrics(cfg.ServiceName))
+	r.Use(gin.Recovery(), otelx.Middleware(cfg.ServiceName), middleware.CORS(), middleware.SecurityHeaders(), middleware.MaxBodyBytes(0), middleware.Tenant(), middleware.Metrics(cfg.ServiceName))
 	middleware.MountMetrics(r)
 	r.GET("/health", func(c *gin.Context) { c.JSON(200, gin.H{"status": "ok", "service": cfg.ServiceName}) })
 

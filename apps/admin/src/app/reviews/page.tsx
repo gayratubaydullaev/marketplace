@@ -14,6 +14,10 @@ type Review = {
   title?: string;
   body?: string;
   status?: string;
+  author_name?: string;
+  verified_purchase?: boolean;
+  moderation_reason?: string;
+  created_at?: string;
 };
 
 const PAGE_SIZE = 15;
@@ -84,10 +88,18 @@ export default function ReviewsPage() {
                   ★ {r.rating} — {r.title || "Review"}
                 </p>
                 <p className="text-sm text-slate-600">{r.body}</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  {[r.author_name, r.verified_purchase ? "verified purchase" : null]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </p>
                 <p className="mt-1 font-mono text-xs text-slate-400">
                   product {r.product_id || "—"}
                   {r.vendor_id ? ` · vendor ${r.vendor_id}` : ""}
                 </p>
+                {r.moderation_reason ? (
+                  <p className="mt-1 text-xs text-amber-700">Reason: {r.moderation_reason}</p>
+                ) : null}
               </div>
               <Badge tone={r.status === "approved" ? "success" : r.status === "rejected" ? "danger" : "warning"}>
                 {r.status}

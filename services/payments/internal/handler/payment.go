@@ -345,14 +345,23 @@ func (h *PaymentHandler) Collect(c *gin.Context) {
 }
 
 func (h *PaymentHandler) Webhook(c *gin.Context) {
-	provider, ok := h.Providers[c.Param("provider")]
+	name := c.Param("provider")
+	if name == "payme" && !h.Sandbox {
+		h.paymeMerchantAPI(c)
+		return
+	}
+	if name == "click" && !h.Sandbox {
+		h.clickCallback(c)
+		return
+	}
+	provider, ok := h.Providers[name]
 	if !ok {
 		httpx.BadRequest(c, "unknown provider")
 		return
 	}
 	payload, _ := io.ReadAll(c.Request.Body)
 	credential := c.GetHeader("X-Signature")
-	if c.Param("provider") == "stripe" {
+	if name == "stripe" {
 		credential = c.GetHeader("Stripe-Signature")
 	} else if auth := c.GetHeader("Authorization"); auth != "" {
 		credential = auth

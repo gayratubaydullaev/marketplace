@@ -41,6 +41,7 @@ routes:
   - name: product-reviews
     paths:
       - ~/v1/products/[^/]+/reviews
+      - ~/v1/products/[^/]+/review-eligibility
     regex_priority: 200
     service: reviews-service
     strip_path: false

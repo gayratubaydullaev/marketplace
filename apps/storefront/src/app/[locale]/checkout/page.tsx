@@ -185,6 +185,17 @@ export default function CheckoutPage() {
           window.location.hostname,
           "localhost",
           "127.0.0.1",
+          // Live PSP checkout hosts
+          "checkout.paycom.uz",
+          "test.paycom.uz",
+          "checkout.payme.uz",
+          "my.click.uz",
+          "www.uzumbank.uz",
+          "uzumbank.uz",
+          "checkout.stripe.com",
+          "pay.stripe.com",
+          "www.paypal.com",
+          "www.sandbox.paypal.com",
         ]);
         for (const base of [apiBase, paymentsBase]) {
           try {
@@ -193,12 +204,21 @@ export default function CheckoutPage() {
             /* ignore */
           }
         }
+        // Only append return_url to our own/sandbox hosts — PSP URLs already include return.
+        const localOrGateway =
+          redirect.hostname === window.location.hostname ||
+          redirect.hostname === "localhost" ||
+          redirect.hostname === "127.0.0.1" ||
+          (!!apiBase && redirect.hostname === new URL(apiBase, window.location.origin).hostname) ||
+          (!!paymentsBase && redirect.hostname === new URL(paymentsBase, window.location.origin).hostname);
         if (!allowedHosts.has(redirect.hostname)) {
           setStatus("unsafe payment redirect");
           return;
         }
-        redirect.searchParams.set("payment_id", intent.id);
-        redirect.searchParams.set("return_url", returnUrl);
+        if (localOrGateway) {
+          redirect.searchParams.set("payment_id", intent.id);
+          redirect.searchParams.set("return_url", returnUrl);
+        }
         redirectHref = redirect.toString();
       } catch {
         setStatus("invalid payment redirect");

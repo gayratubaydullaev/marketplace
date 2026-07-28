@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"bytes"
 	"encoding/json"
 	"io"
@@ -17,6 +18,7 @@ import (
 	"github.com/gayrat/marketplace/packages/go-common/db"
 	"github.com/gayrat/marketplace/packages/go-common/httpx"
 	"github.com/gayrat/marketplace/packages/go-common/middleware"
+	"github.com/gayrat/marketplace/packages/go-common/otelx"
 	"github.com/gayrat/marketplace/packages/go-common/redisx"
 	"github.com/gin-gonic/gin"
 	"github.com/jmoiron/sqlx"
@@ -36,8 +38,10 @@ func main() {
 	chURL := cfg.ClickHouseURL
 	tokenMgr := commonauth.NewManager(cfg.JWTSecret, cfg.JWTAccessTTLMinutes, cfg.JWTRefreshTTLDays)
 
+	shutdown, _ := otelx.Init(cfg.ServiceName)
+	defer func() { _ = shutdown(context.Background()) }()
 	r := gin.New()
-	r.Use(gin.Recovery(), middleware.CORS(), middleware.SecurityHeaders(), middleware.MaxBodyBytes(0), middleware.Tenant(), middleware.Metrics(cfg.ServiceName))
+	r.Use(gin.Recovery(), otelx.Middleware(cfg.ServiceName), middleware.CORS(), middleware.SecurityHeaders(), middleware.MaxBodyBytes(0), middleware.Tenant(), middleware.Metrics(cfg.ServiceName))
 	middleware.MountMetrics(r)
 	r.GET("/health", func(c *gin.Context) { c.JSON(200, gin.H{"status": "ok", "service": "analytics-service"}) })
 

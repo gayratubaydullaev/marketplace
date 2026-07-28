@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 
@@ -8,6 +9,7 @@ import (
 	"github.com/gayrat/marketplace/packages/go-common/config"
 	"github.com/gayrat/marketplace/packages/go-common/db"
 	"github.com/gayrat/marketplace/packages/go-common/middleware"
+	"github.com/gayrat/marketplace/packages/go-common/otelx"
 	"github.com/gayrat/marketplace/packages/go-common/redisx"
 	"github.com/gayrat/marketplace/services/auth/internal/handler"
 	"github.com/gayrat/marketplace/services/auth/internal/repository"
@@ -40,8 +42,10 @@ func main() {
 		}
 	}
 
+	shutdown, _ := otelx.Init(cfg.ServiceName)
+	defer func() { _ = shutdown(context.Background()) }()
 	r := gin.New()
-	r.Use(gin.Recovery(), middleware.CorrelationID(), middleware.CORS(), middleware.SecurityHeaders(), middleware.MaxBodyBytes(0), middleware.Tenant(), middleware.TenantDB(database), middleware.AuditLogger(database), middleware.Metrics(cfg.ServiceName))
+	r.Use(gin.Recovery(), otelx.Middleware(cfg.ServiceName), middleware.CorrelationID(), middleware.CORS(), middleware.SecurityHeaders(), middleware.MaxBodyBytes(0), middleware.Tenant(), middleware.TenantDB(database), middleware.AuditLogger(database), middleware.Metrics(cfg.ServiceName))
 	if rdb != nil {
 		r.Use(middleware.RateLimit(rdb, 100, 1000))
 	}

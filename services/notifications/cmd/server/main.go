@@ -13,6 +13,7 @@ import (
 	"github.com/gayrat/marketplace/packages/go-common/httpx"
 	kafkax "github.com/gayrat/marketplace/packages/go-common/kafka"
 	"github.com/gayrat/marketplace/packages/go-common/middleware"
+	"github.com/gayrat/marketplace/packages/go-common/otelx"
 	"github.com/gayrat/marketplace/services/notifications/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -50,8 +51,10 @@ func main() {
 			)`)
 	}
 
+	shutdown, _ := otelx.Init(cfg.ServiceName)
+	defer func() { _ = shutdown(context.Background()) }()
 	r := gin.New()
-	r.Use(gin.Recovery(), middleware.CORS(), middleware.SecurityHeaders(), middleware.MaxBodyBytes(0), middleware.Tenant(), middleware.TenantDB(database), middleware.Metrics(cfg.ServiceName))
+	r.Use(gin.Recovery(), otelx.Middleware(cfg.ServiceName), middleware.CORS(), middleware.SecurityHeaders(), middleware.MaxBodyBytes(0), middleware.Tenant(), middleware.TenantDB(database), middleware.Metrics(cfg.ServiceName))
 	middleware.MountMetrics(r)
 	r.GET("/health", func(c *gin.Context) { c.JSON(200, gin.H{"status": "ok"}) })
 
@@ -190,8 +193,18 @@ func storeFromEvent(database *sqlx.DB, transport service.Transport, topic string
 		log.Printf("[notify] %s no user_id: %s", topic, string(msg.Value))
 		return
 	}
-	title, _ := json.Marshal(map[string]string{"uz": "Buyurtma yangilandi", "ru": "Заказ обновлён"})
-	body, _ := json.Marshal(map[string]string{"uz": topic, "ru": topic})
+	titleMap := map[string]string{"uz": "Buyurtma yangilandi", "ru": "Заказ обновлён"}
+	bodyMap := map[string]string{"uz": topic, "ru": topic}
+	if topic == "review.submitted" {
+		titleMap = map[string]string{"uz": "Yangi sharh", "ru": "Новый отзыв", "en": "New review"}
+		bodyMap = map[string]string{
+			"uz": "Mahsulotingizga yangi sharh qoldirildi",
+			"ru": "На ваш товар оставили новый отзыв",
+			"en": "A new review was left on your product",
+		}
+	}
+	title, _ := json.Marshal(titleMap)
+	body, _ := json.Marshal(bodyMap)
 	data, _ := json.Marshal(payload)
 	tenantID := fmtString(payload["tenant_id"])
 	if tenantID == "" {

@@ -52,7 +52,7 @@ var routes = []struct {
 }
 
 func resolveTarget(path string) string {
-	if strings.HasPrefix(path, "/v1/products/") && strings.Contains(path, "/reviews") {
+	if strings.HasPrefix(path, "/v1/products/") && (strings.Contains(path, "/reviews") || strings.HasSuffix(path, "/review-eligibility")) {
 		return "http://127.0.0.1:8008"
 	}
 	if strings.HasPrefix(path, "/v1/orders/") && strings.HasSuffix(path, "/ready-for-delivery") {

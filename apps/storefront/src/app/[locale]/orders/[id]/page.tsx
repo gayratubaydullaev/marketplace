@@ -324,6 +324,7 @@ export default function OrderDetailPage() {
   const items = data.items || [];
   const statusIdx = TIMELINE.indexOf(o.status as (typeof TIMELINE)[number]);
   const canCancel = ["pending", "confirmed"].includes(o.status);
+  const canReview = ["delivered", "completed"].includes(o.status) && o.payment_status === "paid";
   const addr = o.shipping_address || {};
   const payLabel = paymentLabel(t, o.payment_status);
 
@@ -406,6 +407,14 @@ export default function OrderDetailPage() {
                   ) : (
                     <div className="flex items-start gap-3">{body}</div>
                   )}
+                  {canReview && meta.slug ? (
+                    <Link
+                      href={`/${locale}/products/${meta.slug}#reviews`}
+                      className="mt-2 inline-flex text-xs font-bold text-teal hover:underline"
+                    >
+                      {t("leaveReview")}
+                    </Link>
+                  ) : null}
                 </li>
               );
             })}

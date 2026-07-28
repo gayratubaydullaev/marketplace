@@ -109,63 +109,14 @@ func stringValue(body map[string]any, keys ...string) string {
 type PaymeProvider struct{ MerchantID, Secret string }
 
 func (p PaymeProvider) Name() string { return "payme" }
-func (p PaymeProvider) CreateIntent(amount float64, _ string, orderID string) (string, string, error) {
-	id := "payme_" + uuid.NewString()[:12]
-	q := url.Values{
-		"amount":      {strconv.FormatInt(int64(amount*100), 10)}, // tiyin
-		"account[order_id]": {orderID},
-		"transaction": {id},
-	}
-	return id, "https://checkout.paycom.uz/" + p.MerchantID + "?" + q.Encode(), nil
-}
-func (p PaymeProvider) VerifyWebhook(payload []byte, credential string) (string, string, error) {
-	if Sandbox() {
-		if err := verifyHMAC(payload, credential, p.Secret); err != nil {
-			return "", "", err
-		}
-	} else if !verifyBasicOrToken(credential, p.MerchantID, p.Secret) {
-		return "", "", fmt.Errorf("invalid Payme authorization")
-	}
-	return webhookResult(payload)
-}
 
 type ClickProvider struct{ MerchantID, Secret string }
 
 func (p ClickProvider) Name() string { return "click" }
-func (p ClickProvider) CreateIntent(amount float64, _ string, orderID string) (string, string, error) {
-	id := "click_" + uuid.NewString()[:12]
-	q := url.Values{"service_id": {p.MerchantID}, "amount": {strconv.FormatInt(int64(amount), 10)}, "transaction_param": {orderID}, "payment_id": {id}}
-	return id, "https://my.click.uz/services/pay?" + q.Encode(), nil
-}
-func (p ClickProvider) VerifyWebhook(payload []byte, credential string) (string, string, error) {
-	if Sandbox() {
-		if err := verifyHMAC(payload, credential, p.Secret); err != nil {
-			return "", "", err
-		}
-	} else if !verifyBasicOrToken(credential, p.MerchantID, p.Secret) {
-		return "", "", fmt.Errorf("invalid Click authorization")
-	}
-	return webhookResult(payload)
-}
 
 type UzumProvider struct{ MerchantID, Secret string }
 
 func (p UzumProvider) Name() string { return "uzum" }
-func (p UzumProvider) CreateIntent(amount float64, _ string, orderID string) (string, string, error) {
-	id := "uzum_" + uuid.NewString()[:12]
-	q := url.Values{"amount": {strconv.FormatInt(int64(amount), 10)}, "order": {orderID}, "id": {id}}
-	return id, "https://www.uzumbank.uz/pay/" + url.PathEscape(p.MerchantID) + "?" + q.Encode(), nil
-}
-func (p UzumProvider) VerifyWebhook(payload []byte, credential string) (string, string, error) {
-	if Sandbox() {
-		if err := verifyHMAC(payload, credential, p.Secret); err != nil {
-			return "", "", err
-		}
-	} else if !verifyBasicOrToken(credential, p.MerchantID, p.Secret) {
-		return "", "", fmt.Errorf("invalid Uzum authorization")
-	}
-	return webhookResult(payload)
-}
 
 func verifyBasicOrToken(credential, merchantID, secret string) bool {
 	credential = strings.TrimSpace(credential)
@@ -187,8 +138,20 @@ func (p StripeProvider) CreateIntent(amount float64, currency, orderID string) (
 	if Sandbox() {
 		return HMACProvider{NameValue: "stripe", MerchantID: "stripe", Secret: p.Secret, RedirectTemplate: "https://checkout.stripe.com/pay/%s?amount=%.0f&order=%s&pi=%s"}.CreateIntent(amount, currency, orderID)
 	}
-	form := url.Values{"amount": {strconv.FormatInt(int64(amount*100), 10)}, "currency": {strings.ToLower(currency)}, "metadata[order_id]": {orderID}}
-	req, err := http.NewRequest(http.MethodPost, "https://api.stripe.com/v1/payment_intents", strings.NewReader(form.Encode()))
+	success := paymentReturnURL(orderID)
+	cancel := storefrontBase() + "/uz/checkout"
+	form := url.Values{
+		"mode": {"payment"},
+		"success_url": {success + "?session_id={CHECKOUT_SESSION_ID}"},
+		"cancel_url": {cancel},
+		"client_reference_id": {orderID},
+		"line_items[0][quantity]": {"1"},
+		"line_items[0][price_data][currency]": {strings.ToLower(currency)},
+		"line_items[0][price_data][unit_amount]": {strconv.FormatInt(int64(amount*100), 10)},
+		"line_items[0][price_data][product_data][name]": {"Order " + orderID},
+		"metadata[order_id]": {orderID},
+	}
+	req, err := http.NewRequest(http.MethodPost, "https://api.stripe.com/v1/checkout/sessions", strings.NewReader(form.Encode()))
 	if err != nil {
 		return "", "", err
 	}
@@ -202,16 +165,16 @@ func (p StripeProvider) CreateIntent(amount float64, currency, orderID string) (
 	defer resp.Body.Close()
 	data, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode/100 != 2 {
-		return "", "", fmt.Errorf("stripe payment intent: %s", strings.TrimSpace(string(data)))
+		return "", "", fmt.Errorf("stripe checkout session: %s", strings.TrimSpace(string(data)))
 	}
-	var intent struct {
-		ID           string `json:"id"`
-		ClientSecret string `json:"client_secret"`
+	var session struct {
+		ID  string `json:"id"`
+		URL string `json:"url"`
 	}
-	if err := json.Unmarshal(data, &intent); err != nil || intent.ID == "" || intent.ClientSecret == "" {
-		return "", "", fmt.Errorf("invalid Stripe payment intent response")
+	if err := json.Unmarshal(data, &session); err != nil || session.ID == "" || session.URL == "" {
+		return "", "", fmt.Errorf("invalid Stripe checkout session response")
 	}
-	return intent.ID, intent.ClientSecret, nil
+	return session.ID, session.URL, nil
 }
 func (p StripeProvider) VerifyWebhook(payload []byte, signature string) (string, string, error) {
 	if Sandbox() {
@@ -227,8 +190,9 @@ func (p StripeProvider) VerifyWebhook(payload []byte, signature string) (string,
 		Type string `json:"type"`
 		Data struct {
 			Object struct {
-				ID     string `json:"id"`
-				Status string `json:"status"`
+				ID       string `json:"id"`
+				Status   string `json:"status"`
+				PaymentStatus string `json:"payment_status"`
 			} `json:"object"`
 		} `json:"data"`
 	}
@@ -236,7 +200,10 @@ func (p StripeProvider) VerifyWebhook(payload []byte, signature string) (string,
 		return "", "", fmt.Errorf("invalid Stripe webhook")
 	}
 	status := event.Data.Object.Status
-	if event.Type == "payment_intent.succeeded" {
+	if event.Type == "payment_intent.succeeded" || event.Type == "checkout.session.completed" {
+		status = "succeeded"
+	}
+	if event.Data.Object.PaymentStatus == "paid" {
 		status = "succeeded"
 	}
 	return event.Data.Object.ID, status, nil

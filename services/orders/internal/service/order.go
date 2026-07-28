@@ -166,7 +166,12 @@ func (s *OrderService) Create(ctx context.Context, in CreateInput) (map[string]a
 	if merchandise < 0 {
 		merchandise = 0
 	}
-	shippingCost := commerce.EstimateShipping(region, merchandise)
+	shippingCost := 0.0
+	if est, err := commerce.ProviderFromEnv().Estimate(region, merchandise); err == nil {
+		shippingCost = est.Cost
+	} else {
+		shippingCost = commerce.EstimateShipping(region, merchandise)
+	}
 	orderTotal := merchandise + shippingCost
 
 	id, number := uuid.NewString(), randomOrderNumber()

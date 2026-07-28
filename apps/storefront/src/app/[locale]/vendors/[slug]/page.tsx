@@ -52,11 +52,22 @@ export default async function VendorPage({
     name: string;
     description?: string;
     rating: number;
+    rating_delivery?: number;
+    rating_quality?: number;
+    rating_communication?: number;
     logo_url?: string | null;
     policies?: unknown;
   } | null = null;
   let products: Product[] = [];
-  let reviews: { id: string; rating: number; title?: string; body?: string }[] = [];
+  let reviews: {
+    id: string;
+    rating: number;
+    title?: string;
+    body?: string;
+    author_name?: string;
+    vendor_reply?: string;
+    verified_purchase?: boolean;
+  }[] = [];
   try {
     vendor = await api(`/v1/vendors/${slug}`);
     const [prod, rev] = await Promise.all([
@@ -104,6 +115,23 @@ export default async function VendorPage({
               </svg>
               {vendor.rating?.toFixed?.(1)}
             </p>
+            {(vendor.rating_delivery || vendor.rating_quality || vendor.rating_communication) ? (
+              <p className="mt-2 text-xs text-night/50">
+                {[
+                  vendor.rating_delivery
+                    ? `${t("product.scoreDelivery")} ${Number(vendor.rating_delivery).toFixed(1)}`
+                    : null,
+                  vendor.rating_quality
+                    ? `${t("product.scoreQuality")} ${Number(vendor.rating_quality).toFixed(1)}`
+                    : null,
+                  vendor.rating_communication
+                    ? `${t("product.scoreComms")} ${Number(vendor.rating_communication).toFixed(1)}`
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </p>
+            ) : null}
             {vendor.description ? (
               <p className="mt-3 max-w-2xl text-sm leading-relaxed text-night/65">{vendor.description}</p>
             ) : null}
@@ -141,8 +169,20 @@ export default async function VendorPage({
           <li key={r.id} className="rounded-2xl border border-night/8 bg-white p-4">
             <p className="font-semibold text-night">
               ★ {r.rating} {r.title}
+              {r.verified_purchase ? (
+                <span className="ml-2 text-[10px] font-bold uppercase tracking-wide text-teal">
+                  {t("product.verifiedPurchase")}
+                </span>
+              ) : null}
             </p>
+            {r.author_name ? <p className="mt-1 text-xs text-night/45">{r.author_name}</p> : null}
             <p className="mt-1 text-sm text-night/65">{r.body}</p>
+            {r.vendor_reply ? (
+              <p className="mt-2 rounded-xl bg-teal/[0.05] px-3 py-2 text-sm text-teal">
+                <span className="font-semibold">{t("product.vendorReply")}: </span>
+                {r.vendor_reply}
+              </p>
+            ) : null}
           </li>
         ))}
         {reviews.length === 0 && (

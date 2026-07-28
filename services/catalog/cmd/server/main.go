@@ -1,12 +1,14 @@
 package main
 
 import (
+	"context"
 	"log"
 
 	commonauth "github.com/gayrat/marketplace/packages/go-common/auth"
 	"github.com/gayrat/marketplace/packages/go-common/db"
 	kafkax "github.com/gayrat/marketplace/packages/go-common/kafka"
 	"github.com/gayrat/marketplace/packages/go-common/middleware"
+	"github.com/gayrat/marketplace/packages/go-common/otelx"
 	"github.com/gayrat/marketplace/services/catalog/internal/config"
 	"github.com/gayrat/marketplace/services/catalog/internal/grpcx"
 	"github.com/gayrat/marketplace/services/catalog/internal/handler"
@@ -30,8 +32,10 @@ func main() {
 	repo := repository.New(database)
 	grpcx.ListenAndServe(repo)
 
+	shutdown, _ := otelx.Init(cfg.ServiceName)
+	defer func() { _ = shutdown(context.Background()) }()
 	r := gin.New()
-	r.Use(gin.Recovery(), middleware.CORS(), middleware.SecurityHeaders(), middleware.MaxBodyBytes(0), middleware.Tenant(), middleware.TenantDB(database), middleware.AuditLogger(database), middleware.Metrics(cfg.ServiceName))
+	r.Use(gin.Recovery(), otelx.Middleware(cfg.ServiceName), middleware.CORS(), middleware.SecurityHeaders(), middleware.MaxBodyBytes(0), middleware.Tenant(), middleware.TenantDB(database), middleware.AuditLogger(database), middleware.Metrics(cfg.ServiceName))
 	middleware.MountMetrics(r)
 	r.GET("/health", func(c *gin.Context) { c.JSON(200, gin.H{"status": "ok", "service": cfg.ServiceName}) })
 	handler.New(service.New(repo), producer, tokenMgr).Register(r)

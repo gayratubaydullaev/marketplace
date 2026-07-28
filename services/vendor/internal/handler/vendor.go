@@ -120,7 +120,9 @@ func tenantMode(c *gin.Context, database *sqlx.DB) {
 }
 func getVendor(c *gin.Context, database *sqlx.DB) {
 	var v Vendor
-	err := database.Get(&v, `SELECT id, tenant_id, user_id, name, slug, description, translations, logo_url, banner_url, commission_rate, status, kyc_verified, kyc_status, rating, review_count, created_at FROM vendors WHERE tenant_id=$1 AND slug=$2`, middleware.GetTenantID(c), c.Param("slug"))
+	err := database.Get(&v, `SELECT id, tenant_id, user_id, name, slug, description, translations, logo_url, banner_url, commission_rate, status, kyc_verified, kyc_status, rating, review_count,
+		COALESCE(rating_delivery,0) AS rating_delivery, COALESCE(rating_quality,0) AS rating_quality, COALESCE(rating_communication,0) AS rating_communication, created_at
+		FROM vendors WHERE tenant_id=$1 AND slug=$2`, middleware.GetTenantID(c), c.Param("slug"))
 	if err != nil {
 		httpx.NotFound(c, "vendor not found")
 		return
@@ -137,7 +139,9 @@ func getVendor(c *gin.Context, database *sqlx.DB) {
 		"id": v.ID, "tenant_id": v.TenantID, "user_id": v.UserID, "name": v.Name, "slug": v.Slug,
 		"description": v.Description, "translations": v.Translations, "logo_url": v.LogoURL, "banner_url": v.BannerURL,
 		"commission_rate": v.CommissionRate, "status": v.Status, "kyc_verified": v.KYCVerified, "kyc_status": v.KYCStatus,
-		"rating": v.Rating, "review_count": v.ReviewCount, "created_at": v.CreatedAt, "policies": policies,
+		"rating": v.Rating, "review_count": v.ReviewCount,
+		"rating_delivery": v.RatingDelivery, "rating_quality": v.RatingQuality, "rating_communication": v.RatingCommunication,
+		"created_at": v.CreatedAt, "policies": policies,
 	})
 }
 func vendorProducts(c *gin.Context, database *sqlx.DB) {
@@ -158,7 +162,13 @@ func vendorProducts(c *gin.Context, database *sqlx.DB) {
 func vendorReviews(c *gin.Context, database *sqlx.DB) {
 	var vendorID string
 	_ = database.Get(&vendorID, `SELECT id FROM vendors WHERE slug=$1`, c.Param("slug"))
-	rows, _ := database.Queryx(`SELECT id, rating, title, body, vendor_reply, created_at FROM reviews WHERE vendor_id=$1 AND status='approved' ORDER BY created_at DESC LIMIT 50`, vendorID)
+	rows, _ := database.Queryx(`
+		SELECT r.id, r.rating, r.title, r.body, r.vendor_reply, r.helpful_count, r.verified_purchase, r.created_at,
+		       NULLIF(TRIM(CONCAT(COALESCE(u.first_name,''), ' ', COALESCE(u.last_name,''))), '') AS author_name
+		FROM reviews r
+		LEFT JOIN users u ON u.id = r.user_id
+		WHERE r.vendor_id=$1 AND r.status='approved'
+		ORDER BY r.created_at DESC LIMIT 50`, vendorID)
 	defer rows.Close()
 	httpx.OK(c, gin.H{"items": maps(rows)})
 }

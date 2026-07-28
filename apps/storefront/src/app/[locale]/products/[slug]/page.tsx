@@ -240,6 +240,7 @@ export default async function ProductPage({
       <ProductReviews
         productId={product.id}
         productSlug={product.slug}
+        vendorId={product.vendor_id}
         locale={locale}
         initialRating={typeof product.rating === "number" ? product.rating : null}
         initialCount={typeof product.review_count === "number" ? product.review_count : null}

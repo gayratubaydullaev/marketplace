@@ -1,12 +1,14 @@
 package main
 
 import (
+	"context"
 	"log"
 
 	commonauth "github.com/gayrat/marketplace/packages/go-common/auth"
 	"github.com/gayrat/marketplace/packages/go-common/db"
 	kafkax "github.com/gayrat/marketplace/packages/go-common/kafka"
 	"github.com/gayrat/marketplace/packages/go-common/middleware"
+	"github.com/gayrat/marketplace/packages/go-common/otelx"
 	"github.com/gayrat/marketplace/services/payments/internal/config"
 	"github.com/gayrat/marketplace/services/payments/internal/handler"
 	"github.com/gayrat/marketplace/services/payments/internal/repository"
@@ -39,16 +41,34 @@ func main() {
 		_, _ = database.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_payments_tenant_idempotency ON payments (tenant_id, idempotency_key) WHERE idempotency_key IS NOT NULL AND idempotency_key <> ''`)
 		_, _ = database.Exec(`CREATE INDEX IF NOT EXISTS idx_payment_splits_payment_pending ON payment_splits (payment_id, status)`)
 		_, _ = database.Exec(`CREATE INDEX IF NOT EXISTS idx_payment_splits_vendor_pending ON payment_splits (tenant_id, vendor_id, status) WHERE vendor_id IS NOT NULL AND status = 'pending'`)
-		// Ledger writes happen in service transactions; FORCE RLS without a
-		// dedicated app role breaks inserts for the schema owner in local/dev.
-		_, _ = database.Exec(`ALTER TABLE IF EXISTS payment_splits NO FORCE ROW LEVEL SECURITY`)
+		// Tenant isolation: same FORCE RLS policy as other money tables.
+		_, _ = database.Exec(`ALTER TABLE IF EXISTS payment_splits ENABLE ROW LEVEL SECURITY`)
+		_, _ = database.Exec(`ALTER TABLE IF EXISTS payment_splits FORCE ROW LEVEL SECURITY`)
+		_, _ = database.Exec(`DROP POLICY IF EXISTS tenant_isolation_payment_splits ON payment_splits`)
+		_, _ = database.Exec(`
+			CREATE POLICY tenant_isolation_payment_splits ON payment_splits
+			USING (
+				current_setting('app.current_tenant', true) IS NOT NULL
+				AND current_setting('app.current_tenant', true) <> ''
+				AND tenant_id::text = current_setting('app.current_tenant', true)
+			)
+			WITH CHECK (
+				current_setting('app.current_tenant', true) IS NOT NULL
+				AND current_setting('app.current_tenant', true) <> ''
+				AND tenant_id::text = current_setting('app.current_tenant', true)
+			)`)
+	}
+	if err := service.ValidateProviderSecrets(); err != nil {
+		log.Fatal(err)
 	}
 	producer := kafkax.NewProducer(cfg.KafkaBrokers)
 	defer producer.Close()
 	tokens := commonauth.NewManager(cfg.JWTSecret, cfg.JWTAccessTTLMinutes, cfg.JWTRefreshTTLDays)
 	payments := &handler.PaymentHandler{Service: service.New(repository.NewPaymentRepository(database), producer), Providers: service.Providers(), Sandbox: service.Sandbox()}
+	shutdown, _ := otelx.Init(cfg.ServiceName)
+	defer func() { _ = shutdown(context.Background()) }()
 	r := gin.New()
-	r.Use(gin.Recovery(), middleware.CORS(), middleware.SecurityHeaders(), middleware.MaxBodyBytes(0), middleware.Tenant(), middleware.TenantDB(database), middleware.AuditLogger(database), middleware.Metrics(cfg.ServiceName))
+	r.Use(gin.Recovery(), otelx.Middleware(cfg.ServiceName), middleware.CORS(), middleware.SecurityHeaders(), middleware.MaxBodyBytes(0), middleware.Tenant(), middleware.TenantDB(database), middleware.AuditLogger(database), middleware.Metrics(cfg.ServiceName))
 	middleware.MountMetrics(r)
 	r.GET("/health", func(c *gin.Context) { c.JSON(200, gin.H{"status": "ok", "sandbox": payments.Sandbox}) })
 	v1 := r.Group("/v1/payments")

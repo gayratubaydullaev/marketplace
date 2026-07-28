@@ -27,3 +27,27 @@ func TestHMACProviderVerifySandbox(t *testing.T) {
 		t.Fatalf("sandbox sig failed: %v %s", err, id2)
 	}
 }
+
+func TestValidateProviderSecretsSandboxOK(t *testing.T) {
+	t.Setenv("APP_ENV", "development")
+	t.Setenv("PAYMENTS_SANDBOX", "true")
+	t.Setenv("PAYME_SECRET", "")
+	t.Setenv("CLICK_SECRET", "")
+	t.Setenv("UZUM_SECRET", "")
+	t.Setenv("STRIPE_SECRET", "")
+	if err := ValidateProviderSecrets(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestValidateProviderSecretsLiveRequires(t *testing.T) {
+	t.Setenv("APP_ENV", "production")
+	t.Setenv("PAYMENTS_SANDBOX", "false")
+	t.Setenv("PAYME_SECRET", "")
+	t.Setenv("CLICK_SECRET", "")
+	t.Setenv("UZUM_SECRET", "")
+	t.Setenv("STRIPE_SECRET", "")
+	if err := ValidateProviderSecrets(); err == nil {
+		t.Fatal("expected error when live secrets missing")
+	}
+}

@@ -35,7 +35,17 @@ externalSecrets:
   enabled: false
   storeName: vault-backend
   storeKind: ClusterSecretStore
-  vaultPath: secret/gayrat/marketplace
+  # Vault KV v2 secret path without mount prefix (property-based keys).
+  vaultPath: gayrat/marketplace
+  refreshInterval: 1h
+  vault:
+    server: https://vault.vault.svc:8200
+    kvPath: secret
+    version: v2
+    kubernetesMount: kubernetes
+    role: marketplace
+    serviceAccount: external-secrets
+    serviceAccountNamespace: external-secrets
 
 services:
   auth:
@@ -66,3 +76,5 @@ services:
     port: 8011
   realtime:
     port: 8012
+  delivery:
+    port: 8013

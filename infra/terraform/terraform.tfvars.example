@@ -1,0 +1,15 @@
+# Copy to terraform.tfvars for staging (never commit secrets).
+aws_region   = "eu-central-1"
+environment  = "staging"
+cluster_name = "gayrat-staging"
+
+# Flip these only when AWS credentials + quotas are ready:
+enable_vpc  = false
+enable_eks  = false
+enable_data = false
+
+# Staging-sized defaults (override in production tfvars)
+database_instance_class = "db.t4g.medium"
+redis_node_type         = "cache.t4g.small"
+eks_node_instance_types = ["t3.large"]
+eks_node_desired        = 2

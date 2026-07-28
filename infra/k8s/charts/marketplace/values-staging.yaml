@@ -1,0 +1,17 @@
+# Staging overrides — enable Vault sync + keep conservative replicas.
+namespace: marketplace
+imageTag: staging
+
+externalSecrets:
+  enabled: true
+  vault:
+    server: https://vault.staging.gayrat.uz
+    role: marketplace-staging
+
+defaults:
+  replicas: 2
+  hpa:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPU: 70

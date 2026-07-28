@@ -497,12 +497,11 @@ func shippingEstimate(c *gin.Context) {
 		Subtotal float64 `json:"subtotal"`
 	}
 	_ = c.ShouldBindJSON(&body)
-	cost := commerce.EstimateShipping(body.Region, body.Subtotal)
-	eta := 2
-	if cost == 0 {
-		eta = 0
+	est, err := commerce.ProviderFromEnv().Estimate(body.Region, body.Subtotal)
+	if err != nil {
+		est = commerce.ShippingEstimate{Cost: commerce.EstimateShipping(body.Region, body.Subtotal), Currency: "UZS", EstimatedDays: 2, Provider: "local"}
 	}
-	httpx.OK(c, gin.H{"currency": "UZS", "shipping_cost": cost, "eta_days": eta})
+	httpx.OK(c, gin.H{"currency": est.Currency, "shipping_cost": est.Cost, "eta_days": est.EstimatedDays, "provider": est.Provider})
 }
 func checkoutPreview(c *gin.Context, database *sqlx.DB) {
 	var body struct {
@@ -532,8 +531,12 @@ func checkoutPreview(c *gin.Context, database *sqlx.DB) {
 		httpx.Internal(c, err.Error())
 		return
 	}
-	ship := commerce.EstimateShipping(body.Region, subtotal)
-	httpx.OK(c, gin.H{"cart_id": cart.ID, "items": items, "subtotal": subtotal, "discount": discount, "gift": giftAmt, "shipping_cost": ship, "total": total + ship, "currency": "UZS"})
+	shipEst, shipErr := commerce.ProviderFromEnv().Estimate(body.Region, subtotal)
+	ship := shipEst.Cost
+	if shipErr != nil {
+		ship = commerce.EstimateShipping(body.Region, subtotal)
+	}
+	httpx.OK(c, gin.H{"cart_id": cart.ID, "items": items, "subtotal": subtotal, "discount": discount, "gift": giftAmt, "shipping_cost": ship, "total": total + ship, "currency": "UZS", "shipping_provider": shipEst.Provider})
 }
 func mergeGuest(c *gin.Context, database *sqlx.DB) {
 	var body struct {

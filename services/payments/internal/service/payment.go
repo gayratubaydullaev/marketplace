@@ -15,15 +15,16 @@ import (
 )
 
 func Providers() map[string]Provider {
+	sandbox := Sandbox()
 	return map[string]Provider{
-		"payme":             PaymeProvider{MerchantID: envOr("PAYME_MERCHANT_ID", "gayrat-payme"), Secret: envOr("PAYME_SECRET", "payme-sandbox-secret")},
-		"click":             ClickProvider{MerchantID: envOr("CLICK_MERCHANT_ID", "gayrat-click"), Secret: envOr("CLICK_SECRET", "click-sandbox-secret")},
-		"uzum":              UzumProvider{MerchantID: envOr("UZUM_MERCHANT_ID", "gayrat-uzum"), Secret: envOr("UZUM_SECRET", "uzum-sandbox-secret")},
-		"stripe":            StripeProvider{Secret: envOr("STRIPE_SECRET", "sk_test_dev"), WebhookSecret: os.Getenv("STRIPE_WEBHOOK_SECRET")},
-		"paypal":            PayPalProvider{ClientID: os.Getenv("PAYPAL_CLIENT_ID"), ClientSecret: os.Getenv("PAYPAL_CLIENT_SECRET")},
-		"bank_transfer":     BankTransferProvider{},
-		"cash_on_delivery":  CashOnDeliveryProvider{},
-		"card_on_delivery":  CardOnDeliveryProvider{},
+		"payme":            PaymeProvider{MerchantID: envOr("PAYME_MERCHANT_ID", sandboxFallback(sandbox, "gayrat-payme")), Secret: envOr("PAYME_SECRET", sandboxFallback(sandbox, "payme-sandbox-secret"))},
+		"click":            ClickProvider{MerchantID: envOr("CLICK_MERCHANT_ID", sandboxFallback(sandbox, "gayrat-click")), Secret: envOr("CLICK_SECRET", sandboxFallback(sandbox, "click-sandbox-secret"))},
+		"uzum":             UzumProvider{MerchantID: envOr("UZUM_MERCHANT_ID", sandboxFallback(sandbox, "gayrat-uzum")), Secret: envOr("UZUM_SECRET", sandboxFallback(sandbox, "uzum-sandbox-secret"))},
+		"stripe":           StripeProvider{Secret: envOr("STRIPE_SECRET", sandboxFallback(sandbox, "sk_test_dev")), WebhookSecret: os.Getenv("STRIPE_WEBHOOK_SECRET")},
+		"paypal":           PayPalProvider{ClientID: os.Getenv("PAYPAL_CLIENT_ID"), ClientSecret: os.Getenv("PAYPAL_CLIENT_SECRET")},
+		"bank_transfer":    BankTransferProvider{},
+		"cash_on_delivery": CashOnDeliveryProvider{},
+		"card_on_delivery": CardOnDeliveryProvider{},
 	}
 }
 
@@ -32,6 +33,31 @@ func envOr(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func sandboxFallback(sandbox bool, value string) string {
+	if sandbox {
+		return value
+	}
+	return ""
+}
+
+// ValidateProviderSecrets refuses to boot outside sandbox without real PSP credentials.
+func ValidateProviderSecrets() error {
+	if Sandbox() {
+		return nil
+	}
+	required := []string{"PAYME_SECRET", "CLICK_SECRET", "UZUM_SECRET", "STRIPE_SECRET"}
+	var missing []string
+	for _, key := range required {
+		if os.Getenv(key) == "" {
+			missing = append(missing, key)
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("live payments require secrets: %v (set PAYMENTS_SANDBOX=true for local/demo)", missing)
+	}
+	return nil
 }
 
 type PaymentService struct {

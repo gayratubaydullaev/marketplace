@@ -60,13 +60,19 @@ pnpm --filter @gayrat/delivery dev  # :3003
 - Migrations: `./scripts/migrate.sh` (RLS v4 + FX v5).
 - Monitoring: `infra/monitoring/docker-compose.monitoring.yml`
 - Security: [docs/SECURITY.md](docs/SECURITY.md)
+- Staging / Citus / Vault: [docs/STAGING.md](docs/STAGING.md)
+  - `make citus-up` · `make citus-smoke`
 
 ## Payment flow
 
-Checkout → intent → sandbox pay page → return `/orders/:id/payment-return` (poll). Browser never sends `sandbox_force`.
+Checkout → intent → provider checkout (sandbox or live) → return `/orders/:id/payment-return` (poll).
+Browser never sends `sandbox_force`. Live mode requires `PAYMENTS_SANDBOX=false` + PSP secrets.
 
 ## Known limits
 
-- Payments are **sandbox** (Payme/Click-shaped); no live merchant settlement.
+- Live PSP settlement still needs merchant cabinet webhooks + secrets on staging/prod (local default is sandbox).
+- Carrier rates: `SHIPPING_PROVIDER=local|easypost|shipstation` (API keys optional; falls back to UZS flat rules).
+- Review toxicity: local heuristics always; optional `TOXICITY_API_URL` for remote re-check.
 - Docker Compose / Citus HA cluster are documented but not required for local demo.
 - Full 20-locale message packs: structure ready; routed locales are `uz|ru|en|ar`.
+- 100k VU stress: `CONFIRM_STRESS=1 make k6-stress` on dedicated staging only.

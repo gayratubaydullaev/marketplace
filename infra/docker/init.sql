@@ -274,7 +274,19 @@ CREATE TABLE reviews (
     helpful_count INTEGER DEFAULT 0,
     status VARCHAR(20) DEFAULT 'pending',
     verified_purchase BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    moderation_reason TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_reviews_unique_user_product
+  ON reviews (tenant_id, user_id, product_id);
+
+CREATE TABLE IF NOT EXISTS review_helpful_votes (
+    review_id UUID NOT NULL,
+    user_id UUID NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (review_id, user_id)
 );
 
 CREATE TABLE notifications (

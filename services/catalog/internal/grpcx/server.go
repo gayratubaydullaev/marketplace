@@ -7,14 +7,15 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 
 	catalogpb "github.com/gayrat/marketplace/packages/proto/gen/catalog"
 	"github.com/gayrat/marketplace/services/catalog/internal/model"
 	"github.com/gayrat/marketplace/services/catalog/internal/repository"
+	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/encoding"
 )
-
 // Server exposes CatalogService RPCs through both the legacy JSON HTTP listener
 // and native gRPC with an explicitly selected JSON codec.
 type Server struct {
@@ -64,16 +65,69 @@ func (s *Server) ListProducts(_ context.Context, req *catalogpb.ListProductsRequ
 	return out, nil
 }
 
-func (s *Server) CreateProduct(context.Context, *catalogpb.CreateProductRequest) (*catalogpb.Product, error) {
-	return nil, errUnimplemented("CreateProduct")
+func (s *Server) CreateProduct(_ context.Context, req *catalogpb.CreateProductRequest) (*catalogpb.Product, error) {
+	if req == nil || strings.TrimSpace(req.TenantId) == "" || strings.TrimSpace(req.CategoryId) == "" || strings.TrimSpace(req.Slug) == "" {
+		return nil, rpcError("tenant_id, category_id and slug are required")
+	}
+	currency := req.Currency
+	if currency == "" {
+		currency = "UZS"
+	}
+	translations := json.RawMessage(req.TranslationsJson)
+	if len(translations) == 0 {
+		translations = json.RawMessage(`{}`)
+	}
+	id := uuid.NewString()
+	body := model.CreateProductRequest{
+		CategoryID:        req.CategoryId,
+		Slug:              req.Slug,
+		Translations:      translations,
+		Price:             req.Price,
+		Currency:          currency,
+		InventoryQuantity: 0,
+		Status:            "active",
+		SEO:               json.RawMessage(`{}`),
+		Attributes:        json.RawMessage(`{}`),
+		Images:            json.RawMessage(`[]`),
+	}
+	if err := s.repo.CreateProduct(id, req.TenantId, body); err != nil {
+		return nil, err
+	}
+	p, err := s.repo.GetProductByID(req.TenantId, id)
+	if err != nil {
+		return nil, err
+	}
+	return toPB(p), nil
 }
 
-func (s *Server) UpdateProduct(context.Context, *catalogpb.UpdateProductRequest) (*catalogpb.Product, error) {
-	return nil, errUnimplemented("UpdateProduct")
+func (s *Server) UpdateProduct(_ context.Context, req *catalogpb.UpdateProductRequest) (*catalogpb.Product, error) {
+	if req == nil || strings.TrimSpace(req.TenantId) == "" || strings.TrimSpace(req.Id) == "" {
+		return nil, rpcError("tenant_id and id are required")
+	}
+	patch := map[string]any{}
+	if strings.TrimSpace(req.PatchJson) != "" {
+		if err := json.Unmarshal([]byte(req.PatchJson), &patch); err != nil {
+			return nil, rpcError("invalid patch_json: " + err.Error())
+		}
+	}
+	if err := s.repo.UpdateProduct(req.Id, req.TenantId, patch); err != nil {
+		return nil, err
+	}
+	p, err := s.repo.GetProductByID(req.TenantId, req.Id)
+	if err != nil {
+		return nil, err
+	}
+	return toPB(p), nil
 }
 
-func (s *Server) DeleteProduct(context.Context, *catalogpb.DeleteProductRequest) (*catalogpb.Empty, error) {
-	return nil, errUnimplemented("DeleteProduct")
+func (s *Server) DeleteProduct(_ context.Context, req *catalogpb.DeleteProductRequest) (*catalogpb.Empty, error) {
+	if req == nil || strings.TrimSpace(req.TenantId) == "" || strings.TrimSpace(req.Id) == "" {
+		return nil, rpcError("tenant_id and id are required")
+	}
+	if err := s.repo.ArchiveProduct(req.Id, req.TenantId); err != nil {
+		return nil, err
+	}
+	return &catalogpb.Empty{}, nil
 }
 
 func (s *Server) UpdateInventory(_ context.Context, req *catalogpb.UpdateInventoryRequest) (*catalogpb.InventoryResponse, error) {
@@ -174,6 +228,45 @@ func ListenAndServe(repo *repository.Catalog) {
 			return
 		}
 		out, err := srv.UpdateInventory(r.Context(), &req)
+		if err != nil {
+			writeJSON(w, 400, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, 200, out)
+	})
+	mux.HandleFunc("/catalog.CatalogService/CreateProduct", func(w http.ResponseWriter, r *http.Request) {
+		var req catalogpb.CreateProductRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSON(w, 400, map[string]string{"error": err.Error()})
+			return
+		}
+		out, err := srv.CreateProduct(r.Context(), &req)
+		if err != nil {
+			writeJSON(w, 400, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, 201, out)
+	})
+	mux.HandleFunc("/catalog.CatalogService/UpdateProduct", func(w http.ResponseWriter, r *http.Request) {
+		var req catalogpb.UpdateProductRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSON(w, 400, map[string]string{"error": err.Error()})
+			return
+		}
+		out, err := srv.UpdateProduct(r.Context(), &req)
+		if err != nil {
+			writeJSON(w, 400, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, 200, out)
+	})
+	mux.HandleFunc("/catalog.CatalogService/DeleteProduct", func(w http.ResponseWriter, r *http.Request) {
+		var req catalogpb.DeleteProductRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSON(w, 400, map[string]string{"error": err.Error()})
+			return
+		}
+		out, err := srv.DeleteProduct(r.Context(), &req)
 		if err != nil {
 			writeJSON(w, 400, map[string]string{"error": err.Error()})
 			return

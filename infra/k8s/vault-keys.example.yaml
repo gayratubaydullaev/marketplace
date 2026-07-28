@@ -1,0 +1,33 @@
+# Example Vault KV payload (path: secret/data/gayrat/marketplace for KV v2).
+# Apply after External Secrets Operator + ClusterSecretStore are installed.
+#
+# vault kv put secret/gayrat/marketplace \
+#   database_url='postgres://...' \
+#   redis_url='redis://...' \
+#   jwt_secret='...' \
+#   ...
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: marketplace-vault-keys-doc
+  namespace: marketplace
+  annotations:
+    description: "Documentation only — keys expected in Vault for ExternalSecret"
+data:
+  keys.txt: |
+    database_url
+    redis_url
+    jwt_secret
+    jwt_private_key_pem
+    jwt_public_key_pem
+    minio_access_key
+    minio_secret_key
+    payme_secret
+    payme_merchant_id
+    click_secret
+    click_merchant_id
+    uzum_secret
+    stripe_secret
+    stripe_webhook_secret
+    centrifugo_secret
+    kafka_brokers

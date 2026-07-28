@@ -19,3 +19,4 @@ scrape_configs:
           - host.docker.internal:8010
           - host.docker.internal:8011
           - host.docker.internal:8012
+          - host.docker.internal:8013

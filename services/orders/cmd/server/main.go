@@ -1,12 +1,14 @@
 package main
 
 import (
+	"context"
 	"log"
 
 	commonauth "github.com/gayrat/marketplace/packages/go-common/auth"
 	"github.com/gayrat/marketplace/packages/go-common/db"
 	kafkax "github.com/gayrat/marketplace/packages/go-common/kafka"
 	"github.com/gayrat/marketplace/packages/go-common/middleware"
+	"github.com/gayrat/marketplace/packages/go-common/otelx"
 	"github.com/gayrat/marketplace/packages/go-common/redisx"
 	"github.com/gayrat/marketplace/services/orders/internal/config"
 	"github.com/gayrat/marketplace/services/orders/internal/handler"
@@ -31,8 +33,10 @@ func main() {
 	tokens := commonauth.NewManager(cfg.JWTSecret, cfg.JWTAccessTTLMinutes, cfg.JWTRefreshTTLDays)
 	orders := &handler.OrderHandler{Service: service.NewOrderService(repository.NewOrderRepository(database), producer)}
 
+	shutdown, _ := otelx.Init(cfg.ServiceName)
+	defer func() { _ = shutdown(context.Background()) }()
 	r := gin.New()
-	r.Use(gin.Recovery(), middleware.CORS(), middleware.SecurityHeaders(), middleware.MaxBodyBytes(0), middleware.Tenant(), middleware.TenantDB(database), middleware.AuditLogger(database), middleware.Metrics(cfg.ServiceName))
+	r.Use(gin.Recovery(), otelx.Middleware(cfg.ServiceName), middleware.CORS(), middleware.SecurityHeaders(), middleware.MaxBodyBytes(0), middleware.Tenant(), middleware.TenantDB(database), middleware.AuditLogger(database), middleware.Metrics(cfg.ServiceName))
 	if rdb != nil {
 		r.Use(middleware.RateLimit(rdb, 60, 600))
 	}

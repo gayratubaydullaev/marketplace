@@ -1,1 +1,1 @@
--- down
+DROP TABLE IF EXISTS reviews;

@@ -35,6 +35,11 @@ func NewAuthService(repo *repository.UserRepo, tokens *commonauth.Manager, rdb *
 	return &AuthService{repo: repo, tokens: tokens, rdb: rdb}
 }
 
+// PublicRegisterRole is the only role allowed from the public register endpoint.
+func PublicRegisterRole() string {
+	return string(commonauth.RoleCustomer)
+}
+
 func (s *AuthService) BootstrapAdmin() error {
 	env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
 	if env == "production" || env == "prod" {
@@ -56,7 +61,8 @@ func (s *AuthService) Register(tenantID string, req model.RegisterRequest) (*mod
 		return nil, nil, errors.New("email already registered")
 	}
 	// Public registration is customer-only; vendor role is granted via apply/approve.
-	role := string(commonauth.RoleCustomer)
+	role := PublicRegisterRole()
+	_ = req.Role // ignored — never elevate via public register
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
 		return nil, nil, err

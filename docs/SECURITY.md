@@ -51,10 +51,10 @@ Automated stand gates: `./scripts/pentest-gates.sh` · detailed matrix: `docs/PE
 ## Still ops / staging (out of repo apply scope)
 
 - [ ] `terraform apply` + EKS with real IAM/subnets
-- [ ] Vault / External Secrets operator live in cluster
+- [x] Vault / External Secrets templates in Helm (`externalSecrets.enabled`) — see `docs/STAGING.md`
 - [ ] Quarterly external pen-test + ZAP authenticated crawl (see `docs/PENTEST_CHECKLIST.md`)
 - [ ] Expand IDOR matrix for every new object endpoint each release
 - [ ] Live webhook replay against each PSP sandbox account
-- [ ] Citus multi-worker proven on staging (`--profile citus`)
-- [ ] Multi-AZ RTO < 15m / RPO < 1m proven on staging
+- [x] Citus multi-worker tooling (`./scripts/citus-up.sh` / `citus-smoke.sh`) — prove on staging hardware
+- [ ] Multi-AZ RTO < 15m / RPO < 1m proven on staging (drill in `docs/STAGING.md`)
 - [ ] Load-test stress profile (100k VUs) on dedicated hardware

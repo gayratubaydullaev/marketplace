@@ -24,7 +24,7 @@ DECLARE
 BEGIN
   FOREACH t IN ARRAY ARRAY[
     'products','orders','users','vendors','categories','carts','payments',
-    'reviews','coupons','gift_certificates','order_items','addresses',
+    'payment_splits','reviews','coupons','gift_certificates','order_items','addresses',
     'product_variants','vendor_payouts','notification_outbox'
   ]
   LOOP

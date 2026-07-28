@@ -13,6 +13,9 @@ type Review = {
   body?: string;
   vendor_reply?: string;
   created_at?: string;
+  author_name?: string;
+  helpful_count?: number;
+  verified_purchase?: boolean;
 };
 
 const PAGE_SIZE = 10;
@@ -72,6 +75,11 @@ export default function VendorReviews() {
             <div key={r.id} className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm">
               <p className="font-semibold">
                 {"★".repeat(Math.min(5, r.rating || 0))} {r.title || ""}
+              </p>
+              <p className="mt-1 text-xs text-slate-500">
+                {[r.author_name, r.verified_purchase ? "verified" : null, r.helpful_count ? `helpful ${r.helpful_count}` : null]
+                  .filter(Boolean)
+                  .join(" · ")}
               </p>
               <p className="mt-1 text-sm text-slate-600">{r.body}</p>
               {r.vendor_reply ? <p className="mt-2 text-sm text-teal">Ответ: {r.vendor_reply}</p> : null}
