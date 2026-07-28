@@ -171,6 +171,21 @@ func (p UzumProvider) CreateIntent(amount float64, _ string, orderID string) (st
 	return id, "https://www.uzumbank.uz/open-service?" + q.Encode(), nil
 }
 
+func (p UzumProvider) VerifyWebhook(payload []byte, credential string) (string, string, error) {
+	if Sandbox() {
+		if err := verifyHMAC(payload, credential, p.Secret); err != nil {
+			return "", "", err
+		}
+		return webhookResult(payload)
+	}
+	if !verifyBasicOrToken(credential, p.MerchantID, p.Secret) {
+		if err := verifyHMAC(payload, credential, p.Secret); err != nil {
+			return "", "", fmt.Errorf("invalid Uzum authorization")
+		}
+	}
+	return webhookResult(payload)
+}
+
 func createUzumPayment(apiBase, merchantID, secret string, amount float64, orderID, paymentID string) (string, error) {
 	body, _ := json.Marshal(map[string]any{
 		"amount":     int64(amount),
