@@ -29,7 +29,10 @@ func main() {
 	if os.Getenv("HTTP_PORT") == "" {
 		cfg.HTTPPort = "8008"
 	}
-	database, _ := db.Connect(cfg.DatabaseURL)
+	database, err := db.Connect(cfg.DatabaseURL)
+	if err != nil {
+		log.Fatalf("database: %v", err)
+	}
 	producer := kafkax.NewProducer(cfg.KafkaBrokers)
 	defer producer.Close()
 	tokenMgr := commonauth.NewManager(cfg.JWTSecret, cfg.JWTAccessTTLMinutes, cfg.JWTRefreshTTLDays)
@@ -37,7 +40,8 @@ func main() {
 	shutdown, _ := otelx.Init(cfg.ServiceName)
 	defer func() { _ = shutdown(context.Background()) }()
 	r := gin.New()
-	r.Use(gin.Recovery(), otelx.Middleware(cfg.ServiceName), middleware.CORS(), middleware.SecurityHeaders(), middleware.MaxBodyBytes(0), middleware.Tenant(), middleware.Metrics(cfg.ServiceName))
+	middleware.SecureEngine(r)
+	r.Use(gin.Recovery(), otelx.Middleware(cfg.ServiceName), middleware.CORS(), middleware.SecurityHeaders(), middleware.MaxBodyBytes(0), middleware.Tenant(), middleware.SanitizeGuest(), middleware.TenantDB(database), middleware.Metrics(cfg.ServiceName))
 	middleware.MountMetrics(r)
 	r.GET("/health", func(c *gin.Context) { c.JSON(200, gin.H{"status": "ok"}) })
 
@@ -74,34 +78,41 @@ func listProductReviews(database *sqlx.DB) gin.HandlerFunc {
 		}
 
 		var total int
-		_ = database.Get(&total, `SELECT COUNT(*) FROM reviews WHERE tenant_id=$1 AND product_id=$2 AND status='approved'`, tenantID, productID)
-
-		rows, err := database.Queryx(`
-			SELECT r.id, r.rating, r.title, r.body, r.media, r.vendor_reply, r.helpful_count,
-			       r.verified_purchase, r.created_at,
-			       r.score_delivery, r.score_quality, r.score_communication,
-			       NULLIF(TRIM(CONCAT(COALESCE(u.first_name,''), ' ', COALESCE(u.last_name,''))), '') AS author_name
-			FROM reviews r
-			LEFT JOIN users u ON u.id = r.user_id
-			WHERE r.tenant_id=$1 AND r.product_id=$2 AND r.status='approved'
-			ORDER BY `+orderBy+`
-			LIMIT $3 OFFSET $4`, tenantID, productID, limit, offset)
-		if err != nil {
-			httpx.Internal(c, err.Error())
-			return
-		}
-		defer rows.Close()
-		items := scanMaps(rows)
-
+		var items []map[string]any
 		var dist []struct {
 			Rating int `db:"rating"`
 			Cnt    int `db:"cnt"`
 		}
-		_ = database.Select(&dist, `
-			SELECT rating, COUNT(*)::int AS cnt
-			FROM reviews
-			WHERE tenant_id=$1 AND product_id=$2 AND status='approved'
-			GROUP BY rating`, tenantID, productID)
+		err := db.WithTenant(database, tenantID, func(tx *sqlx.Tx) error {
+			if err := tx.Get(&total, `SELECT COUNT(*) FROM reviews WHERE tenant_id=$1 AND product_id=$2 AND status='approved'`, tenantID, productID); err != nil {
+				return err
+			}
+			rows, err := tx.Queryx(`
+				SELECT r.id, r.rating, r.title, r.body, r.media, r.vendor_reply, r.helpful_count,
+				       r.verified_purchase, r.created_at,
+				       r.score_delivery, r.score_quality, r.score_communication,
+				       NULLIF(TRIM(CONCAT(COALESCE(u.first_name,''), ' ', COALESCE(u.last_name,''))), '') AS author_name
+				FROM reviews r
+				LEFT JOIN users u ON u.id = r.user_id
+				WHERE r.tenant_id=$1 AND r.product_id=$2 AND r.status='approved'
+				ORDER BY `+orderBy+`
+				LIMIT $3 OFFSET $4`, tenantID, productID, limit, offset)
+			if err != nil {
+				return err
+			}
+			defer rows.Close()
+			items = scanMaps(rows)
+			return tx.Select(&dist, `
+				SELECT rating, COUNT(*)::int AS cnt
+				FROM reviews
+				WHERE tenant_id=$1 AND product_id=$2 AND status='approved'
+				GROUP BY rating`, tenantID, productID)
+		})
+		if err != nil {
+			httpx.WriteDBError(c, err)
+			return
+		}
+
 		histogram := map[string]int{"1": 0, "2": 0, "3": 0, "4": 0, "5": 0}
 		var sum float64
 		for _, d := range dist {
@@ -131,13 +142,20 @@ func reviewEligibility(database *sqlx.DB) gin.HandlerFunc {
 		productID := c.Param("id")
 
 		var existing string
-		_ = database.Get(&existing, `SELECT id::text FROM reviews WHERE tenant_id=$1 AND user_id=$2 AND product_id=$3 LIMIT 1`, tenantID, claims.UserID, productID)
+		var orderID, vendorID string
+		var ok bool
+		_ = db.WithTenant(database, tenantID, func(tx *sqlx.Tx) error {
+			_ = tx.Get(&existing, `SELECT id::text FROM reviews WHERE tenant_id=$1 AND user_id=$2 AND product_id=$3 LIMIT 1`, tenantID, claims.UserID, productID)
+			if existing != "" {
+				return nil
+			}
+			orderID, vendorID, ok = findEligiblePurchaseTx(tx, claims.UserID, productID)
+			return nil
+		})
 		if existing != "" {
 			httpx.OK(c, gin.H{"can_review": false, "already_reviewed": true, "review_id": existing})
 			return
 		}
-
-		orderID, vendorID, ok := findEligiblePurchase(database, claims.UserID, productID)
 		if !ok {
 			httpx.OK(c, gin.H{"can_review": false, "already_reviewed": false, "reason": "no_verified_purchase"})
 			return
@@ -261,25 +279,31 @@ func createReview(database *sqlx.DB, producer *kafkax.Producer) gin.HandlerFunc 
 			b, _ := json.Marshal(media)
 			mediaJSON = string(b)
 		}
-		_, err := database.Exec(`
+		err := db.WithTenant(database, tenantID, func(tx *sqlx.Tx) error {
+			_, err := tx.Exec(`
 			INSERT INTO reviews (
 				id, tenant_id, product_id, vendor_id, user_id, order_id, rating, title, body, media,
 				status, verified_purchase, score_delivery, score_quality, score_communication
 			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,true,$12,$13,$14)`,
-			id, tenantID, productID, vendorID, claims.UserID, orderID, body.Rating, body.Title, body.Body, mediaJSON,
-			status, body.ScoreDelivery, body.ScoreQuality, body.ScoreCommunication)
+				id, tenantID, productID, vendorID, claims.UserID, orderID, body.Rating, body.Title, body.Body, mediaJSON,
+				status, body.ScoreDelivery, body.ScoreQuality, body.ScoreCommunication)
+			return err
+		})
 		if err != nil {
 			if strings.Contains(err.Error(), "idx_reviews_unique_user_product") || strings.Contains(err.Error(), "duplicate key") {
 				httpx.BadRequest(c, "you already reviewed this product")
 				return
 			}
-			httpx.BadRequest(c, err.Error())
+			httpx.WriteDBError(c, err)
 			return
 		}
 
 		if status == "approved" {
-			refreshProductRating(database, productID)
-			refreshVendorRating(database, vendorID)
+			_ = db.WithTenant(database, tenantID, func(tx *sqlx.Tx) error {
+				refreshProductRatingTx(tx, productID)
+				refreshVendorRatingTx(tx, vendorID)
+				return nil
+			})
 		}
 
 		event := gin.H{
@@ -471,12 +495,24 @@ func adminListReviews(database *sqlx.DB) gin.HandlerFunc {
 }
 
 func findEligiblePurchase(database *sqlx.DB, userID, productID string) (orderID, vendorID string, ok bool) {
+	var outOrder, outVendor string
+	var found bool
+	_ = db.WithRLSBypass(database, func(tx *sqlx.Tx) error {
+		outOrder, outVendor, found = findEligiblePurchaseTx(tx, userID, productID)
+		return nil
+	})
+	return outOrder, outVendor, found
+}
+
+func findEligiblePurchaseTx(q interface {
+	Get(dest interface{}, query string, args ...interface{}) error
+}, userID, productID string) (orderID, vendorID string, ok bool) {
 	type row struct {
 		OrderID  string  `db:"order_id"`
 		VendorID *string `db:"vendor_id"`
 	}
 	var r row
-	err := database.Get(&r, `
+	err := q.Get(&r, `
 		SELECT o.id::text AS order_id, COALESCE(oi.vendor_id::text, p.vendor_id::text) AS vendor_id
 		FROM orders o
 		JOIN order_items oi ON oi.order_id = o.id
@@ -496,11 +532,11 @@ func findEligiblePurchase(database *sqlx.DB, userID, productID string) (orderID,
 	return r.OrderID, vid, true
 }
 
-func refreshProductRating(db *sqlx.DB, productID string) {
-	if productID == "" {
+func refreshProductRating(database *sqlx.DB, productID string) {
+	if productID == "" || database == nil {
 		return
 	}
-	_, _ = db.Exec(`
+	_, _ = database.Exec(`
 		UPDATE products SET
 			rating = COALESCE((SELECT AVG(rating)::numeric(2,1) FROM reviews WHERE product_id=$1 AND status='approved'), 0),
 			review_count = (SELECT COUNT(*) FROM reviews WHERE product_id=$1 AND status='approved'),
@@ -508,11 +544,38 @@ func refreshProductRating(db *sqlx.DB, productID string) {
 		WHERE id=$1`, productID)
 }
 
-func refreshVendorRating(db *sqlx.DB, vendorID *string) {
-	if vendorID == nil || *vendorID == "" {
+func refreshProductRatingTx(tx *sqlx.Tx, productID string) {
+	if productID == "" || tx == nil {
 		return
 	}
-	_, _ = db.Exec(`
+	_, _ = tx.Exec(`
+		UPDATE products SET
+			rating = COALESCE((SELECT AVG(rating)::numeric(2,1) FROM reviews WHERE product_id=$1 AND status='approved'), 0),
+			review_count = (SELECT COUNT(*) FROM reviews WHERE product_id=$1 AND status='approved'),
+			updated_at = NOW()
+		WHERE id=$1`, productID)
+}
+
+func refreshVendorRating(database *sqlx.DB, vendorID *string) {
+	if vendorID == nil || *vendorID == "" || database == nil {
+		return
+	}
+	_, _ = database.Exec(`
+		UPDATE vendors SET
+			rating = COALESCE((SELECT AVG(rating)::numeric(2,1) FROM reviews WHERE vendor_id=$1 AND status='approved'), 0),
+			review_count = (SELECT COUNT(*) FROM reviews WHERE vendor_id=$1 AND status='approved'),
+			rating_delivery = COALESCE((SELECT AVG(score_delivery)::numeric(2,1) FROM reviews WHERE vendor_id=$1 AND status='approved' AND score_delivery IS NOT NULL), 0),
+			rating_quality = COALESCE((SELECT AVG(score_quality)::numeric(2,1) FROM reviews WHERE vendor_id=$1 AND status='approved' AND score_quality IS NOT NULL), 0),
+			rating_communication = COALESCE((SELECT AVG(score_communication)::numeric(2,1) FROM reviews WHERE vendor_id=$1 AND status='approved' AND score_communication IS NOT NULL), 0),
+			updated_at = NOW()
+		WHERE id=$1`, *vendorID)
+}
+
+func refreshVendorRatingTx(tx *sqlx.Tx, vendorID *string) {
+	if vendorID == nil || *vendorID == "" || tx == nil {
+		return
+	}
+	_, _ = tx.Exec(`
 		UPDATE vendors SET
 			rating = COALESCE((SELECT AVG(rating)::numeric(2,1) FROM reviews WHERE vendor_id=$1 AND status='approved'), 0),
 			review_count = (SELECT COUNT(*) FROM reviews WHERE vendor_id=$1 AND status='approved'),

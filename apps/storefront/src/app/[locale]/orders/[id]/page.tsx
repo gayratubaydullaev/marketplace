@@ -8,6 +8,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { formatUZS, type Locale } from "@gayrat/i18n";
 import { api, productImage, type Product } from "@/lib/api";
 import { PageHeader, StatusBadge } from "@/components/PageChrome";
+import "@gayrat/map/styles.css";
 
 const TrackingMap = dynamic(() => import("@gayrat/map").then((m) => m.TrackingMap), {
   ssr: false,
@@ -60,13 +61,10 @@ type ProductMeta = {
 
 const TIMELINE = ["pending", "confirmed", "processing", "shipped", "delivered", "completed"] as const;
 
-function userIdFromToken(): string | null {
-  if (typeof window === "undefined") return null;
-  const token = localStorage.getItem("access_token");
-  if (!token) return null;
+function userIdFromRealtimeJWT(token: string): string | null {
   try {
-    const payload = JSON.parse(atob(token.split(".")[1] || ""));
-    return payload.sub || payload.user_id || null;
+    const payload = JSON.parse(atob(token.split(".")[1] || "")) as { sub?: string };
+    return payload.sub || null;
   } catch {
     return null;
   }
@@ -203,7 +201,7 @@ export default function OrderDetailPage() {
             method: "POST",
             body: "{}",
           });
-          const userID = userIdFromToken();
+          const userID = userIdFromRealtimeJWT(tok.token);
           if (!userID) return;
           const url = tok.url || `${wsBase.replace(/\/$/, "")}/connection/websocket`;
           ws = new WebSocket(url);

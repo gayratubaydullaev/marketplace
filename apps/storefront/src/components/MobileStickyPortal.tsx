@@ -6,10 +6,11 @@ import { createPortal } from "react-dom";
 /**
  * Fixed action bar above the always-visible mobile bottom nav.
  * Safe-area is handled by the nav; this bar sits on top of --bottom-chrome.
+ * Hidden from `lg` up — matches cart/checkout sidebars and PDP purchase panel.
  */
 export function MobileStickyPortal({
   children,
-  className = "md:hidden",
+  className = "lg:hidden",
 }: {
   children: ReactNode;
   className?: string;
@@ -24,7 +25,7 @@ export function MobileStickyPortal({
 
   return createPortal(
     <div
-      className={`fixed inset-x-0 z-40 max-w-[100vw] border-t border-night/8 bg-paper/97 px-3 py-2 backdrop-blur-md ${className}`}
+      className={`fixed inset-x-0 z-40 max-w-[100vw] border-t border-teal/15 bg-paper/97 px-3 py-2 backdrop-blur-md ${className}`}
       style={{
         bottom: "var(--bottom-chrome)",
         minHeight: "var(--sticky-action-h)",

@@ -21,7 +21,10 @@ func main() {
 	if err := cfg.ValidateSecrets(); err != nil {
 		log.Fatal(err)
 	}
-	database, _ := db.Connect(cfg.DatabaseURL)
+	database, err := db.Connect(cfg.DatabaseURL)
+	if err != nil {
+		log.Fatalf("database: %v", err)
+	}
 	producer := kafkax.NewProducer(cfg.KafkaBrokers)
 	defer producer.Close()
 	tokens := commonauth.NewManager(cfg.JWTSecret, cfg.JWTAccessTTLMinutes, cfg.JWTRefreshTTLDays)
@@ -30,7 +33,8 @@ func main() {
 	shutdown, _ := otelx.Init(cfg.ServiceName)
 	defer func() { _ = shutdown(context.Background()) }()
 	r := gin.New()
-	r.Use(gin.Recovery(), otelx.Middleware(cfg.ServiceName), middleware.CORS(), middleware.SecurityHeaders(), middleware.MaxBodyBytes(0), middleware.Tenant(), middleware.TenantDB(database), middleware.AuditLogger(database), middleware.Metrics(cfg.ServiceName))
+	middleware.SecureEngine(r)
+	r.Use(gin.Recovery(), otelx.Middleware(cfg.ServiceName), middleware.CORS(), middleware.SecurityHeaders(), middleware.MaxBodyBytes(0), middleware.Tenant(), middleware.SanitizeGuest(), middleware.TenantDB(database), middleware.AuditLogger(database), middleware.Metrics(cfg.ServiceName))
 	middleware.MountMetrics(r)
 	r.GET("/health", func(c *gin.Context) { c.JSON(200, gin.H{"status": "ok"}) })
 	v1 := r.Group("/v1")

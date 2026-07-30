@@ -132,6 +132,7 @@ export default function CartPage() {
             description={t("emptyHint")}
             actionHref={`/${locale}/products`}
             actionLabel={t("browse")}
+            variant="cart"
           />
         </div>
       </div>
@@ -200,7 +201,7 @@ export default function CartPage() {
   );
 
   return (
-    <div className="animate-rise pb-[calc(var(--sticky-action-h)+1rem)] md:pb-0">
+    <div className="animate-rise pb-[calc(var(--sticky-action-h)+1rem)] lg:pb-0">
       <PageHeader title={t("title")} subtitle={t("itemsCount", { count })} />
 
       <div className="mt-8 grid gap-10 lg:grid-cols-[minmax(0,1fr)_300px]">
@@ -337,8 +338,9 @@ export default function CartPage() {
         </aside>
       </div>
 
-      <div className="mt-8 lg:hidden">
+      <div className="mt-8 space-y-4 lg:hidden">
         <div className="rounded-2xl border border-night/8 bg-surface-muted/40 p-4">{summaryBlock}</div>
+        {checkoutCta}
       </div>
 
       <MobileStickyPortal>
@@ -352,7 +354,7 @@ export default function CartPage() {
           {canCheckout ? (
             <Link
               href={`/${locale}/checkout`}
-              className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl bg-accent px-5 text-sm font-bold text-night"
+              className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl bg-accent px-5 text-sm font-bold text-night transition hover:bg-accent-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal"
             >
               {t("checkout")}
             </Link>

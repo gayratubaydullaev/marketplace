@@ -1,6 +1,4 @@
-import { TENANT_ID } from "@/lib/api";
-
-const API_BASE = (process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8080").replace(/\/$/, "");
+/** Fire-and-forget analytics via same-origin BFF (cookies, no bearer in JS). */
 
 export type AnalyticsEventType =
   | "banner_impression"
@@ -40,26 +38,6 @@ export function track(
     }
   }
 
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    "X-Tenant-ID": TENANT_ID,
-  };
-  // Prefer anonymous ingest when access token looks expired — avoids 401 noise.
-  try {
-    const token = localStorage.getItem("access_token");
-    if (token) {
-      const part = token.split(".")[1];
-      if (part) {
-        const payload = JSON.parse(atob(part.replace(/-/g, "+").replace(/_/g, "/"))) as { exp?: number };
-        if (!payload.exp || payload.exp * 1000 > Date.now() + 5_000) {
-          headers.Authorization = `Bearer ${token}`;
-        }
-      }
-    }
-  } catch {
-    /* ignore */
-  }
-
   const body = JSON.stringify({
     event_type: eventType,
     entity_id: entityId,
@@ -71,12 +49,12 @@ export function track(
     },
   });
 
-  // Same-origin in the browser (Next rewrites `/v1` → gateway).
-  const url = typeof window !== "undefined" ? "/v1/analytics/events" : `${API_BASE}/v1/analytics/events`;
-  void fetch(url, {
+  // Same-origin BFF — Authorization / guest from httpOnly cookies.
+  void fetch("/api/gateway/analytics/events", {
     method: "POST",
-    headers,
+    headers: { "Content-Type": "application/json" },
     body,
+    credentials: "same-origin",
     keepalive: true,
     cache: "no-store",
   }).catch(() => undefined);

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
-import { api } from "@/lib/api";
+import { apiPublic, publicTags } from "@/lib/api";
 
 type Cat = {
   id: string;
@@ -17,18 +17,32 @@ function catName(c: Cat, locale: string) {
   return c.translations?.[locale]?.name || c.translations?.uz?.name || c.slug;
 }
 
-export function CatalogMenu({ locale }: { locale: string }) {
+export function CatalogMenu({
+  locale,
+  initialCategories = [],
+}: {
+  locale: string;
+  initialCategories?: Cat[];
+}) {
   const t = useTranslations();
   const rootRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
-  const [cats, setCats] = useState<Cat[]>([]);
+  const [cats, setCats] = useState<Cat[]>(initialCategories);
   const [hoverRoot, setHoverRoot] = useState<string | null>(null);
 
   useEffect(() => {
-    api<{ items: Cat[] }>("/v1/categories")
+    if (initialCategories.length > 0) {
+      setCats(initialCategories);
+      return;
+    }
+    apiPublic<{ items: Cat[] }>("/v1/categories", {
+      revalidate: 120,
+      tags: publicTags("categories"),
+    })
       .then((d) => setCats(d.items || []))
       .catch(() => setCats([]));
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- seed by ids only
+  }, [initialCategories.map((c) => c.id).join(",")]);
 
   useEffect(() => {
     if (!open) return;

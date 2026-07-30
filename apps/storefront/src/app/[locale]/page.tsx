@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { getTranslations, setRequestLocale } from "next-intl/server";
-import { api, type Product } from "@/lib/api";
+import type { Product } from "@/lib/api";
+import { getCategories, getHomeBanners, getHomeFeed, getHomePromos } from "@/lib/catalog";
 import { HomeHero, type HeroSlide } from "@/components/HomeHero";
 import { CategoryRail } from "@/components/CategoryRail";
 import { HomeProductsWithPromo } from "@/components/HomeProductsWithPromo";
@@ -85,31 +86,35 @@ export default async function HomePage({
 
   let products: Product[] = [];
   let productsTotal = 0;
-  let categories: { slug: string; image_url?: string | null; translations: Record<string, { name?: string }> }[] = [];
+  let categories: {
+    slug: string;
+    image_url?: string | null;
+    translations: Record<string, { name?: string }>;
+  }[] = [];
   let cmsBanners: ApiHeroBanner[] = [];
   let cmsPromos: ApiHeroBanner[] = [];
   try {
     const [feed, cats, banners, promos] = await Promise.all([
-      api<{ items: Product[]; total?: number }>("/v1/products?sort=home&limit=24&page=1").catch(() =>
-        api<{ items: Product[]; total?: number }>("/v1/products?limit=24&page=1")
-      ),
-      api<{ items: typeof categories }>("/v1/categories"),
-      api<{ items: ApiHeroBanner[] }>("/v1/home/banners").catch(() => ({ items: [] })),
-      api<{ items: ApiHeroBanner[] }>("/v1/home/promo-banners").catch(() => ({ items: [] })),
+      getHomeFeed(24),
+      getCategories(),
+      getHomeBanners(),
+      getHomePromos(),
     ]);
     products = feed.items || [];
     productsTotal = feed.total ?? products.length;
-    categories = cats.items || [];
-    cmsBanners = banners.items || [];
-    cmsPromos = promos.items || [];
+    categories = cats as typeof categories;
+    cmsBanners = (banners.items || []) as ApiHeroBanner[];
+    cmsPromos = (promos.items || []) as ApiHeroBanner[];
   } catch {
     products = [];
     productsTotal = 0;
   }
 
   const homeCategory =
-    categories.find((c) => /uy|home|дом/i.test(c.slug) || /uy|home|дом/i.test(c.translations?.uz?.name || ""))
-      ?.slug || categories[0]?.slug;
+    categories.find(
+      (c) =>
+        /uy|home|дом/i.test(c.slug) || /uy|home|дом/i.test(c.translations?.uz?.name || "")
+    )?.slug || categories[0]?.slug;
 
   const fallbackSlides: HeroSlide[] = [
     {
@@ -127,9 +132,7 @@ export default async function HomePage({
     {
       id: "home",
       image: HERO_IMAGES.home,
-      href: homeCategory
-        ? `/${locale}/categories/${homeCategory}`
-        : `/${locale}/products`,
+      href: homeCategory ? `/${locale}/categories/${homeCategory}` : `/${locale}/products`,
       intervalMs: 6500,
     },
   ];

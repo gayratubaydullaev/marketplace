@@ -6,9 +6,11 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/gayrat/marketplace/packages/go-common/db"
 	"github.com/gayrat/marketplace/packages/go-common/middleware"
 	"github.com/gayrat/marketplace/services/payments/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/jmoiron/sqlx"
 )
 
 func (h *PaymentHandler) paymeMerchantAPI(c *gin.Context) {
@@ -52,7 +54,10 @@ func (h *PaymentHandler) paymeMerchantAPI(c *gin.Context) {
 		}
 		paymeID := service.PaymeTransactionID(rpc.Params)
 		if paymeID != "" {
-			_, _ = h.Service.Repo.DB.Exec(`UPDATE payments SET provider_payment_id=$1, updated_at=NOW() WHERE id=$2`, paymeID, payment.ID)
+			_ = db.WithTenant(h.Service.Repo.DB, payment.TenantID, func(tx *sqlx.Tx) error {
+				_, err := tx.Exec(`UPDATE payments SET provider_payment_id=$1, updated_at=NOW() WHERE id=$2`, paymeID, payment.ID)
+				return err
+			})
 		}
 		c.JSON(http.StatusOK, gin.H{
 			"result": gin.H{"create_time": service.NowMS(), "transaction": payment.ID, "state": 1},

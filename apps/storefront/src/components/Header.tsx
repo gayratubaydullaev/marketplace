@@ -7,11 +7,18 @@ import { useTranslations } from "next-intl";
 import { routingLocales } from "@gayrat/i18n";
 import { useCart } from "@/lib/cart";
 import { useWishlist } from "@/lib/wishlist";
-import { api } from "@/lib/api";
+import { apiPublic, hasClientSessionFlag, logoutSession, publicTags } from "@/lib/api";
 import { HeaderSearch } from "@/components/HeaderSearch";
 import { CatalogMenu } from "@/components/CatalogMenu";
+import { BrandMark } from "@/components/BrandMark";
 
-export function Header({ locale }: { locale: string }) {
+export function Header({
+  locale,
+  categories = [],
+}: {
+  locale: string;
+  categories?: { id: string; slug: string; parent_id?: string | null; translations?: Record<string, { name?: string }>; sort_order?: number }[];
+}) {
   const t = useTranslations();
   const pathname = usePathname();
   const router = useRouter();
@@ -24,26 +31,26 @@ export function Header({ locale }: { locale: string }) {
   const count = items.reduce((a, i) => a + i.quantity, 0);
 
   useEffect(() => {
-    api<{ mode?: string }>("/v1/tenant/mode")
+    apiPublic<{ mode?: string }>("/v1/tenant/mode", {
+      revalidate: 300,
+      tags: publicTags("tenant"),
+    })
       .then(({ mode }) => setShowVendors(mode !== "single_store"))
       .catch(() => setShowVendors(true));
-    const syncAuth = () => setLoggedIn(Boolean(localStorage.getItem("access_token")));
+    const syncAuth = () => setLoggedIn(hasClientSessionFlag());
     syncAuth();
-    if (localStorage.getItem("access_token")) {
+    if (hasClientSessionFlag()) {
       syncToServer().catch(() => undefined);
       syncWishlistToServer().catch(() => undefined);
     }
     window.addEventListener("focus", syncAuth);
-    window.addEventListener("storage", syncAuth);
     return () => {
       window.removeEventListener("focus", syncAuth);
-      window.removeEventListener("storage", syncAuth);
     };
   }, [syncToServer, syncWishlistToServer]);
 
-  function logout() {
-    localStorage.removeItem("access_token");
-    localStorage.removeItem("refresh_token");
+  async function logout() {
+    await logoutSession();
     router.replace(`/${locale}`);
   }
 
@@ -80,14 +87,17 @@ export function Header({ locale }: { locale: string }) {
 
   return (
     <header className="sticky top-0 z-40 border-b border-night/8 bg-paper pt-[env(safe-area-inset-top)] md:bg-paper/95 md:backdrop-blur-md">
-      {/* Mobile: mark · search · language */}
+      {/* Mobile: mark + wordmark · search · language */}
       <div className="site-container flex min-w-0 items-center gap-2 py-2 md:hidden">
         <Link
           href={`/${locale}`}
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-teal text-paper shadow-sm"
+          className="flex min-w-0 max-w-[42%] shrink-0 items-center gap-1.5"
           aria-label={t("brand")}
         >
-          <span className="font-display text-lg font-extrabold leading-none">G</span>
+          <BrandMark size="sm" className="shadow-sm" />
+          <span className="font-display truncate text-[15px] font-bold leading-tight tracking-tight text-night">
+            {t("brand")}
+          </span>
         </Link>
 
         <div className="min-w-0 flex-1">
@@ -108,15 +118,13 @@ export function Header({ locale }: { locale: string }) {
       {/* Desktop / tablet */}
       <div className="site-container hidden items-center gap-4 py-3 md:flex lg:gap-6 lg:py-3.5">
         <Link href={`/${locale}`} className="group flex min-w-0 shrink-0 items-center gap-2.5">
-          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-teal text-paper shadow-sm">
-            <span className="font-display text-lg font-extrabold leading-none">G</span>
-          </span>
-          <span className="font-display truncate text-xl font-extrabold tracking-tight text-night transition group-hover:text-teal lg:text-[1.35rem]">
+          <BrandMark size="md" className="shadow-sm transition group-hover:opacity-90" />
+          <span className="font-display truncate text-xl font-bold tracking-tight text-night transition group-hover:text-teal lg:text-[1.35rem]">
             {t("brand")}
           </span>
         </Link>
 
-        <CatalogMenu locale={locale} />
+        <CatalogMenu locale={locale} initialCategories={categories} />
 
         <div className="min-w-0 flex-1">
           <HeaderSearch locale={locale} />

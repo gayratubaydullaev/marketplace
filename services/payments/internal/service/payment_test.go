@@ -8,6 +8,7 @@ import (
 )
 
 func TestHMACProviderVerifySandbox(t *testing.T) {
+	t.Setenv("APP_ENV", "development")
 	t.Setenv("PAYMENTS_SANDBOX", "true")
 	p := HMACProvider{NameValue: "payme", Secret: "payme-sandbox-secret"}
 	body := []byte(`{"id":"payme_abc","status":"succeeded"}`)
@@ -37,6 +38,18 @@ func TestValidateProviderSecretsSandboxOK(t *testing.T) {
 	t.Setenv("STRIPE_SECRET", "")
 	if err := ValidateProviderSecrets(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestSandboxFailClosedEmptyEnv(t *testing.T) {
+	t.Setenv("APP_ENV", "")
+	t.Setenv("PAYMENTS_SANDBOX", "")
+	if Sandbox() {
+		t.Fatal("empty APP_ENV must not enable sandbox")
+	}
+	t.Setenv("PAYMENTS_SANDBOX", "true")
+	if !Sandbox() {
+		t.Fatal("explicit PAYMENTS_SANDBOX=true should enable sandbox even with empty APP_ENV")
 	}
 }
 

@@ -19,14 +19,19 @@ import (
 	"github.com/google/uuid"
 )
 
-// Sandbox is opt-out in development and opt-in in production so a missing
-// PAYMENTS_SANDBOX cannot mark orders paid or accept unsigned webhooks in prod.
+// Sandbox is opt-in except in explicitly local envs. Empty/unknown APP_ENV is fail-closed
+// so a misconfigured production host cannot accept unsigned webhooks.
 func Sandbox() bool {
 	env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
-	if env == "production" || env == "prod" {
-		return strings.EqualFold(strings.TrimSpace(os.Getenv("PAYMENTS_SANDBOX")), "true")
+	explicit := strings.EqualFold(strings.TrimSpace(os.Getenv("PAYMENTS_SANDBOX")), "true")
+	switch env {
+	case "development", "dev", "local", "test":
+		return os.Getenv("PAYMENTS_SANDBOX") != "false"
+	case "production", "prod":
+		return explicit
+	default:
+		return explicit
 	}
-	return os.Getenv("PAYMENTS_SANDBOX") != "false"
 }
 
 type Provider interface {

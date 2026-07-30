@@ -178,6 +178,8 @@ func main() {
 		if r.Header.Get("X-Request-ID") == "" {
 			r.Header.Set("X-Request-ID", r.Header.Get("X-Correlation-ID"))
 		}
+		// Never let public clients inject internal service credentials.
+		r.Header.Del("X-Internal-Key")
 		proxy.ServeHTTP(w, r)
 	})
 	log.Printf("dev gateway on :%s", port)

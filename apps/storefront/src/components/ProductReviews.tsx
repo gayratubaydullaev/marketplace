@@ -3,7 +3,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
-import { api } from "@/lib/api";
+import { api, hasClientSessionFlag } from "@/lib/api";
 
 type Review = {
   rating: number;
@@ -191,7 +191,7 @@ export function ProductReviews({
   }
 
   useEffect(() => {
-    const isLoggedIn = Boolean(localStorage.getItem("access_token"));
+    const isLoggedIn = hasClientSessionFlag();
     setLoggedIn(isLoggedIn);
     load();
     loadEligibility(isLoggedIn);
@@ -359,7 +359,7 @@ export function ProductReviews({
       ) : null}
 
       {items.length > 1 ? (
-        <div className="mt-5 flex flex-wrap gap-2">
+        <div className="-mx-1 mt-5 flex gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {[
             ["newest", t("sortNewest")],
             ["helpful", t("sortHelpful")],
@@ -370,7 +370,7 @@ export function ProductReviews({
               key={value}
               type="button"
               onClick={() => changeSort(value)}
-              className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+              className={`shrink-0 rounded-xl px-3 py-1.5 text-xs font-semibold transition ${
                 sort === value ? "bg-night text-white" : "bg-night/5 text-muted hover:bg-night/10"
               }`}
             >
@@ -380,7 +380,7 @@ export function ProductReviews({
         </div>
       ) : null}
 
-      <div className="mt-6 lg:mt-8 lg:grid lg:grid-cols-[minmax(0,1.15fr)_minmax(280px,0.85fr)] lg:items-start lg:gap-12 xl:gap-16">
+      <div className="mt-6 lg:mt-8 lg:grid lg:grid-cols-[minmax(0,1.15fr)_minmax(min(100%,280px),0.85fr)] lg:items-start lg:gap-10 xl:gap-16">
         <div>
           {loading ? (
             <div className="space-y-3 animate-pulse">

@@ -30,7 +30,7 @@ export function MobileBottomNav({
   return (
     <>
       <nav
-        className="fixed inset-x-0 bottom-0 z-[70] border-t border-teal/15 bg-paper md:hidden"
+        className="fixed inset-x-0 bottom-0 z-[70] border-t border-night/8 bg-paper/95 backdrop-blur-md md:hidden"
         style={{ paddingBottom: "max(0.35rem, env(safe-area-inset-bottom))" }}
         aria-label="Mobile"
       >
@@ -39,20 +39,26 @@ export function MobileBottomNav({
             const isCatalog = "catalog" in tab && tab.catalog === true;
             const active = isCatalog ? catalogOpen || tab.match(pathname) : tab.match(pathname);
             const Icon = tab.icon;
+            const itemClass = `relative flex min-h-0 w-full touch-manipulation flex-col items-center justify-center gap-0.5 rounded-xl px-1 py-1 text-[11px] font-semibold transition ${
+              active ? "text-teal" : "text-night/45"
+            }`;
+
             if (isCatalog) {
               return (
                 <li key="catalog" className="flex">
                   <button
                     type="button"
                     onClick={() => setCatalogOpen(true)}
-                    className={`relative flex min-h-0 w-full touch-manipulation flex-col items-center justify-center gap-0.5 rounded-xl px-1 py-1 text-[10px] font-semibold ${
-                      active ? "text-teal" : "text-night/45"
-                    }`}
+                    className={itemClass}
                     aria-expanded={catalogOpen}
                     aria-haspopup="dialog"
+                    aria-current={active ? "true" : undefined}
                   >
-                    <span className="relative">
+                    <span className="relative flex flex-col items-center">
                       <Icon active={active} />
+                      {active ? (
+                        <span className="absolute -bottom-1 h-0.5 w-4 rounded-full bg-teal" aria-hidden />
+                      ) : null}
                     </span>
                     <span className="max-w-full truncate">{tab.label}</span>
                   </button>
@@ -63,16 +69,18 @@ export function MobileBottomNav({
               <li key={tab.href} className="flex">
                 <Link
                   href={tab.href}
-                  className={`relative flex min-h-0 w-full touch-manipulation flex-col items-center justify-center gap-0.5 rounded-xl px-1 py-1 text-[10px] font-semibold ${
-                    active ? "text-teal" : "text-night/45"
-                  }`}
+                  className={itemClass}
+                  aria-current={active ? "page" : undefined}
                 >
-                  <span className="relative">
+                  <span className="relative flex flex-col items-center">
                     <Icon active={active} />
                     {"badge" in tab && tab.badge ? (
-                      <span className="absolute -end-2 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-saffron px-0.5 text-[9px] font-bold text-night">
+                      <span className="absolute -end-2.5 -top-1 flex h-4 min-w-4 items-center justify-center rounded-md bg-saffron px-0.5 text-[9px] font-bold text-night">
                         {tab.badge > 9 ? "9+" : tab.badge}
                       </span>
+                    ) : null}
+                    {active ? (
+                      <span className="absolute -bottom-1 h-0.5 w-4 rounded-full bg-teal" aria-hidden />
                     ) : null}
                   </span>
                   <span className="max-w-full truncate">{tab.label}</span>

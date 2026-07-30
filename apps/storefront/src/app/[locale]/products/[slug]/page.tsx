@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { setRequestLocale, getTranslations } from "next-intl/server";
 import type { Metadata } from "next";
-import { api, productName, type Product, type Variant } from "@/lib/api";
+import { apiPublic, productName, publicTags, type Product, type Variant } from "@/lib/api";
+import { getCategories, getProductBySlug, getVendorById } from "@/lib/catalog";
 import { rewriteMediaUrls } from "@/lib/media";
 import { ProductReviews } from "@/components/ProductReviews";
 import { ProductDetail } from "@/components/ProductDetail";
@@ -36,7 +37,7 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { locale, slug } = await params;
   try {
-    const data = await api<{ product: Product }>(`/v1/products/${slug}`);
+    const data = await getProductBySlug(slug);
     const name = productName(data.product, locale);
     const desc =
       data.product.translations?.[locale]?.description ||
@@ -89,39 +90,30 @@ export default async function ProductPage({
   let vendor: VendorItem | null = null;
 
   try {
-    const data = await api<{
-      product: Product;
-      variants?: Variant[];
-      json_ld?: Record<string, unknown>;
-    }>(`/v1/products/${slug}`);
+    const data = await getProductBySlug(slug);
     product = data.product;
-    variants = data.variants || [];
+    variants = (data.variants as Variant[]) || [];
     catalogJsonLd = data.json_ld || null;
 
-    const [rel, cats, vendors] = await Promise.all([
-      api<{ items: Product[] }>(`/v1/products/${slug}/related`).catch(() => ({
-        items: [] as Product[],
-      })),
-      api<{ items: CategoryItem[] }>("/v1/categories").catch(() => ({
-        items: [] as CategoryItem[],
-      })),
-      product.vendor_id
-        ? api<{ items: VendorItem[] }>("/v1/vendors").catch(() => ({
-            items: [] as VendorItem[],
-          }))
-        : Promise.resolve({ items: [] as VendorItem[] }),
+    const [rel, cats, vendorRow] = await Promise.all([
+      apiPublic<{ items: Product[] }>(`/v1/products/${slug}/related`, {
+        revalidate: 60,
+        tags: publicTags("products"),
+      }).catch(() => ({ items: [] as Product[] })),
+      getCategories(),
+      product.vendor_id ? getVendorById(product.vendor_id) : Promise.resolve(null),
     ]);
 
     related = rel.items || [];
-    const allCats = cats.items || [];
+    const allCats = cats as CategoryItem[];
     if (product.category_id) {
       category = allCats.find((c) => c.id === product!.category_id) || null;
       if (category?.parent_id) {
         parentCategory = allCats.find((c) => c.id === category!.parent_id) || null;
       }
     }
-    if (product.vendor_id) {
-      vendor = (vendors.items || []).find((v) => v.id === product!.vendor_id) || null;
+    if (vendorRow) {
+      vendor = vendorRow as VendorItem;
     }
   } catch {
     product = null;
@@ -135,6 +127,7 @@ export default async function ProductPage({
         description={t("notFoundHint")}
         actionHref={`/${locale}/products`}
         actionLabel={tn("catalog")}
+        variant="search"
       />
     );
   }
@@ -166,7 +159,7 @@ export default async function ProductPage({
   const parentName = parentCategory ? catLabel(parentCategory, locale) : null;
 
   return (
-    <div className="animate-rise w-full min-w-0 max-w-full pb-[calc(var(--sticky-action-h)+1rem)] md:pb-10 lg:pb-14">
+    <div className="animate-rise w-full min-w-0 max-w-full pb-[calc(var(--sticky-action-h)+1rem)] lg:pb-10 xl:pb-14">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, "\\u003c") }}
@@ -260,7 +253,7 @@ export default async function ProductPage({
             ) : null}
           </div>
           <div className="mt-6 lg:mt-8">
-            <ProductGrid products={related} locale={locale} columns={4} />
+            <ProductGrid products={related} locale={locale} columns={5} />
           </div>
         </section>
       ) : null}

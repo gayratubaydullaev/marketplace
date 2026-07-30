@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import { apiPublic, publicTags } from "@/lib/api";
 
 export type VendorInfo = {
   id: string;
@@ -16,7 +16,10 @@ let inflight: Promise<Record<string, VendorInfo>> | null = null;
 async function loadVendors(): Promise<Record<string, VendorInfo>> {
   if (cache) return cache;
   if (!inflight) {
-    inflight = api<{ items: VendorInfo[] }>("/v1/vendors")
+    inflight = apiPublic<{ items: VendorInfo[] }>("/v1/vendors", {
+      revalidate: 120,
+      tags: publicTags("vendors"),
+    })
       .then((d) => {
         const map: Record<string, VendorInfo> = {};
         for (const v of d.items || []) {

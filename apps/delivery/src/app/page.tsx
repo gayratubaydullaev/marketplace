@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@gayrat/ui";
-import { api, clearTokens, errMsg, getToken, tokenHasCourierRole } from "@/lib/api";
+import { api, clearTokens, errMsg, ensureCourierSession, isCourierRole } from "@/lib/api";
 import { LocaleSwitcher, useI18n } from "@/lib/i18n";
 
 const EMAIL_KEY = "gayrat_courier_email";
@@ -18,7 +18,9 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (tokenHasCourierRole(getToken())) router.replace("/jobs");
+    void ensureCourierSession().then((ok) => {
+      if (ok) router.replace("/jobs");
+    });
     const saved = localStorage.getItem(EMAIL_KEY);
     if (saved) setEmail(saved);
   }, [router]);
@@ -32,16 +34,13 @@ export default function LoginPage() {
     setLoading(true);
     setMsg("");
     try {
-      const data = await api<{ tokens: { access_token: string; refresh_token?: string } }>("/v1/auth/login", {
+      const data = await api<{ user?: { role?: string } }>("/v1/auth/login", {
         method: "POST",
         body: JSON.stringify({ email: email.trim(), password }),
       });
-      localStorage.setItem("access_token", data.tokens.access_token);
-      localStorage.setItem("courier_token", data.tokens.access_token);
       localStorage.setItem(EMAIL_KEY, email.trim());
-      if (data.tokens.refresh_token) localStorage.setItem("refresh_token", data.tokens.refresh_token);
-      if (!tokenHasCourierRole(data.tokens.access_token)) {
-        clearTokens();
+      if (!isCourierRole(data.user?.role)) {
+        await clearTokens();
         setMsg(t("loginNoAccess"));
         return;
       }

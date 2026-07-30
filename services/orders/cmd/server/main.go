@@ -22,7 +22,10 @@ func main() {
 	if err := cfg.ValidateSecrets(); err != nil {
 		log.Fatal(err)
 	}
-	database, _ := db.Connect(cfg.DatabaseURL)
+	database, err := db.Connect(cfg.DatabaseURL)
+	if err != nil {
+		log.Fatalf("database: %v", err)
+	}
 	rdb, err := redisx.Connect(cfg.RedisURL)
 	if err != nil {
 		log.Printf("redis: %v", err)
@@ -36,7 +39,8 @@ func main() {
 	shutdown, _ := otelx.Init(cfg.ServiceName)
 	defer func() { _ = shutdown(context.Background()) }()
 	r := gin.New()
-	r.Use(gin.Recovery(), otelx.Middleware(cfg.ServiceName), middleware.CORS(), middleware.SecurityHeaders(), middleware.MaxBodyBytes(0), middleware.Tenant(), middleware.TenantDB(database), middleware.AuditLogger(database), middleware.Metrics(cfg.ServiceName))
+	middleware.SecureEngine(r)
+	r.Use(gin.Recovery(), otelx.Middleware(cfg.ServiceName), middleware.CORS(), middleware.SecurityHeaders(), middleware.MaxBodyBytes(0), middleware.Tenant(), middleware.SanitizeGuest(), middleware.TenantDB(database), middleware.AuditLogger(database), middleware.Metrics(cfg.ServiceName))
 	if rdb != nil {
 		r.Use(middleware.RateLimit(rdb, 60, 600))
 	}
@@ -45,7 +49,11 @@ func main() {
 	v1 := r.Group("/v1/orders")
 	v1.POST("", middleware.JWT(tokens, true), orders.Create)
 	v1.GET("", middleware.JWT(tokens, true), orders.List)
-	v1.POST("/lookup", middleware.JWT(tokens, true), orders.Lookup)
+	lookup := v1.Group("")
+	if rdb != nil {
+		lookup.Use(middleware.RateLimit(rdb, 10, 30))
+	}
+	lookup.POST("/lookup", middleware.JWT(tokens, true), orders.Lookup)
 	v1.GET("/:id", middleware.JWT(tokens, true), orders.Get)
 	v1.POST("/:id/cancel", middleware.JWT(tokens, false), orders.Cancel)
 	v1.POST("/:id/status", middleware.JWT(tokens, false), middleware.RequireRoles(commonauth.RoleTenantAdmin, commonauth.RoleManager, commonauth.RoleVendor), orders.Status)

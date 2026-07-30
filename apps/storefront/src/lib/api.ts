@@ -1,96 +1,75 @@
+import {
+  gatewayPath,
+  hasClientSessionFlag as flagFor,
+  logoutSession as logoutShared,
+} from "@gayrat/web-session/client";
 import { rewriteMediaUrl, rewriteMediaUrls } from "@/lib/media";
 
 export const TENANT_ID =
   process.env.NEXT_PUBLIC_TENANT_ID || "00000000-0000-0000-0000-000000000001";
 
-/** Single gateway entry (Kong / Next rewrites). No per-service ports. */
-const API_BASE = (process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8080").replace(/\/$/, "");
+const SESSION_PREFIX = "gm";
 
+/**
+ * Browser calls same-origin BFF (`/api/gateway/*`) which holds httpOnly
+ * access/refresh/guest cookies and injects Authorization / X-Guest-ID.
+ * Tokens never live in localStorage.
+ */
 function resolve(path: string) {
   const p = path.startsWith("/") ? path : `/${path}`;
-  // Browser: same-origin `/v1/*` (Next rewrites → gateway). Avoids CORS and
-  // broken `localhost:8080` when the storefront is opened via LAN IP on a phone.
-  if (typeof window !== "undefined") return p;
+  if (typeof window !== "undefined") return gatewayPath(p);
+  const API_BASE = (process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8080").replace(/\/$/, "");
   return `${API_BASE}${p}`;
 }
 
-let refreshPromise: Promise<boolean> | null = null;
-
-async function tryRefresh(): Promise<boolean> {
-  if (typeof window === "undefined") return false;
-  const refresh = localStorage.getItem("refresh_token");
-  if (!refresh) return false;
-  if (!refreshPromise) {
-    refreshPromise = (async () => {
-      try {
-        const res = await fetch(resolve("/v1/auth/refresh"), {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-Tenant-ID": TENANT_ID,
-          },
-          body: JSON.stringify({ refresh_token: refresh }),
-          cache: "no-store",
-        });
-        if (!res.ok) {
-          localStorage.removeItem("access_token");
-          localStorage.removeItem("refresh_token");
-          return false;
-        }
-        const data = (await res.json()) as {
-          tokens?: { access_token?: string; refresh_token?: string };
-          access_token?: string;
-        };
-        const access = data.tokens?.access_token || data.access_token;
-        if (!access) return false;
-        localStorage.setItem("access_token", access);
-        if (data.tokens?.refresh_token) {
-          localStorage.setItem("refresh_token", data.tokens.refresh_token);
-        }
-        return true;
-      } catch {
-        return false;
-      } finally {
-        refreshPromise = null;
-      }
-    })();
-  }
-  return refreshPromise;
+/** Soft UI signal that cookies were set (not a secret). */
+export function hasClientSessionFlag(): boolean {
+  return flagFor(SESSION_PREFIX);
 }
 
-export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const headers = new Headers(init.headers);
+export async function logoutSession(): Promise<void> {
+  await logoutShared();
+}
+
+type FetchOpts = RequestInit & {
+  /** Public catalog/home reads — Next Data Cache. Private stays no-store via api(). */
+  revalidate?: number;
+  tags?: string[];
+};
+
+function tenantTag(kind: string) {
+  return `t:${TENANT_ID}:${kind}`;
+}
+
+export function publicTags(...kinds: string[]) {
+  return kinds.map(tenantTag);
+}
+
+async function request<T>(path: string, init: FetchOpts = {}): Promise<T> {
+  const { revalidate, tags, ...rest } = init;
+  const headers = new Headers(rest.headers);
   headers.set("X-Tenant-ID", TENANT_ID);
-  if (!(init.body instanceof FormData)) {
+  if (!(rest.body instanceof FormData) && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
-  if (typeof window !== "undefined") {
-    const token = localStorage.getItem("access_token");
-    if (token) headers.set("Authorization", `Bearer ${token}`);
-    let guest = localStorage.getItem("guest_id");
-    if (!guest) {
-      guest = crypto.randomUUID();
-      localStorage.setItem("guest_id", guest);
-    }
-    headers.set("X-Guest-ID", guest);
-  }
+  headers.delete("Authorization");
+  headers.delete("X-Guest-ID");
+  headers.delete("X-Internal-Key");
 
-  let res = await fetch(resolve(path), { ...init, headers, cache: "no-store" });
-  if (res.status === 401 && typeof window !== "undefined" && !path.includes("/auth/")) {
-    const ok = await tryRefresh();
-    if (ok) {
-      const retryHeaders = new Headers(init.headers);
-      retryHeaders.set("X-Tenant-ID", TENANT_ID);
-      if (!(init.body instanceof FormData)) {
-        retryHeaders.set("Content-Type", "application/json");
-      }
-      const token = localStorage.getItem("access_token");
-      if (token) retryHeaders.set("Authorization", `Bearer ${token}`);
-      const guest = localStorage.getItem("guest_id");
-      if (guest) retryHeaders.set("X-Guest-ID", guest);
-      res = await fetch(resolve(path), { ...init, headers: retryHeaders, cache: "no-store" });
-    }
-  }
+  const cacheMode =
+    typeof revalidate === "number"
+      ? undefined
+      : ("no-store" as RequestCache);
+
+  const res = await fetch(resolve(path), {
+    ...rest,
+    headers,
+    ...(cacheMode ? { cache: cacheMode } : {}),
+    ...(typeof revalidate === "number"
+      ? { next: { revalidate, tags: tags?.length ? tags : undefined } }
+      : {}),
+    credentials: "same-origin",
+  });
 
   if (!res.ok) {
     const text = await res.text();
@@ -98,6 +77,20 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   }
   if (res.status === 204) return undefined as T;
   return res.json();
+}
+
+/** Authenticated / mutable endpoints — never cached. */
+export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
+  return request<T>(path, init);
+}
+
+/** Public catalog/home/search reads — cached per tenant. */
+export async function apiPublic<T>(
+  path: string,
+  init: Omit<FetchOpts, "cache"> & { revalidate?: number; tags?: string[] } = {}
+): Promise<T> {
+  const { revalidate = 60, tags, ...rest } = init;
+  return request<T>(path, { ...rest, revalidate, tags });
 }
 
 export type Product = {
@@ -123,7 +116,6 @@ export type Product = {
 export type ProductBadge = {
   kind: "sale" | "new" | "hit" | "low";
   labelKey: "badgeSale" | "badgeNew" | "badgeHit" | "badgeLowStock";
-  /** For sale badge: percent off */
   percent?: number;
 };
 
@@ -138,7 +130,6 @@ function asMoney(value: unknown): number | null {
   return null;
 }
 
-/** Resolve up to 2 marketplace badges for a product card. */
 export function productBadges(product: Product, now = Date.now()): ProductBadge[] {
   const badges: ProductBadge[] = [];
   const price = asMoney(product.price) ?? 0;
@@ -150,24 +141,19 @@ export function productBadges(product: Product, now = Date.now()): ProductBadge[
       badges.push({ kind: "sale", labelKey: "badgeSale", percent });
     }
   }
-
   if (product.is_featured) {
     badges.push({ kind: "hit", labelKey: "badgeHit" });
   }
-
   if (product.created_at) {
     const created = new Date(product.created_at).getTime();
     if (!Number.isNaN(created) && now - created < NEW_DAYS * 24 * 60 * 60 * 1000) {
       badges.push({ kind: "new", labelKey: "badgeNew" });
     }
   }
-
   const stock = product.inventory_quantity;
   if (typeof stock === "number" && stock > 0 && stock <= 5) {
     badges.push({ kind: "low", labelKey: "badgeLowStock" });
   }
-
-  // Prefer sale + one secondary; avoid overcrowding
   const sale = badges.find((b) => b.kind === "sale");
   const rest = badges.filter((b) => b.kind !== "sale");
   if (sale) return [sale, ...rest].slice(0, 2);
@@ -188,7 +174,6 @@ export function productDiscountPercent(product: Product): number {
   return Math.max(0, Math.round((1 - price / compare) * 100));
 }
 
-/** Flatten product.attributes into display rows (skips nested/media keys). */
 export function productAttributeRows(
   attributes: Product["attributes"]
 ): { key: string; value: string }[] {
@@ -220,7 +205,6 @@ export type Variant = {
   status?: string;
 };
 
-/** Collect image URLs attached to a variant (cover + attributes.images). */
 export function variantImageList(variant: Variant | null | undefined): string[] {
   if (!variant) return [];
   const out: string[] = [];
@@ -242,12 +226,6 @@ export function variantImageList(variant: Variant | null | undefined): string[] 
   return rewriteMediaUrls([...new Set(out)], { fallbackKey: variant.id || variant.sku || "variant" });
 }
 
-/**
- * Gallery set for the selected variant:
- * - variant-only photos lead, then remaining product photos
- * - if variant cover is already in product gallery, keep full set and jump to it
- * Preserves duplicate URLs so multi-slot galleries (e.g. seeded identical paths) still show a thumb strip.
- */
 export function resolveGalleryImages(
   productImages: string[],
   variant: Variant | null | undefined

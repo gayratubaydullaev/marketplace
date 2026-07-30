@@ -2,10 +2,12 @@ package middleware
 
 import (
 	"context"
+	"crypto/subtle"
 	"fmt"
 	"net"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -126,10 +128,17 @@ func CorrelationID() gin.HandlerFunc {
 }
 
 func Tenant() gin.HandlerFunc {
+	uuidRE := regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 	return func(c *gin.Context) {
 		path := c.Request.URL.Path
 		if path == "/health" || path == "/metrics" || strings.HasPrefix(path, "/.well-known/") {
 			c.Set(CtxTenantKey, "00000000-0000-0000-0000-000000000001")
+			c.Next()
+			return
+		}
+		// PSP callbacks have no X-Tenant-ID; handlers resolve tenant from payment rows.
+		if isTenantOptionalPath(path) {
+			c.Set(CtxTenantKey, "")
 			c.Next()
 			return
 		}
@@ -146,18 +155,40 @@ func Tenant() gin.HandlerFunc {
 			}
 			tenantID = "00000000-0000-0000-0000-000000000001" // default seed tenant (dev only)
 		}
+		if !uuidRE.MatchString(tenantID) {
+			httpx.BadRequest(c, "invalid X-Tenant-ID")
+			return
+		}
 		c.Set(CtxTenantKey, tenantID)
 		c.Next()
 	}
 }
 
-// TenantDB applies app.current_tenant for Postgres RLS before handlers run.
+func isTenantOptionalPath(path string) bool {
+	return strings.Contains(path, "/webhooks/") ||
+		strings.Contains(path, "/sandbox/pay/") ||
+		strings.HasSuffix(path, "/payme") ||
+		strings.HasSuffix(path, "/click")
+}
+
+// TenantDB stores the pool on the request. Prefer db.WithTenant in handlers —
+// SetTenant alone is not pool-safe under FORCE RLS. For optional-tenant paths
+// (webhooks) we skip the session GUC so lookups can use WithRLSBypass.
 func TenantDB(database *sqlx.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if database != nil {
-			c.Set(CtxDBKey, database)
-			_ = db.SetTenant(database, GetTenantID(c))
+		if database == nil {
+			c.Next()
+			return
 		}
+		c.Set(CtxDBKey, database)
+		tenantID := GetTenantID(c)
+		if tenantID == "" || isTenantOptionalPath(c.Request.URL.Path) {
+			c.Next()
+			return
+		}
+		// Best-effort session bind for legacy handlers that still query *sqlx.DB
+		// directly. Critical paths must use db.WithTenant for correctness under load.
+		_ = db.SetTenant(database, tenantID)
 		c.Next()
 	}
 }
@@ -240,10 +271,17 @@ func RateLimit(rdb *redis.Client, anonLimit, authLimit int) gin.HandlerFunc {
 		key := fmt.Sprintf("rl:%s:%d", keyPart, time.Now().Unix()/60)
 		ctx := context.Background()
 		n, err := rdb.Incr(ctx, key).Result()
-		if err == nil && n == 1 {
-			rdb.Expire(ctx, key, 2*time.Minute)
+		if err != nil {
+			// Fail open if Redis is degraded — do not block all traffic.
+			c.Next()
+			return
 		}
-		if err == nil && int(n) > limit {
+		if n == 1 {
+			if err := rdb.Expire(ctx, key, 2*time.Minute).Err(); err != nil {
+				_, _ = rdb.Del(ctx, key).Result()
+			}
+		}
+		if int(n) > limit {
 			httpx.Fail(c, http.StatusTooManyRequests, "rate_limited", "too many requests")
 			return
 		}
@@ -305,4 +343,51 @@ func GetTenantID(c *gin.Context) string {
 		return v.(string)
 	}
 	return ""
+}
+
+// InternalKeyOK is a constant-time check of X-Internal-Key against INTERNAL_SERVICE_KEY.
+// Empty configured key never authenticates (fail-closed).
+func InternalKeyOK(c *gin.Context) bool {
+	expected := os.Getenv("INTERNAL_SERVICE_KEY")
+	if expected == "" {
+		return false
+	}
+	got := c.GetHeader("X-Internal-Key")
+	if subtle.ConstantTimeCompare([]byte(got), []byte(expected)) == 1 {
+		return true
+	}
+	return false
+}
+
+var guestUUIDRE = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+
+// SanitizeGuest drops malformed X-Guest-ID so spoofed values cannot bind sessions.
+func SanitizeGuest() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		g := strings.TrimSpace(c.GetHeader("X-Guest-ID"))
+		if g != "" && !guestUUIDRE.MatchString(g) {
+			c.Request.Header.Del("X-Guest-ID")
+		}
+		c.Next()
+	}
+}
+
+// SecureEngine configures trusted proxies so ClientIP (rate limits, audits) cannot be spoofed.
+// TRUSTED_PROXIES=cidr,cidr — empty defaults to loopback + RFC1918 (typical docker/k8s edge).
+func SecureEngine(r *gin.Engine) {
+	raw := strings.TrimSpace(os.Getenv("TRUSTED_PROXIES"))
+	var proxies []string
+	if raw == "" {
+		proxies = []string{"127.0.0.1", "::1", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}
+	} else {
+		for _, p := range strings.Split(raw, ",") {
+			p = strings.TrimSpace(p)
+			if p != "" {
+				proxies = append(proxies, p)
+			}
+		}
+	}
+	if err := r.SetTrustedProxies(proxies); err != nil {
+		_ = r.SetTrustedProxies([]string{"127.0.0.1", "::1"})
+	}
 }

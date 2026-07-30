@@ -34,28 +34,22 @@ func main() {
 	if os.Getenv("HTTP_PORT") == "" {
 		cfg.HTTPPort = "8003"
 	}
-	database, _ := db.Connect(cfg.DatabaseURL)
+	database, err := db.Connect(cfg.DatabaseURL)
+	if err != nil {
+		log.Fatalf("database: %v", err)
+	}
 	esURL := cfg.ElasticsearchURL
 
 	go consumeProducts(cfg.KafkaBrokers, database, esURL)
 	_ = ensureIndex(esURL)
 
 	tokenMgr := commonauth.NewManager(cfg.JWTSecret, cfg.JWTAccessTTLMinutes, cfg.JWTRefreshTTLDays)
-	if database != nil {
-		_, _ = database.Exec(`CREATE TABLE IF NOT EXISTS search_synonyms (
-			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-			tenant_id UUID NOT NULL,
-			term VARCHAR(100) NOT NULL,
-			synonyms TEXT[] NOT NULL DEFAULT '{}',
-			created_at TIMESTAMPTZ DEFAULT NOW(),
-			UNIQUE(tenant_id, term)
-		)`)
-	}
 
 	shutdown, _ := otelx.Init(cfg.ServiceName)
 	defer func() { _ = shutdown(context.Background()) }()
 	r := gin.New()
-	r.Use(gin.Recovery(), otelx.Middleware(cfg.ServiceName), middleware.CORS(), middleware.SecurityHeaders(), middleware.MaxBodyBytes(0), middleware.Tenant(), middleware.TenantDB(database), middleware.Metrics(cfg.ServiceName))
+	middleware.SecureEngine(r)
+	r.Use(gin.Recovery(), otelx.Middleware(cfg.ServiceName), middleware.CORS(), middleware.SecurityHeaders(), middleware.MaxBodyBytes(0), middleware.Tenant(), middleware.SanitizeGuest(), middleware.TenantDB(database), middleware.Metrics(cfg.ServiceName))
 	middleware.MountMetrics(r)
 	r.GET("/health", func(c *gin.Context) { c.JSON(200, gin.H{"status": "ok"}) })
 
@@ -74,6 +68,10 @@ func main() {
 
 	log.Printf("search-service on :%s", cfg.HTTPPort)
 	log.Fatal(r.Run(":" + cfg.HTTPPort))
+}
+
+func withTenant(c *gin.Context, database *sqlx.DB, fn func(tx *sqlx.Tx) error) error {
+	return db.WithTenant(database, middleware.GetTenantID(c), fn)
 }
 
 func ensureIndex(esURL string) error {
@@ -189,10 +187,13 @@ func indexProduct(database *sqlx.DB, esURL, id string) error {
 		Rating            *float64        `db:"rating"`
 		CreatedAt         time.Time       `db:"created_at"`
 	}
-	if err := database.Get(&row, `SELECT id, tenant_id, vendor_id, category_id, slug, translations, price, compare_at_price, currency, status,
-		COALESCE(is_featured,false) AS is_featured, COALESCE(inventory_quantity,0) AS inventory_quantity,
-		COALESCE(images,'[]'::jsonb) AS images, rating, created_at
-		FROM products WHERE id=$1`, id); err != nil {
+	err := db.WithRLSBypass(database, func(tx *sqlx.Tx) error {
+		return tx.Get(&row, `SELECT id, tenant_id, vendor_id, category_id, slug, translations, price, compare_at_price, currency, status,
+			COALESCE(is_featured,false) AS is_featured, COALESCE(inventory_quantity,0) AS inventory_quantity,
+			COALESCE(images,'[]'::jsonb) AS images, rating, created_at
+			FROM products WHERE id=$1`, id)
+	})
+	if err != nil {
 		return err
 	}
 	var tr map[string]map[string]string
@@ -259,33 +260,36 @@ func parsePageLimit(c *gin.Context) (page, limit, from int) {
 	return page, limit, from
 }
 
-func hydrateProducts(database *sqlx.DB, ids []string) []map[string]any {
+func hydrateProducts(database *sqlx.DB, tenantID string, ids []string) []map[string]any {
 	if database == nil || len(ids) == 0 {
 		return []map[string]any{}
 	}
 	query, args, err := sqlx.In(`SELECT id, slug, translations, price, compare_at_price, currency, images,
 		inventory_quantity, vendor_id, category_id, is_featured, rating, created_at, status
-		FROM products WHERE id IN (?) AND status='active'`, ids)
+		FROM products WHERE id IN (?) AND status='active' AND tenant_id=?`, ids, tenantID)
 	if err != nil {
 		return []map[string]any{}
 	}
 	query = database.Rebind(query)
-	rows, err := database.Queryx(query, args...)
-	if err != nil {
-		return []map[string]any{}
-	}
-	defer rows.Close()
 	byID := map[string]map[string]any{}
-	for rows.Next() {
-		m := map[string]any{}
-		_ = rows.MapScan(m)
-		id := asString(m["id"])
-		if id == "" {
-			continue
+	_ = db.WithTenant(database, tenantID, func(tx *sqlx.Tx) error {
+		rows, err := tx.Queryx(query, args...)
+		if err != nil {
+			return err
 		}
-		m["id"] = id
-		byID[id] = normalizeProductRow(m)
-	}
+		defer rows.Close()
+		for rows.Next() {
+			m := map[string]any{}
+			_ = rows.MapScan(m)
+			id := asString(m["id"])
+			if id == "" {
+				continue
+			}
+			m["id"] = id
+			byID[id] = normalizeProductRow(m)
+		}
+		return rows.Err()
+	})
 	out := make([]map[string]any, 0, len(ids))
 	for _, id := range ids {
 		if p, ok := byID[id]; ok {
@@ -473,12 +477,15 @@ func search(c *gin.Context, database *sqlx.DB, esURL string) {
 	ids := extractHitIDs(esResp)
 	// Only DB-hydrated active products — never fall back to raw ES _source
 	// (index lag after archive/moderation would otherwise leak delisted items).
-	items := hydrateProducts(database, ids)
+	items := hydrateProducts(database, middleware.GetTenantID(c), ids)
 	resultsCount = len(items)
 
 	if database != nil && q != "" {
-		_, _ = database.Exec(`INSERT INTO search_queries (tenant_id, query, locale, results_count) VALUES ($1,$2,$3,$4)`,
-			middleware.GetTenantID(c), q, locale, resultsCount)
+		_ = withTenant(c, database, func(tx *sqlx.Tx) error {
+			_, err := tx.Exec(`INSERT INTO search_queries (tenant_id, query, locale, results_count) VALUES ($1,$2,$3,$4)`,
+				middleware.GetTenantID(c), q, locale, resultsCount)
+			return err
+		})
 	}
 	httpx.OK(c, gin.H{
 		"query":         q,
@@ -497,9 +504,12 @@ func searchAnalytics(c *gin.Context, database *sqlx.DB) {
 		Cnt   int    `db:"cnt"`
 	}
 	var popular []row
-	_ = database.Select(&popular, `SELECT query, COUNT(*) AS cnt FROM search_queries WHERE tenant_id=$1 GROUP BY query ORDER BY cnt DESC LIMIT 20`, middleware.GetTenantID(c))
 	var zero []row
-	_ = database.Select(&zero, `SELECT query, COUNT(*) AS cnt FROM search_queries WHERE tenant_id=$1 AND results_count=0 GROUP BY query ORDER BY cnt DESC LIMIT 20`, middleware.GetTenantID(c))
+	_ = withTenant(c, database, func(tx *sqlx.Tx) error {
+		_ = tx.Select(&popular, `SELECT query, COUNT(*) AS cnt FROM search_queries WHERE tenant_id=$1 GROUP BY query ORDER BY cnt DESC LIMIT 20`, middleware.GetTenantID(c))
+		_ = tx.Select(&zero, `SELECT query, COUNT(*) AS cnt FROM search_queries WHERE tenant_id=$1 AND results_count=0 GROUP BY query ORDER BY cnt DESC LIMIT 20`, middleware.GetTenantID(c))
+		return nil
+	})
 	httpx.OK(c, gin.H{"popular": popular, "zero_results": zero})
 }
 
@@ -510,13 +520,15 @@ func popularSearches(c *gin.Context, database *sqlx.DB) {
 	}
 	var popular []row
 	if database != nil {
-		_ = database.Select(&popular, `
-			SELECT query, COUNT(*)::int AS cnt
-			FROM search_queries
-			WHERE tenant_id=$1 AND results_count > 0 AND char_length(trim(query)) >= 2
-			GROUP BY query
-			ORDER BY cnt DESC
-			LIMIT 10`, middleware.GetTenantID(c))
+		_ = withTenant(c, database, func(tx *sqlx.Tx) error {
+			return tx.Select(&popular, `
+				SELECT query, COUNT(*)::int AS cnt
+				FROM search_queries
+				WHERE tenant_id=$1 AND results_count > 0 AND char_length(trim(query)) >= 2
+				GROUP BY query
+				ORDER BY cnt DESC
+				LIMIT 10`, middleware.GetTenantID(c))
+		})
 	}
 	if popular == nil {
 		popular = []row{}
@@ -571,28 +583,35 @@ func fallbackSearch(c *gin.Context, database *sqlx.DB, q, locale, categoryID, mi
 	}
 
 	var total int
-	_ = database.Get(&total, `SELECT COUNT(*) FROM products WHERE `+where, args...)
-
-	offset := (page - 1) * limit
-	args = append(args, limit, offset)
-	listQ := fmt.Sprintf(`SELECT id, slug, translations, price, compare_at_price, currency, images,
-		inventory_quantity, vendor_id, category_id, is_featured, rating, created_at, status
-		FROM products WHERE %s ORDER BY %s LIMIT $%d OFFSET $%d`, where, order, len(args)-1, len(args))
-	rows, err := database.Queryx(listQ, args...)
+	var items []map[string]any
+	err := withTenant(c, database, func(tx *sqlx.Tx) error {
+		if err := tx.Get(&total, `SELECT COUNT(*) FROM products WHERE `+where, args...); err != nil {
+			return err
+		}
+		listArgs := append(append([]any{}, args...), limit, (page-1)*limit)
+		listQ := fmt.Sprintf(`SELECT id, slug, translations, price, compare_at_price, currency, images,
+			inventory_quantity, vendor_id, category_id, is_featured, rating, created_at, status
+			FROM products WHERE %s ORDER BY %s LIMIT $%d OFFSET $%d`, where, order, len(listArgs)-1, len(listArgs))
+		rows, err := tx.Queryx(listQ, listArgs...)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		items = []map[string]any{}
+		for rows.Next() {
+			m := map[string]any{}
+			_ = rows.MapScan(m)
+			items = append(items, normalizeProductRow(m))
+		}
+		if q != "" {
+			_, _ = tx.Exec(`INSERT INTO search_queries (tenant_id, query, locale, results_count) VALUES ($1,$2,$3,$4)`,
+				middleware.GetTenantID(c), q, locale, total)
+		}
+		return nil
+	})
 	if err != nil {
 		httpx.Internal(c, err.Error())
 		return
-	}
-	defer rows.Close()
-	items := []map[string]any{}
-	for rows.Next() {
-		m := map[string]any{}
-		_ = rows.MapScan(m)
-		items = append(items, normalizeProductRow(m))
-	}
-	if q != "" {
-		_, _ = database.Exec(`INSERT INTO search_queries (tenant_id, query, locale, results_count) VALUES ($1,$2,$3,$4)`,
-			middleware.GetTenantID(c), q, locale, total)
 	}
 	httpx.OK(c, gin.H{"items": items, "total": total, "results_count": total, "fallback": true, "page": page, "limit": limit})
 }
@@ -636,15 +655,18 @@ func suggest(c *gin.Context, database *sqlx.DB, esURL string) {
 	}
 
 	if len(suggestions) == 0 && database != nil {
-		rows, qerr := database.Queryx(
-			fmt.Sprintf(`SELECT COALESCE(translations->'%s'->>'name', translations->'uz'->>'name') AS name
-				FROM products
-				WHERE tenant_id=$1 AND status='active'
-				  AND (translations::text ILIKE $2 OR slug ILIKE $2)
-				LIMIT 8`, namePath),
-			middleware.GetTenantID(c), "%"+q+"%",
-		)
-		if qerr == nil {
+		_ = withTenant(c, database, func(tx *sqlx.Tx) error {
+			rows, qerr := tx.Queryx(
+				fmt.Sprintf(`SELECT COALESCE(translations->'%s'->>'name', translations->'uz'->>'name') AS name
+					FROM products
+					WHERE tenant_id=$1 AND status='active'
+					  AND (translations::text ILIKE $2 OR slug ILIKE $2)
+					LIMIT 8`, namePath),
+				middleware.GetTenantID(c), "%"+q+"%",
+			)
+			if qerr != nil {
+				return nil
+			}
 			defer rows.Close()
 			for rows.Next() {
 				var name *string
@@ -653,7 +675,8 @@ func suggest(c *gin.Context, database *sqlx.DB, esURL string) {
 					suggestions = append(suggestions, *name)
 				}
 			}
-		}
+			return nil
+		})
 	}
 
 	seen := map[string]struct{}{}
@@ -675,23 +698,27 @@ func suggest(c *gin.Context, database *sqlx.DB, esURL string) {
 
 	products := []map[string]any{}
 	if database != nil {
-		rows, qerr := database.Queryx(
-			fmt.Sprintf(`SELECT id, slug, translations, price, compare_at_price, currency, images
-				FROM products
-				WHERE tenant_id=$1 AND status='active'
-				  AND (translations::text ILIKE $2 OR slug ILIKE $2)
-				ORDER BY CASE WHEN lower(COALESCE(translations->'%s'->>'name','')) LIKE lower($3) THEN 0 ELSE 1 END, created_at DESC
-				LIMIT 4`, namePath),
-			middleware.GetTenantID(c), "%"+q+"%", q+"%",
-		)
-		if qerr == nil {
+		_ = withTenant(c, database, func(tx *sqlx.Tx) error {
+			rows, qerr := tx.Queryx(
+				fmt.Sprintf(`SELECT id, slug, translations, price, compare_at_price, currency, images
+					FROM products
+					WHERE tenant_id=$1 AND status='active'
+					  AND (translations::text ILIKE $2 OR slug ILIKE $2)
+					ORDER BY CASE WHEN lower(COALESCE(translations->'%s'->>'name','')) LIKE lower($3) THEN 0 ELSE 1 END, created_at DESC
+					LIMIT 4`, namePath),
+				middleware.GetTenantID(c), "%"+q+"%", q+"%",
+			)
+			if qerr != nil {
+				return nil
+			}
 			defer rows.Close()
 			for rows.Next() {
 				m := map[string]any{}
 				_ = rows.MapScan(m)
 				products = append(products, normalizeProductRow(m))
 			}
-		}
+			return nil
+		})
 	}
 
 	httpx.OK(c, gin.H{"suggestions": uniq, "products": products, "took_ms": time.Since(start).Milliseconds()})
@@ -703,20 +730,19 @@ func facets(c *gin.Context, database *sqlx.DB) {
 		Count      int    `db:"count" json:"count"`
 	}
 	var items []facet
-	_ = database.Select(&items, `SELECT category_id::text AS category_id, COUNT(*)::int AS count FROM products WHERE tenant_id=$1 AND status='active' AND category_id IS NOT NULL GROUP BY category_id`, middleware.GetTenantID(c))
-
 	ranges := []gin.H{
 		{"min": 0, "max": 100000},
 		{"min": 100000, "max": 500000},
 		{"min": 500000, "max": 2000000},
 		{"min": 2000000, "max": 10000000},
 	}
-	if database != nil {
+	_ = withTenant(c, database, func(tx *sqlx.Tx) error {
+		_ = tx.Select(&items, `SELECT category_id::text AS category_id, COUNT(*)::int AS count FROM products WHERE tenant_id=$1 AND status='active' AND category_id IS NOT NULL GROUP BY category_id`, middleware.GetTenantID(c))
 		var stats struct {
 			MinPrice float64 `db:"min_price"`
 			MaxPrice float64 `db:"max_price"`
 		}
-		err := database.Get(&stats, `SELECT COALESCE(MIN(price),0) AS min_price, COALESCE(MAX(price),0) AS max_price FROM products WHERE tenant_id=$1 AND status='active'`, middleware.GetTenantID(c))
+		err := tx.Get(&stats, `SELECT COALESCE(MIN(price),0) AS min_price, COALESCE(MAX(price),0) AS max_price FROM products WHERE tenant_id=$1 AND status='active'`, middleware.GetTenantID(c))
 		if err == nil && stats.MaxPrice > 0 {
 			top := stats.MaxPrice
 			if top < 500000 {
@@ -734,14 +760,17 @@ func facets(c *gin.Context, database *sqlx.DB) {
 				}
 			}
 		}
-	}
+		return nil
+	})
 
 	httpx.OK(c, gin.H{"categories": items, "price_ranges": ranges})
 }
 
 func reindex(c *gin.Context, database *sqlx.DB, esURL string) {
 	var ids []string
-	_ = database.Select(&ids, `SELECT id FROM products WHERE tenant_id=$1`, middleware.GetTenantID(c))
+	_ = withTenant(c, database, func(tx *sqlx.Tx) error {
+		return tx.Select(&ids, `SELECT id FROM products WHERE tenant_id=$1`, middleware.GetTenantID(c))
+	})
 	n := 0
 	for _, id := range ids {
 		if err := indexProduct(database, esURL, id); err == nil {
@@ -761,11 +790,13 @@ func applySynonyms(database *sqlx.DB, tenantID, q string) string {
 		return q
 	}
 	var canonical string
-	err := database.Get(&canonical, `
-		SELECT term FROM search_synonyms
-		WHERE tenant_id=$1 AND (LOWER(term)=$2 OR $2 = ANY(SELECT LOWER(unnest(synonyms))))
-		LIMIT 1`, tenantID, lower)
-	if err == nil && canonical != "" {
+	_ = db.WithTenant(database, tenantID, func(tx *sqlx.Tx) error {
+		return tx.Get(&canonical, `
+			SELECT term FROM search_synonyms
+			WHERE tenant_id=$1 AND (LOWER(term)=$2 OR $2 = ANY(SELECT LOWER(unnest(synonyms))))
+			LIMIT 1`, tenantID, lower)
+	})
+	if canonical != "" {
 		return canonical
 	}
 	return q
@@ -777,15 +808,18 @@ func listSynonyms(c *gin.Context, database *sqlx.DB) {
 		"kiyim":   {"одежда", "clothing"},
 	}
 	if database != nil {
-		var terms []string
-		_ = database.Select(&terms, `SELECT term FROM search_synonyms WHERE tenant_id=$1`, middleware.GetTenantID(c))
-		for _, term := range terms {
-			var syns []string
-			_ = database.Select(&syns, `SELECT unnest(synonyms) FROM search_synonyms WHERE tenant_id=$1 AND term=$2`, middleware.GetTenantID(c), term)
-			if len(syns) > 0 {
-				out[term] = syns
+		_ = withTenant(c, database, func(tx *sqlx.Tx) error {
+			var terms []string
+			_ = tx.Select(&terms, `SELECT term FROM search_synonyms WHERE tenant_id=$1`, middleware.GetTenantID(c))
+			for _, term := range terms {
+				var syns []string
+				_ = tx.Select(&syns, `SELECT unnest(synonyms) FROM search_synonyms WHERE tenant_id=$1 AND term=$2`, middleware.GetTenantID(c), term)
+				if len(syns) > 0 {
+					out[term] = syns
+				}
 			}
-		}
+			return nil
+		})
 	}
 	httpx.OK(c, gin.H{"synonyms": out})
 }
@@ -800,11 +834,14 @@ func upsertSynonym(c *gin.Context, database *sqlx.DB) {
 		return
 	}
 	joined := strings.Join(body.Synonyms, ",")
-	_, err := database.Exec(`
-		INSERT INTO search_synonyms (id, tenant_id, term, synonyms)
-		VALUES ($1,$2,$3, string_to_array($4, ','))
-		ON CONFLICT (tenant_id, term) DO UPDATE SET synonyms = string_to_array($4, ',')`,
-		uuid.NewString(), middleware.GetTenantID(c), strings.ToLower(body.Term), joined)
+	err := withTenant(c, database, func(tx *sqlx.Tx) error {
+		_, err := tx.Exec(`
+			INSERT INTO search_synonyms (id, tenant_id, term, synonyms)
+			VALUES ($1,$2,$3, string_to_array($4, ','))
+			ON CONFLICT (tenant_id, term) DO UPDATE SET synonyms = string_to_array($4, ',')`,
+			uuid.NewString(), middleware.GetTenantID(c), strings.ToLower(body.Term), joined)
+		return err
+	})
 	if err != nil {
 		httpx.BadRequest(c, err.Error())
 		return
@@ -813,7 +850,10 @@ func upsertSynonym(c *gin.Context, database *sqlx.DB) {
 }
 
 func deleteSynonym(c *gin.Context, database *sqlx.DB) {
-	_, err := database.Exec(`DELETE FROM search_synonyms WHERE tenant_id=$1 AND term=$2`, middleware.GetTenantID(c), strings.ToLower(c.Param("term")))
+	err := withTenant(c, database, func(tx *sqlx.Tx) error {
+		_, err := tx.Exec(`DELETE FROM search_synonyms WHERE tenant_id=$1 AND term=$2`, middleware.GetTenantID(c), strings.ToLower(c.Param("term")))
+		return err
+	})
 	if err != nil {
 		httpx.BadRequest(c, err.Error())
 		return

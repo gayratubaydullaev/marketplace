@@ -24,7 +24,7 @@ func main() {
 	}
 	database, err := db.Connect(cfg.DatabaseURL)
 	if err != nil {
-		log.Printf("warning: database unavailable, starting in degraded mode: %v", err)
+		log.Fatalf("database: %v", err)
 	}
 	rdb, err := redisx.Connect(cfg.RedisURL)
 	if err != nil {
@@ -45,7 +45,8 @@ func main() {
 	shutdown, _ := otelx.Init(cfg.ServiceName)
 	defer func() { _ = shutdown(context.Background()) }()
 	r := gin.New()
-	r.Use(gin.Recovery(), otelx.Middleware(cfg.ServiceName), middleware.CorrelationID(), middleware.CORS(), middleware.SecurityHeaders(), middleware.MaxBodyBytes(0), middleware.Tenant(), middleware.TenantDB(database), middleware.AuditLogger(database), middleware.Metrics(cfg.ServiceName))
+	middleware.SecureEngine(r)
+	r.Use(gin.Recovery(), otelx.Middleware(cfg.ServiceName), middleware.CorrelationID(), middleware.CORS(), middleware.SecurityHeaders(), middleware.MaxBodyBytes(0), middleware.Tenant(), middleware.SanitizeGuest(), middleware.TenantDB(database), middleware.AuditLogger(database), middleware.Metrics(cfg.ServiceName))
 	if rdb != nil {
 		r.Use(middleware.RateLimit(rdb, 100, 1000))
 	}

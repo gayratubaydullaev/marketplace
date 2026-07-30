@@ -1,6 +1,6 @@
 import { setRequestLocale, getTranslations } from "next-intl/server";
 import type { Metadata } from "next";
-import { api, type Product } from "@/lib/api";
+import { apiPublic, publicTags, type Product } from "@/lib/api";
 import { ProductGrid } from "@/components/ProductGrid";
 import { Pagination } from "@/components/Pagination";
 
@@ -13,7 +13,10 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { locale, slug } = await params;
   try {
-    const vendor = await api<{ name: string; description?: string }>(`/v1/vendors/${slug}`);
+    const vendor = await apiPublic<{ name: string; description?: string }>(`/v1/vendors/${slug}`, {
+      revalidate: 120,
+      tags: publicTags("vendors"),
+    });
     return {
       title: `${vendor.name} — Gayrat`,
       description: vendor.description || (locale === "ru" ? `Магазин ${vendor.name}` : `${vendor.name} do'koni`),
@@ -69,10 +72,19 @@ export default async function VendorPage({
     verified_purchase?: boolean;
   }[] = [];
   try {
-    vendor = await api(`/v1/vendors/${slug}`);
+    vendor = await apiPublic(`/v1/vendors/${slug}`, {
+      revalidate: 120,
+      tags: publicTags("vendors"),
+    });
     const [prod, rev] = await Promise.all([
-      api<{ items: Product[] }>(`/v1/vendors/${slug}/products`),
-      api<{ items: typeof reviews }>(`/v1/vendors/${slug}/reviews`),
+      apiPublic<{ items: Product[] }>(`/v1/vendors/${slug}/products`, {
+        revalidate: 60,
+        tags: publicTags("products", "vendors"),
+      }),
+      apiPublic<{ items: typeof reviews }>(`/v1/vendors/${slug}/reviews`, {
+        revalidate: 60,
+        tags: publicTags("vendors"),
+      }),
     ]);
     products = prod.items || [];
     reviews = rev.items || [];

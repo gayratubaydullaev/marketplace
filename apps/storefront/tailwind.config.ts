@@ -36,19 +36,14 @@ const config: Config = {
         muted: "#5a6f74",
       },
       fontFamily: {
-        // System UI everywhere — no webfont downloads / preload warnings
         display: [
-          "system-ui",
-          "-apple-system",
-          "Segoe UI",
-          "Roboto",
-          "Helvetica Neue",
-          "Arial",
-          "Noto Sans",
-          "Noto Sans Arabic",
-          "sans-serif",
+          "var(--font-display)",
+          "Georgia",
+          "Times New Roman",
+          "serif",
         ],
         sans: [
+          "var(--font-sans)",
           "system-ui",
           "-apple-system",
           "Segoe UI",

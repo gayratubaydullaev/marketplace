@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { clearTokens, getToken, tokenHasAdminRole } from "@/lib/api";
+import { clearTokens, ensureAdminSession, hasAdminSessionHint } from "@/lib/api";
 import { LogoutButton } from "@/components/LogoutButton";
 import { LocaleSwitcher, useI18n } from "@/lib/i18n";
 
@@ -102,7 +102,8 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
   const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
-    setAuthed(tokenHasAdminRole(getToken()));
+    setAuthed(hasAdminSessionHint());
+    void ensureAdminSession().then(setAuthed);
   }, [pathname]);
 
   useEffect(() => {
@@ -147,8 +148,8 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
             <button
               type="button"
               className="text-sm font-semibold text-teal"
-              onClick={() => {
-                clearTokens();
+              onClick={async () => {
+                await clearTokens();
                 window.location.assign("/");
               }}
             >

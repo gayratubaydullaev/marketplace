@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { api } from "@/lib/api";
+import { api, hasClientSessionFlag } from "@/lib/api";
 
 export type WishlistItem = {
   /** Product ID; retained as `id` for existing storefront consumers. */
@@ -31,13 +31,13 @@ export const useWishlist = create<State>()(
         const existing = get().items.find((i) => i.id === item.id && i.variant_id === item.variant_id);
         if (existing) {
           set((s) => ({ items: s.items.filter((i) => i !== existing) }));
-          if (typeof window !== "undefined" && localStorage.getItem("access_token") && existing.remote_id) {
+          if (typeof window !== "undefined" && hasClientSessionFlag() && existing.remote_id) {
             api(`/v1/wishlist/items/${existing.remote_id}`, { method: "DELETE" }).catch(() => undefined);
           }
           return;
         }
         set((s) => ({ items: [...s.items, item] }));
-        if (typeof window !== "undefined" && localStorage.getItem("access_token")) {
+        if (typeof window !== "undefined" && hasClientSessionFlag()) {
           api<{ item: { id: string } }>("/v1/wishlist/items", {
             method: "POST",
             body: JSON.stringify({ product_id: item.id, variant_id: item.variant_id }),
@@ -53,13 +53,13 @@ export const useWishlist = create<State>()(
       remove: (id) => {
         const existing = get().items.find((item) => item.id === id);
         set((s) => ({ items: s.items.filter((item) => item.id !== id) }));
-        if (typeof window !== "undefined" && localStorage.getItem("access_token") && existing?.remote_id) {
+        if (typeof window !== "undefined" && hasClientSessionFlag() && existing?.remote_id) {
           api(`/v1/wishlist/items/${existing.remote_id}`, { method: "DELETE" }).catch(() => undefined);
         }
       },
       clear: () => set({ items: [] }),
       syncToServer: async () => {
-        if (typeof window === "undefined" || !localStorage.getItem("access_token")) return;
+        if (typeof window === "undefined" || !hasClientSessionFlag()) return;
         const localItems = get().items;
         await api("/v1/wishlist/merge", {
           method: "POST",

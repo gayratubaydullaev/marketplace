@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getTranslations } from "next-intl/server";
+import { BrandMark } from "@/components/BrandMark";
 
 export async function Footer({ locale }: { locale: string }) {
   const t = await getTranslations();
@@ -8,7 +9,10 @@ export async function Footer({ locale }: { locale: string }) {
       <div className="site-container py-5 sm:py-8">
         <div className="flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
           <div className="max-w-md">
-            <p className="font-display text-xl font-bold tracking-tight">{t("brand")}</p>
+            <div className="flex items-center gap-2.5">
+              <BrandMark size="sm" />
+              <p className="font-display text-xl font-bold tracking-tight">{t("brand")}</p>
+            </div>
             <p className="mt-2 text-sm leading-relaxed text-paper/65">{t("tagline")}</p>
             <p className="mt-4 text-xs font-medium tracking-wide text-saffron/90">{t("footer.trust")}</p>
           </div>

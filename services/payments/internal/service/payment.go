@@ -3,11 +3,16 @@ package service
 import (
 	"context"
 	"fmt"
+	"io"
 	"math"
+	"net/http"
+	"net/url"
 	"os"
+	"strings"
 	"time"
 
 	kafkax "github.com/gayrat/marketplace/packages/go-common/kafka"
+	commondb "github.com/gayrat/marketplace/packages/go-common/db"
 	"github.com/gayrat/marketplace/services/payments/internal/model"
 	"github.com/gayrat/marketplace/services/payments/internal/repository"
 	"github.com/google/uuid"
@@ -221,6 +226,110 @@ func (s *PaymentService) createSplitsTx(tx *sqlx.Tx, p model.Payment) error {
 				return err
 			}
 		}
+	}
+	return nil
+}
+
+// MarkRefunded reverses a succeeded payment: PSP refund (live) + DB status + order payment_status.
+func (s *PaymentService) MarkRefunded(ctx context.Context, orderID, tenantID string) error {
+	var payment model.Payment
+	err := commondb.WithTenant(s.Repo.DB, tenantID, func(tx *sqlx.Tx) error {
+		return tx.Get(&payment, `
+			SELECT id,tenant_id,order_id,user_id,amount,currency,provider,provider_payment_id,status,created_at
+			FROM payments
+			WHERE order_id=$1 AND tenant_id=$2 AND status IN ('succeeded','refunded')
+			ORDER BY created_at DESC LIMIT 1`, orderID, tenantID)
+	})
+	if err != nil {
+		return fmt.Errorf("succeeded payment not found for order")
+	}
+	if payment.Status == "refunded" {
+		return nil
+	}
+
+	if !Sandbox() {
+		if err := refundWithProvider(payment); err != nil {
+			return err
+		}
+	}
+
+	tx, err := s.Repo.DB.Beginx()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.Exec(`SELECT set_config('app.current_tenant', $1, true)`, tenantID); err != nil {
+		return err
+	}
+	var payStatus string
+	if err := tx.QueryRow(`SELECT status FROM payments WHERE id=$1 FOR UPDATE`, payment.ID).Scan(&payStatus); err != nil {
+		return err
+	}
+	if payStatus == "refunded" {
+		return tx.Commit()
+	}
+	if payStatus != "succeeded" {
+		return fmt.Errorf("payment status=%s cannot be refunded", payStatus)
+	}
+	if _, err := tx.Exec(`UPDATE payments SET status='refunded', updated_at=NOW() WHERE id=$1`, payment.ID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`UPDATE orders SET payment_status='refunded', updated_at=NOW() WHERE id=$1 AND tenant_id=$2`, orderID, tenantID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`UPDATE payment_splits SET status='reversed' WHERE payment_id=$1 AND status='pending'`, payment.ID); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	_ = s.Producer.Publish(ctx, "order.refunded", orderID, map[string]any{
+		"order_id": orderID, "payment_id": payment.ID, "tenant_id": tenantID, "user_id": payment.UserID, "payment_status": "refunded",
+	})
+	return nil
+}
+
+func refundWithProvider(p model.Payment) error {
+	switch p.Provider {
+	case "stripe":
+		secret := os.Getenv("STRIPE_SECRET")
+		if secret == "" {
+			return fmt.Errorf("STRIPE_SECRET required for live refund")
+		}
+		return stripeRefund(secret, p)
+	case "cash_on_delivery", "card_on_delivery", "bank_transfer":
+		return nil
+	case "payme", "click", "uzum", "paypal":
+		return fmt.Errorf("live refund for provider %s is not automated yet — refund in PSP dashboard then confirm", p.Provider)
+	default:
+		return fmt.Errorf("unsupported refund provider %s", p.Provider)
+	}
+}
+
+func stripeRefund(secret string, p model.Payment) error {
+	form := url.Values{}
+	form.Set("amount", fmt.Sprintf("%d", int64(p.Amount*100)))
+	if strings.HasPrefix(p.ProviderPaymentID, "pi_") {
+		form.Set("payment_intent", p.ProviderPaymentID)
+	} else if strings.HasPrefix(p.ProviderPaymentID, "ch_") {
+		form.Set("charge", p.ProviderPaymentID)
+	} else {
+		return fmt.Errorf("stripe refund needs payment_intent or charge id, got %q", p.ProviderPaymentID)
+	}
+	req, err := http.NewRequest(http.MethodPost, "https://api.stripe.com/v1/refunds", strings.NewReader(form.Encode()))
+	if err != nil {
+		return err
+	}
+	req.SetBasicAuth(secret, "")
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp, err := (&http.Client{Timeout: 20 * time.Second}).Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode/100 != 2 {
+		return fmt.Errorf("stripe refund: %s", strings.TrimSpace(string(body)))
 	}
 	return nil
 }

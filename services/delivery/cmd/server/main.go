@@ -22,7 +22,7 @@ func main() {
 	}
 	database, err := db.Connect(cfg.DatabaseURL)
 	if err != nil {
-		log.Printf("db: %v", err)
+		log.Fatalf("database: %v", err)
 	}
 	rdb, err := redisx.Connect(cfg.RedisURL)
 	if err != nil {
@@ -35,6 +35,7 @@ func main() {
 	shutdown, _ := otelx.Init(cfg.ServiceName)
 	defer func() { _ = shutdown(context.Background()) }()
 	r := gin.New()
+	middleware.SecureEngine(r)
 	r.Use(
 		gin.Recovery(),
 		otelx.Middleware(cfg.ServiceName),
@@ -42,7 +43,7 @@ func main() {
 		middleware.CORS(),
 		middleware.SecurityHeaders(),
 		middleware.MaxBodyBytes(1<<20),
-		middleware.Tenant(),
+		middleware.Tenant(), middleware.SanitizeGuest(),
 		middleware.TenantDB(database),
 		middleware.Metrics(cfg.ServiceName),
 	)

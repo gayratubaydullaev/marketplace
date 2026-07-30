@@ -56,6 +56,7 @@ export function ProductGrid({
           locale={locale}
           index={i}
           animate={animate}
+          priority={i < 6}
           vendor={p.vendor_id ? vendors[p.vendor_id] : undefined}
         />
       ))}

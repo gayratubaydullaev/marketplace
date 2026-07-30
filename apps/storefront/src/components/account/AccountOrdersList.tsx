@@ -65,6 +65,7 @@ export function AccountOrdersList({
           description={t("noOrdersHint")}
           actionHref={`/${locale}/products`}
           actionLabel={t("browseCatalog")}
+          variant="generic"
         />
       </div>
     );

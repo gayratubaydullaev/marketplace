@@ -31,7 +31,7 @@ export function ProductInfoSection({
   const active = tabs.some((x) => x.id === tab) ? tab : tabs[0]?.id || "specs";
 
   return (
-    <section className="mt-12 border-t border-night/8 pt-10 sm:mt-14 sm:pt-12 lg:mt-0 lg:border-t lg:pt-10">
+    <section className="border-t border-night/8 pt-8 sm:pt-10 md:mt-0 md:border-t-0 md:pt-0 lg:pt-2">
       <div className="min-w-0 max-w-3xl lg:max-w-none">
         {tabs.length > 1 ? (
           <div

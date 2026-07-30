@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { api, getToken, tokenHasCourierRole } from "@/lib/api";
+import { api, ensureCourierSession, hasCourierSessionHint } from "@/lib/api";
 import { LocaleSwitcher, useI18n } from "@/lib/i18n";
 import { SHIFT_EVENT, emitShiftChange } from "@/lib/status";
 
@@ -76,7 +76,8 @@ export function CourierShell({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    setAuthed(tokenHasCourierRole(getToken()));
+    setAuthed(hasCourierSessionHint());
+    void ensureCourierSession().then(setAuthed);
   }, [pathname]);
 
   useEffect(() => {

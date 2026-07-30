@@ -10,6 +10,18 @@ function buildHref(basePath: string, params: Record<string, string | undefined>,
   return s ? `${basePath}?${s}` : basePath;
 }
 
+function Chevron({ dir }: { dir: "prev" | "next" }) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden>
+      {dir === "prev" ? (
+        <path d="M15 5 8 12l7 7" strokeLinecap="round" strokeLinejoin="round" />
+      ) : (
+        <path d="M9 5l7 7-7 7" strokeLinecap="round" strokeLinejoin="round" />
+      )}
+    </svg>
+  );
+}
+
 export function Pagination({
   locale,
   basePath,
@@ -35,24 +47,28 @@ export function Pagination({
   start = Math.max(1, end - windowSize + 1);
   const pages = Array.from({ length: end - start + 1 }, (_, i) => start + i);
 
+  const navBtn = (enabled: boolean) =>
+    `inline-flex min-h-10 min-w-10 items-center justify-center rounded-xl border px-2.5 font-medium transition ${
+      enabled
+        ? "border-night/12 bg-white text-night hover:border-teal/40 hover:text-teal"
+        : "pointer-events-none border-night/5 text-night/25"
+    }`;
+
   return (
-    <div className="mt-10 flex flex-wrap items-center justify-center gap-1.5 text-sm">
+    <nav className="mt-10 flex flex-wrap items-center justify-center gap-1.5 text-sm" aria-label="Pagination">
       <Link
         href={page > 1 ? buildHref(path, params, page - 1) : "#"}
         aria-disabled={page <= 1}
-        className={`rounded-xl border px-3 py-2 font-medium ${
-          page > 1
-            ? "border-night/12 bg-white hover:border-accent/40"
-            : "pointer-events-none border-night/5 text-night/25"
-        }`}
+        aria-label="Previous page"
+        className={navBtn(page > 1)}
       >
-        ←
+        <Chevron dir="prev" />
       </Link>
       {start > 1 ? (
         <>
           <Link
             href={buildHref(path, params, 1)}
-            className="rounded-xl border border-night/12 bg-white px-3 py-2 hover:border-accent/40"
+            className="inline-flex min-h-10 min-w-10 items-center justify-center rounded-xl border border-night/12 bg-white px-3 font-medium hover:border-teal/40"
           >
             1
           </Link>
@@ -63,10 +79,11 @@ export function Pagination({
         <Link
           key={p}
           href={buildHref(path, params, p)}
-          className={`min-w-10 rounded-xl px-3 py-2 text-center font-semibold ${
+          aria-current={p === page ? "page" : undefined}
+          className={`inline-flex min-h-10 min-w-10 items-center justify-center rounded-xl px-3 text-center font-semibold transition ${
             p === page
               ? "bg-accent text-night"
-              : "border border-night/12 bg-white hover:border-accent/40"
+              : "border border-night/12 bg-white hover:border-teal/40"
           }`}
         >
           {p}
@@ -77,7 +94,7 @@ export function Pagination({
           {end < totalPages - 1 ? <span className="px-1 text-night/35">…</span> : null}
           <Link
             href={buildHref(path, params, totalPages)}
-            className="rounded-xl border border-night/12 bg-white px-3 py-2 hover:border-accent/40"
+            className="inline-flex min-h-10 min-w-10 items-center justify-center rounded-xl border border-night/12 bg-white px-3 font-medium hover:border-teal/40"
           >
             {totalPages}
           </Link>
@@ -86,14 +103,11 @@ export function Pagination({
       <Link
         href={page < totalPages ? buildHref(path, params, page + 1) : "#"}
         aria-disabled={page >= totalPages}
-        className={`rounded-xl border px-3 py-2 font-medium ${
-          page < totalPages
-            ? "border-night/12 bg-white hover:border-accent/40"
-            : "pointer-events-none border-night/5 text-night/25"
-        }`}
+        aria-label="Next page"
+        className={navBtn(page < totalPages)}
       >
-        →
+        <Chevron dir="next" />
       </Link>
-    </div>
+    </nav>
   );
 }

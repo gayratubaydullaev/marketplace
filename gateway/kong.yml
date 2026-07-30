@@ -150,6 +150,11 @@ plugins:
   - name: request-size-limiting
     config:
       allowed_payload_size: 10
+  - name: request-transformer
+    config:
+      remove:
+        headers:
+          - X-Internal-Key
   - name: response-transformer
     config:
       add:

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
-import { api, type Product } from "@/lib/api";
+import { apiPublic, publicTags, type Product } from "@/lib/api";
 import { extractSearchItems, pushRecentSearch } from "@/lib/search";
 import { buildFilterHref, countActiveFilters, type FilterState } from "@/lib/filters";
 import { ProductGrid } from "@/components/ProductGrid";
@@ -65,8 +65,11 @@ function SearchInner() {
 
   useEffect(() => {
     Promise.all([
-      api<typeof facets>("/v1/search/facets"),
-      api<{ items: FilterCategory[] }>("/v1/categories"),
+      apiPublic<typeof facets>("/v1/search/facets", { revalidate: 120, tags: publicTags("facets") }),
+      apiPublic<{ items: FilterCategory[] }>("/v1/categories", {
+        revalidate: 120,
+        tags: publicTags("categories"),
+      }),
     ])
       .then(([f, c]) => {
         setFacets(f || {});
@@ -102,12 +105,12 @@ function SearchInner() {
         if (featured) params.set("featured", "true");
         if (onSale) params.set("on_sale", "true");
         if (inStock) params.set("in_stock", "true");
-        const data = await api<{
+        const data = await apiPublic<{
           items?: Product[];
           results_count?: number;
           total?: number;
           result?: { hits?: { hits?: { _source?: Product }[] } };
-        }>(`/v1/search?${params.toString()}`);
+        }>(`/v1/search?${params.toString()}`, { revalidate: 30, tags: publicTags("search") });
         if (cancelled) return;
         const list = extractSearchItems(data);
         setItems(list);
@@ -216,6 +219,7 @@ function SearchInner() {
             description={t("search.tryDifferent")}
             actionHref={`/${locale}/products`}
             actionLabel={t("nav.catalog")}
+            variant="search"
           />
         ) : (
           <>

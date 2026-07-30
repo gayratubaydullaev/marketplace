@@ -2,6 +2,7 @@ package httpx
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -50,4 +51,35 @@ func TooManyRequests(c *gin.Context, msg string) {
 
 func Internal(c *gin.Context, msg string) {
 	Fail(c, http.StatusInternalServerError, "internal_error", msg)
+}
+
+// IsInvalidUUID reports Postgres invalid uuid / syntax errors that should be 400.
+func IsInvalidUUID(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "invalid input syntax for type uuid") ||
+		strings.Contains(msg, "invalid uuid")
+}
+
+// WriteDBError maps common Postgres client/input errors to 400; otherwise 500.
+func WriteDBError(c *gin.Context, err error) {
+	if err == nil {
+		return
+	}
+	if IsInvalidUUID(err) {
+		BadRequest(c, "invalid id")
+		return
+	}
+	msg := err.Error()
+	lower := strings.ToLower(msg)
+	if strings.Contains(lower, "violates check constraint") ||
+		strings.Contains(lower, "violates foreign key") ||
+		strings.Contains(lower, "duplicate key") ||
+		strings.Contains(lower, "violates unique") {
+		BadRequest(c, msg)
+		return
+	}
+	Internal(c, msg)
 }

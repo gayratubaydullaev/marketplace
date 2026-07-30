@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { clearTokens, getToken, tokenHasVendorRole } from "@/lib/api";
+import { clearTokens, ensureVendorSession, hasVendorSessionHint } from "@/lib/api";
 import { LogoutButton } from "@/components/LogoutButton";
 import { LocaleSwitcher, useI18n } from "@/lib/i18n";
 
@@ -95,7 +95,8 @@ export function VendorShell({ children }: { children: React.ReactNode }) {
   const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
-    setAuthed(tokenHasVendorRole(getToken()));
+    setAuthed(hasVendorSessionHint());
+    void ensureVendorSession().then(setAuthed);
   }, [pathname]);
 
   useEffect(() => {
@@ -140,8 +141,8 @@ export function VendorShell({ children }: { children: React.ReactNode }) {
             <button
               type="button"
               className="text-sm font-semibold text-teal"
-              onClick={() => {
-                clearTokens();
+              onClick={async () => {
+                await clearTokens();
                 window.location.assign("/");
               }}
             >

@@ -6,11 +6,13 @@ import (
 	"strings"
 
 	commonauth "github.com/gayrat/marketplace/packages/go-common/auth"
+	"github.com/gayrat/marketplace/packages/go-common/db"
 	"github.com/gayrat/marketplace/packages/go-common/httpx"
 	"github.com/gayrat/marketplace/packages/go-common/middleware"
 	"github.com/gayrat/marketplace/services/orders/internal/model"
 	"github.com/gayrat/marketplace/services/orders/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/jmoiron/sqlx"
 )
 
 type OrderHandler struct{ Service *service.OrderService }
@@ -44,13 +46,25 @@ func (h *OrderHandler) Create(c *gin.Context) {
 	}
 	if body.AddressID != "" && claims != nil {
 		var address json.RawMessage
-		if err := h.Service.Repo.DB.QueryRow(`SELECT jsonb_build_object('region',region,'district',district,'mahalla',mahalla,'street',street,'building',building,'apartment',apartment,'phone',phone,'full_name',full_name) FROM addresses WHERE id=$1 AND user_id=$2`, body.AddressID, claims.UserID).Scan(&address); err == nil {
+		err := db.WithTenant(h.Service.Repo.DB, middleware.GetTenantID(c), func(tx *sqlx.Tx) error {
+			return tx.QueryRow(`SELECT jsonb_build_object('region',region,'district',district,'mahalla',mahalla,'street',street,'building',building,'apartment',apartment,'phone',phone,'full_name',full_name) FROM addresses WHERE id=$1 AND user_id=$2 AND tenant_id=$3`, body.AddressID, claims.UserID, middleware.GetTenantID(c)).Scan(&address)
+		})
+		if err == nil {
 			input.ShippingAddress = address
 		}
 	}
 	result, err := h.Service.Create(c.Request.Context(), input)
 	if err != nil {
-		httpx.BadRequest(c, err.Error())
+		msg, bad := service.ClassifyCreateError(err)
+		if bad {
+			httpx.BadRequest(c, msg)
+			return
+		}
+		if httpx.IsInvalidUUID(err) {
+			httpx.BadRequest(c, "invalid id")
+			return
+		}
+		httpx.Internal(c, msg)
 		return
 	}
 	httpx.Created(c, result)
@@ -161,11 +175,12 @@ func (h *OrderHandler) Lookup(c *gin.Context) {
 		httpx.NotFound(c, "order not found")
 		return
 	}
-	// Bind this browser's guest session so subsequent Get works without re-proving phone.
+	// Bind guest session only when none is set yet — never overwrite (prevents takeover).
 	if guestID := strings.TrimSpace(c.GetHeader("X-Guest-ID")); guestID != "" && order.UserID == nil {
 		_, _ = h.Service.Repo.DB.Exec(`
 			UPDATE orders SET metadata = COALESCE(metadata,'{}'::jsonb) || jsonb_build_object('guest_id', $1::text), updated_at=NOW()
-			WHERE id=$2 AND tenant_id=$3 AND user_id IS NULL`, guestID, order.ID, order.TenantID)
+			WHERE id=$2 AND tenant_id=$3 AND user_id IS NULL
+			  AND COALESCE(metadata->>'guest_id','') = ''`, guestID, order.ID, order.TenantID)
 	}
 	if items == nil {
 		items = []model.OrderItem{}
@@ -366,12 +381,15 @@ func (h *OrderHandler) SetTracking(c *gin.Context) {
 }
 
 func (h *OrderHandler) CreateReturn(c *gin.Context) {
-	var body struct{ Reason string `json:"reason" binding:"required"` }
+	var body struct {
+		Reason string `json:"reason" binding:"required"`
+	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		httpx.BadRequest(c, err.Error())
 		return
 	}
-	order, _, err := h.Service.Repo.Get(c.Param("id"), middleware.GetTenantID(c))
+	tenantID := middleware.GetTenantID(c)
+	order, _, err := h.Service.Repo.Get(c.Param("id"), tenantID)
 	claims := middleware.GetClaims(c)
 	if err != nil || claims == nil || order.UserID == nil || *order.UserID != claims.UserID {
 		httpx.NotFound(c, "order not found")
@@ -382,9 +400,11 @@ func (h *OrderHandler) CreateReturn(c *gin.Context) {
 		return
 	}
 	var id string
-	err = h.Service.Repo.DB.Get(&id, `INSERT INTO order_returns (tenant_id,order_id,user_id,reason,status) VALUES ($1,$2,$3,$4,'requested') RETURNING id::text`, middleware.GetTenantID(c), order.ID, claims.UserID, body.Reason)
+	err = db.WithTenant(h.Service.Repo.DB, tenantID, func(tx *sqlx.Tx) error {
+		return tx.Get(&id, `INSERT INTO order_returns (tenant_id,order_id,user_id,reason,status) VALUES ($1,$2,$3,$4,'requested') RETURNING id::text`, tenantID, order.ID, claims.UserID, body.Reason)
+	})
 	if err != nil {
-		httpx.BadRequest(c, err.Error())
+		httpx.WriteDBError(c, err)
 		return
 	}
 	middleware.WriteAudit(c, "create_return", "order_return", id, nil, gin.H{"order_id": order.ID})
@@ -393,12 +413,16 @@ func (h *OrderHandler) CreateReturn(c *gin.Context) {
 
 func (h *OrderHandler) Returns(c *gin.Context) {
 	var rows []model.OrderReturn
-	order, _, err := h.Service.Repo.Get(c.Param("id"), middleware.GetTenantID(c))
+	tenantID := middleware.GetTenantID(c)
+	order, _, err := h.Service.Repo.Get(c.Param("id"), tenantID)
 	if err != nil || !h.canViewOrder(c, order) {
 		httpx.NotFound(c, "order not found")
 		return
 	}
-	if err := h.Service.Repo.DB.Select(&rows, `SELECT id::text,tenant_id::text,order_id::text,user_id::text,reason,status,admin_note,created_at,updated_at FROM order_returns WHERE tenant_id=$1 AND order_id=$2 ORDER BY created_at DESC`, middleware.GetTenantID(c), order.ID); err != nil {
+	err = db.WithTenant(h.Service.Repo.DB, tenantID, func(tx *sqlx.Tx) error {
+		return tx.Select(&rows, `SELECT id::text,tenant_id::text,order_id::text,user_id::text,reason,status,admin_note,created_at,updated_at FROM order_returns WHERE tenant_id=$1 AND order_id=$2 ORDER BY created_at DESC`, tenantID, order.ID)
+	})
+	if err != nil {
 		httpx.Internal(c, err.Error())
 		return
 	}
@@ -407,13 +431,17 @@ func (h *OrderHandler) Returns(c *gin.Context) {
 
 func (h *OrderHandler) AdminReturns(c *gin.Context) {
 	var rows []model.OrderReturn
+	tenantID := middleware.GetTenantID(c)
 	q := `SELECT id::text,tenant_id::text,order_id::text,user_id::text,reason,status,admin_note,created_at,updated_at FROM order_returns WHERE tenant_id=$1`
-	args := []any{middleware.GetTenantID(c)}
+	args := []any{tenantID}
 	if status := c.Query("status"); status != "" {
 		q += ` AND status=$2`
 		args = append(args, status)
 	}
-	if err := h.Service.Repo.DB.Select(&rows, q+` ORDER BY created_at DESC`, args...); err != nil {
+	err := db.WithTenant(h.Service.Repo.DB, tenantID, func(tx *sqlx.Tx) error {
+		return tx.Select(&rows, q+` ORDER BY created_at DESC`, args...)
+	})
+	if err != nil {
 		httpx.Internal(c, err.Error())
 		return
 	}
@@ -425,8 +453,12 @@ func (h *OrderHandler) ProcessReturn(c *gin.Context) {
 	var body struct{ Note string `json:"note"` }
 	_ = c.ShouldBindJSON(&body)
 	statuses := map[string]string{"approve": "approved", "reject": "rejected", "receive": "received"}
+	tenantID := middleware.GetTenantID(c)
 	var ret model.OrderReturn
-	if err := h.Service.Repo.DB.Get(&ret, `SELECT id::text,tenant_id::text,order_id::text,user_id::text,reason,status,admin_note,created_at,updated_at FROM order_returns WHERE id=$1 AND tenant_id=$2`, c.Param("id"), middleware.GetTenantID(c)); err != nil {
+	err := db.WithTenant(h.Service.Repo.DB, tenantID, func(tx *sqlx.Tx) error {
+		return tx.Get(&ret, `SELECT id::text,tenant_id::text,order_id::text,user_id::text,reason,status,admin_note,created_at,updated_at FROM order_returns WHERE id=$1 AND tenant_id=$2`, c.Param("id"), tenantID)
+	})
+	if err != nil {
 		httpx.NotFound(c, "return not found")
 		return
 	}
@@ -439,11 +471,13 @@ func (h *OrderHandler) ProcessReturn(c *gin.Context) {
 			httpx.BadRequest(c, err.Error())
 			return
 		}
-		if _, err := h.Service.Repo.DB.Exec(`UPDATE order_returns SET status='refunded',admin_note=COALESCE(NULLIF($1,''),admin_note),updated_at=NOW() WHERE id=$2`, body.Note, ret.ID); err != nil {
-			httpx.Internal(c, err.Error())
-			return
-		}
-		_, _ = h.Service.Repo.DB.Exec(`UPDATE orders SET status='returned',updated_at=NOW() WHERE id=$1 AND tenant_id=$2`, ret.OrderID, ret.TenantID)
+		_ = db.WithTenant(h.Service.Repo.DB, tenantID, func(tx *sqlx.Tx) error {
+			if _, err := tx.Exec(`UPDATE order_returns SET status='refunded',admin_note=COALESCE(NULLIF($1,''),admin_note),updated_at=NOW() WHERE id=$2`, body.Note, ret.ID); err != nil {
+				return err
+			}
+			_, err := tx.Exec(`UPDATE orders SET status='returned',updated_at=NOW() WHERE id=$1 AND tenant_id=$2`, ret.OrderID, ret.TenantID)
+			return err
+		})
 		middleware.WriteAudit(c, "return_refund", "order_return", ret.ID, gin.H{"status": ret.Status}, gin.H{"status": "refunded"})
 		httpx.OK(c, gin.H{"id": ret.ID, "status": "refunded"})
 		return
@@ -461,7 +495,11 @@ func (h *OrderHandler) ProcessReturn(c *gin.Context) {
 		httpx.BadRequest(c, fmt.Sprintf("cannot %s return in %s state", action, ret.Status))
 		return
 	}
-	if _, err := h.Service.Repo.DB.Exec(`UPDATE order_returns SET status=$1,admin_note=COALESCE(NULLIF($2,''),admin_note),updated_at=NOW() WHERE id=$3`, target, body.Note, ret.ID); err != nil {
+	err = db.WithTenant(h.Service.Repo.DB, tenantID, func(tx *sqlx.Tx) error {
+		_, err := tx.Exec(`UPDATE order_returns SET status=$1,admin_note=COALESCE(NULLIF($2,''),admin_note),updated_at=NOW() WHERE id=$3`, target, body.Note, ret.ID)
+		return err
+	})
+	if err != nil {
 		httpx.Internal(c, err.Error())
 		return
 	}

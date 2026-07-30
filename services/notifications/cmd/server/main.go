@@ -29,7 +29,10 @@ func main() {
 	if os.Getenv("HTTP_PORT") == "" {
 		cfg.HTTPPort = "8009"
 	}
-	database, _ := db.Connect(cfg.DatabaseURL)
+	database, err := db.Connect(cfg.DatabaseURL)
+	if err != nil {
+		log.Fatalf("database: %v", err)
+	}
 	tokenMgr := commonauth.NewManager(cfg.JWTSecret, cfg.JWTAccessTTLMinutes, cfg.JWTRefreshTTLDays)
 
 	smtp := service.NewSMTPFromEnv()
@@ -37,24 +40,13 @@ func main() {
 	if database != nil {
 		go consumeEvents(cfg.KafkaBrokers, database, transport)
 		go service.DrainOutbox(database, smtp)
-		_, _ = database.Exec(`
-			CREATE TABLE IF NOT EXISTS notification_outbox (
-				id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-				tenant_id UUID NOT NULL,
-				channel VARCHAR(20) NOT NULL,
-				recipient VARCHAR(255) NOT NULL,
-				subject TEXT,
-				body TEXT,
-				status VARCHAR(20) DEFAULT 'pending',
-				created_at TIMESTAMPTZ DEFAULT NOW(),
-				sent_at TIMESTAMPTZ
-			)`)
 	}
 
 	shutdown, _ := otelx.Init(cfg.ServiceName)
 	defer func() { _ = shutdown(context.Background()) }()
 	r := gin.New()
-	r.Use(gin.Recovery(), otelx.Middleware(cfg.ServiceName), middleware.CORS(), middleware.SecurityHeaders(), middleware.MaxBodyBytes(0), middleware.Tenant(), middleware.TenantDB(database), middleware.Metrics(cfg.ServiceName))
+	middleware.SecureEngine(r)
+	r.Use(gin.Recovery(), otelx.Middleware(cfg.ServiceName), middleware.CORS(), middleware.SecurityHeaders(), middleware.MaxBodyBytes(0), middleware.Tenant(), middleware.SanitizeGuest(), middleware.TenantDB(database), middleware.Metrics(cfg.ServiceName))
 	middleware.MountMetrics(r)
 	r.GET("/health", func(c *gin.Context) { c.JSON(200, gin.H{"status": "ok"}) })
 

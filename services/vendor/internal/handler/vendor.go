@@ -10,6 +10,7 @@ import (
 	"time"
 
 	commonauth "github.com/gayrat/marketplace/packages/go-common/auth"
+	commondb "github.com/gayrat/marketplace/packages/go-common/db"
 	"github.com/gayrat/marketplace/packages/go-common/httpx"
 	kafkax "github.com/gayrat/marketplace/packages/go-common/kafka"
 	"github.com/gayrat/marketplace/packages/go-common/middleware"
@@ -161,19 +162,29 @@ func vendorProducts(c *gin.Context, database *sqlx.DB) {
 }
 func vendorReviews(c *gin.Context, database *sqlx.DB) {
 	var vendorID string
-	_ = database.Get(&vendorID, `SELECT id FROM vendors WHERE slug=$1`, c.Param("slug"))
-	rows, _ := database.Queryx(`
+	if err := database.Get(&vendorID, `SELECT id FROM vendors WHERE slug=$1 AND tenant_id=$2`, c.Param("slug"), middleware.GetTenantID(c)); err != nil {
+		httpx.NotFound(c, "vendor not found")
+		return
+	}
+	rows, err := database.Queryx(`
 		SELECT r.id, r.rating, r.title, r.body, r.vendor_reply, r.helpful_count, r.verified_purchase, r.created_at,
 		       NULLIF(TRIM(CONCAT(COALESCE(u.first_name,''), ' ', COALESCE(u.last_name,''))), '') AS author_name
 		FROM reviews r
 		LEFT JOIN users u ON u.id = r.user_id
 		WHERE r.vendor_id=$1 AND r.status='approved'
 		ORDER BY r.created_at DESC LIMIT 50`, vendorID)
+	if err != nil {
+		httpx.WriteDBError(c, err)
+		return
+	}
 	defer rows.Close()
 	httpx.OK(c, gin.H{"items": maps(rows)})
 }
 func maps(rows *sqlx.Rows) []map[string]any {
-	var items []map[string]any
+	items := []map[string]any{}
+	if rows == nil {
+		return items
+	}
 	for rows.Next() {
 		m := map[string]any{}
 		_ = rows.MapScan(m)
@@ -210,7 +221,7 @@ func vendorOrders(c *gin.Context, database *sqlx.DB) {
 		httpx.NotFound(c, "vendor not found")
 		return
 	}
-	rows, _ := database.Queryx(`
+	rows, err := database.Queryx(`
 		SELECT oi.order_id, o.order_number, oi.title, oi.quantity, oi.total_price,
 		       o.status AS status, o.payment_status, o.created_at
 		FROM order_items oi
@@ -218,6 +229,10 @@ func vendorOrders(c *gin.Context, database *sqlx.DB) {
 		WHERE oi.vendor_id = $1
 		ORDER BY o.created_at DESC
 		LIMIT 50`, vid)
+	if err != nil {
+		httpx.WriteDBError(c, err)
+		return
+	}
 	defer rows.Close()
 	httpx.OK(c, gin.H{"items": maps(rows)})
 }
@@ -227,7 +242,11 @@ func myProducts(c *gin.Context, database *sqlx.DB) {
 		httpx.NotFound(c, "vendor not found")
 		return
 	}
-	rows, _ := database.Queryx(`SELECT id, slug, translations, price, status, inventory_quantity FROM products WHERE vendor_id=$1 ORDER BY created_at DESC`, vid)
+	rows, err := database.Queryx(`SELECT id, slug, translations, price, status, inventory_quantity FROM products WHERE vendor_id=$1 ORDER BY created_at DESC`, vid)
+	if err != nil {
+		httpx.WriteDBError(c, err)
+		return
+	}
 	defer rows.Close()
 	httpx.OK(c, gin.H{"items": maps(rows)})
 }
@@ -237,7 +256,11 @@ func payouts(c *gin.Context, database *sqlx.DB) {
 		httpx.NotFound(c, "vendor not found")
 		return
 	}
-	rows, _ := database.Queryx(`SELECT id, amount, commission_total, currency, status, period_start, period_end, created_at FROM vendor_payouts WHERE vendor_id=$1 ORDER BY created_at DESC`, vid)
+	rows, err := database.Queryx(`SELECT id, amount, commission_total, currency, status, period_start, period_end, created_at FROM vendor_payouts WHERE vendor_id=$1 ORDER BY created_at DESC`, vid)
+	if err != nil {
+		httpx.WriteDBError(c, err)
+		return
+	}
 	defer rows.Close()
 	httpx.OK(c, gin.H{"items": maps(rows)})
 }
@@ -669,86 +692,85 @@ func updateTenantSettings(c *gin.Context, database *sqlx.DB) {
 
 func runPayouts(c *gin.Context, database *sqlx.DB) {
 	tenantID := middleware.GetTenantID(c)
-	tx, err := database.Beginx()
-	if err != nil {
-		httpx.Internal(c, err.Error())
-		return
-	}
-	defer func() { _ = tx.Rollback() }()
-
 	type row struct {
 		VendorID   string  `db:"vendor_id"`
 		Amount     float64 `db:"amount"`
 		Commission float64 `db:"commission"`
 	}
-	var rows []row
-	// Only settle pending splits tied to succeeded payments (no order_items fallback).
-	err = tx.Select(&rows, `
-		SELECT ps.vendor_id::text AS vendor_id,
-			COALESCE(SUM(ps.vendor_amount),0) AS amount,
-			COALESCE(SUM(ps.commission_amount),0) AS commission
-		FROM payment_splits ps
-		JOIN payments p ON p.id = ps.payment_id
-		WHERE ps.tenant_id=$1
-			AND ps.status='pending'
-			AND ps.vendor_id IS NOT NULL
-			AND p.status='succeeded'
-		GROUP BY ps.vendor_id`, tenantID)
-	if err != nil {
-		httpx.Internal(c, err.Error())
-		return
-	}
 	created := 0
 	var totalAmount, totalCommission float64
 	sandbox := os.Getenv("PAYMENTS_SANDBOX") != "false"
 	splitStatus := "settled"
-	type payoutAttempt struct{ ID, VendorID string; Amount float64 }
-	var attempts []payoutAttempt
-	for _, r := range rows {
-		if r.Amount <= 0 {
-			continue
-		}
-		if _, err := tx.Exec(`SELECT id FROM payment_splits WHERE tenant_id=$1 AND vendor_id=$2 AND status='pending' FOR UPDATE`, tenantID, r.VendorID); err != nil {
-			httpx.Internal(c, err.Error())
-			return
-		}
-		payoutID := uuid.NewString()
-		if _, err := tx.Exec(`INSERT INTO vendor_payouts (id, tenant_id, vendor_id, amount, commission_total, currency, status, period_start, period_end)
-			VALUES ($1,$2,$3,$4,$5,'UZS','pending', CURRENT_DATE - 7, CURRENT_DATE)`,
-			payoutID, tenantID, r.VendorID, r.Amount, r.Commission); err != nil {
-			httpx.Internal(c, err.Error())
-			return
-		}
-		res, err := tx.Exec(`UPDATE payment_splits SET status=$1, payout_id=$2
-			WHERE vendor_id=$3 AND tenant_id=$4 AND status='pending'
-			  AND payment_id IN (SELECT id FROM payments WHERE status='succeeded')`,
-			splitStatus, payoutID, r.VendorID, tenantID)
-		if err != nil {
-			httpx.Internal(c, err.Error())
-			return
-		}
-		if n, _ := res.RowsAffected(); n == 0 {
-			continue
-		}
-		created++
-		attempts = append(attempts, payoutAttempt{payoutID, r.VendorID, r.Amount})
-		totalAmount += r.Amount
-		totalCommission += r.Commission
+	type payoutAttempt struct {
+		ID, VendorID string
+		Amount       float64
 	}
-	if err := tx.Commit(); err != nil {
+	var attempts []payoutAttempt
+
+	err := commondb.WithTenant(database, tenantID, func(tx *sqlx.Tx) error {
+		var rows []row
+		// Only settle pending splits tied to succeeded payments (no order_items fallback).
+		if err := tx.Select(&rows, `
+			SELECT ps.vendor_id::text AS vendor_id,
+				COALESCE(SUM(ps.vendor_amount),0) AS amount,
+				COALESCE(SUM(ps.commission_amount),0) AS commission
+			FROM payment_splits ps
+			JOIN payments p ON p.id = ps.payment_id
+			WHERE ps.tenant_id=$1
+				AND ps.status='pending'
+				AND ps.vendor_id IS NOT NULL
+				AND p.status='succeeded'
+			GROUP BY ps.vendor_id`, tenantID); err != nil {
+			return err
+		}
+		for _, r := range rows {
+			if r.Amount <= 0 {
+				continue
+			}
+			if _, err := tx.Exec(`SELECT id FROM payment_splits WHERE tenant_id=$1 AND vendor_id=$2 AND status='pending' FOR UPDATE`, tenantID, r.VendorID); err != nil {
+				return err
+			}
+			payoutID := uuid.NewString()
+			if _, err := tx.Exec(`INSERT INTO vendor_payouts (id, tenant_id, vendor_id, amount, commission_total, currency, status, period_start, period_end)
+				VALUES ($1,$2,$3,$4,$5,'UZS','pending', CURRENT_DATE - 7, CURRENT_DATE)`,
+				payoutID, tenantID, r.VendorID, r.Amount, r.Commission); err != nil {
+				return err
+			}
+			res, err := tx.Exec(`UPDATE payment_splits SET status=$1, payout_id=$2
+				WHERE vendor_id=$3 AND tenant_id=$4 AND status='pending'
+				  AND payment_id IN (SELECT id FROM payments WHERE status='succeeded')`,
+				splitStatus, payoutID, r.VendorID, tenantID)
+			if err != nil {
+				return err
+			}
+			if n, _ := res.RowsAffected(); n == 0 {
+				continue
+			}
+			created++
+			attempts = append(attempts, payoutAttempt{payoutID, r.VendorID, r.Amount})
+			totalAmount += r.Amount
+			totalCommission += r.Commission
+		}
+		return nil
+	})
+	if err != nil {
 		httpx.Internal(c, err.Error())
 		return
 	}
 	for _, attempt := range attempts {
-		if sandbox {
-			_, _ = database.Exec(`UPDATE vendor_payouts SET ledger_note='sandbox_settlement' WHERE id=$1`, attempt.ID)
-			continue
-		}
-		if transferID, err := attemptStripeTransfer(database, attempt.VendorID, attempt.Amount); err != nil {
-			_, _ = database.Exec(`UPDATE vendor_payouts SET ledger_note=$1 WHERE id=$2`, "stripe transfer failed: "+err.Error(), attempt.ID)
-		} else {
-			_, _ = database.Exec(`UPDATE vendor_payouts SET status='completed', stripe_transfer_id=$1, ledger_note=NULL WHERE id=$2`, transferID, attempt.ID)
-		}
+		_ = commondb.WithTenant(database, tenantID, func(tx *sqlx.Tx) error {
+			if sandbox {
+				_, err := tx.Exec(`UPDATE vendor_payouts SET ledger_note='sandbox_settlement' WHERE id=$1`, attempt.ID)
+				return err
+			}
+			if transferID, err := attemptStripeTransfer(database, attempt.VendorID, attempt.Amount); err != nil {
+				_, e := tx.Exec(`UPDATE vendor_payouts SET ledger_note=$1 WHERE id=$2`, "stripe transfer failed: "+err.Error(), attempt.ID)
+				return e
+			} else {
+				_, e := tx.Exec(`UPDATE vendor_payouts SET status='completed', stripe_transfer_id=$1, ledger_note=NULL WHERE id=$2`, transferID, attempt.ID)
+				return e
+			}
+		})
 	}
 	payoutStatus := "pending"
 	ledgerNote := ""

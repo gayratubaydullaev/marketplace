@@ -103,13 +103,13 @@ export function ProductGallery({
   }
 
   return (
-    <div className="w-full min-w-0 max-w-full lg:overflow-visible overflow-x-clip">
+    <div className="w-full min-w-0 max-w-full overflow-x-clip lg:overflow-visible">
       <div className="flex w-full min-w-0 flex-col items-stretch gap-3 lg:flex-row lg:items-start lg:gap-4">
         {total > 1 ? (
           <div
             ref={desktopStripRef}
-            className="hidden w-[5.25rem] shrink-0 flex-col gap-2.5 overflow-y-auto overscroll-contain [scrollbar-width:none] lg:flex xl:w-24 [&::-webkit-scrollbar]:hidden"
-            style={{ maxHeight: "min(84dvh, 44rem)", height: "min(84dvh, 44rem)" }}
+            className="hidden w-[4.75rem] shrink-0 flex-col gap-2 overflow-y-auto overscroll-contain [scrollbar-width:none] lg:flex xl:w-[5.5rem] xl:gap-2.5 [&::-webkit-scrollbar]:hidden"
+            style={{ maxHeight: "min(78dvh, 40rem)", height: "min(78dvh, 40rem)" }}
           >
             {list.map((img, i) => (
               <button
@@ -126,7 +126,7 @@ export function ProductGallery({
                   skipDesktopScrollRef.current = true;
                   setActive(i);
                 }}
-                className={`aspect-square w-full shrink-0 overflow-hidden rounded-2xl border-2 transition ${
+                className={`aspect-square w-full shrink-0 overflow-hidden rounded-xl border-2 transition xl:rounded-2xl ${
                   i === active
                     ? "border-accent opacity-100 shadow-sm"
                     : "border-transparent opacity-65 hover:opacity-100"
@@ -149,17 +149,13 @@ export function ProductGallery({
           </div>
         ) : null}
 
-        <div className="relative mx-auto w-full min-w-0 lg:mx-0 lg:w-auto lg:flex-1 lg:min-w-0">
+        <div className="relative w-full min-w-0 lg:flex-1">
           {/*
-            Aspect-correct frame that still fits the viewport:
-            width = min(parent, maxHeight * ratio) so aspect-ratio never breaks.
-            Mobile 1:1 · Desktop 4:5
+            Mobile/tablet: full-width square. Desktop: 4:5 frame capped by viewport height.
           */}
           <div
-            className="group relative mx-auto overflow-hidden rounded-2xl bg-surface-muted
-              aspect-square w-[min(100%,min(70dvh,28rem))]
-              sm:w-[min(100%,min(72dvh,32rem))]
-              lg:mx-0 lg:aspect-[4/5] lg:w-[min(100%,calc(min(84dvh,44rem)*0.8))] lg:max-h-[min(84dvh,44rem)] lg:rounded-3xl lg:shadow-[0_24px_60px_-36px_rgba(11,31,36,0.4)]"
+            className="group relative w-full overflow-hidden rounded-2xl bg-surface-muted aspect-square
+              lg:aspect-[4/5] lg:h-[min(78dvh,40rem)] lg:max-h-[min(78dvh,40rem)] lg:rounded-3xl lg:shadow-[0_24px_60px_-36px_rgba(11,31,36,0.4)]"
             onTouchStart={onTouchStart}
             onTouchEnd={onTouchEnd}
           >
@@ -179,7 +175,7 @@ export function ProductGallery({
                   fetchPriority={active === 0 ? "high" : "auto"}
                   width={1200}
                   height={1500}
-                  sizes="(max-width: 1023px) 100vw, 56vw"
+                  sizes="(max-width: 767px) 100vw, (max-width: 1023px) 55vw, 48vw"
                   className="h-full w-full object-contain transition duration-500 group-hover:scale-[1.02] animate-rise"
                 />
                 <span className="pointer-events-none absolute inset-x-0 bottom-0 hidden bg-gradient-to-t from-night/50 to-transparent px-5 pb-4 pt-16 text-xs font-semibold text-paper/95 opacity-0 transition duration-300 group-hover:opacity-100 lg:block">
@@ -200,7 +196,7 @@ export function ProductGallery({
                   type="button"
                   aria-label={t("galleryPrev")}
                   onClick={() => go(-1)}
-                  className="absolute start-3 top-1/2 z-[1] hidden h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-white/95 text-night shadow-md transition hover:bg-white lg:flex"
+                  className="absolute start-2 top-1/2 z-[1] flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-xl bg-white/95 text-night shadow-sm transition hover:bg-white sm:start-3 sm:h-10 sm:w-10 lg:h-11 lg:w-11"
                 >
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden>
                     <path d="M15 6l-6 6 6 6" strokeLinecap="round" strokeLinejoin="round" />
@@ -210,14 +206,14 @@ export function ProductGallery({
                   type="button"
                   aria-label={t("galleryNext")}
                   onClick={() => go(1)}
-                  className="absolute end-3 top-1/2 z-[1] hidden h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-white/95 text-night shadow-md transition hover:bg-white lg:flex"
+                  className="absolute end-2 top-1/2 z-[1] flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-xl bg-white/95 text-night shadow-sm transition hover:bg-white sm:end-3 sm:h-10 sm:w-10 lg:h-11 lg:w-11"
                 >
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden>
                     <path d="M9 6l6 6-6 6" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
                 </button>
 
-                <div className="pointer-events-none absolute end-3 top-3 z-[1] rounded-full bg-night/55 px-2.5 py-1 text-[11px] font-bold tabular-nums text-paper backdrop-blur-sm lg:end-4 lg:top-4 lg:px-3 lg:py-1.5 lg:text-xs">
+                <div className="pointer-events-none absolute end-2 top-2 z-[1] rounded-lg bg-night/55 px-2 py-1 text-[11px] font-bold tabular-nums text-paper backdrop-blur-sm sm:end-3 sm:top-3 sm:rounded-xl lg:end-4 lg:top-4 lg:px-3 lg:py-1.5 lg:text-xs">
                   {active + 1} / {total}
                 </div>
 
@@ -243,7 +239,7 @@ export function ProductGallery({
           {total > 1 ? (
             <div
               ref={mobileStripRef}
-              className="mx-auto mt-3 flex max-w-[min(100%,min(70dvh,28rem))] snap-x snap-mandatory gap-2.5 overflow-x-auto overscroll-x-contain scroll-smooth touch-pan-x [scrollbar-width:none] sm:max-w-[min(100%,min(72dvh,32rem))] lg:hidden [&::-webkit-scrollbar]:hidden"
+              className="mt-3 flex w-full snap-x snap-mandatory gap-2 overflow-x-auto overscroll-x-contain scroll-smooth touch-pan-x [scrollbar-width:none] sm:gap-2.5 lg:hidden [&::-webkit-scrollbar]:hidden"
             >
               {list.map((img, i) => (
                 <button
@@ -253,7 +249,7 @@ export function ProductGallery({
                   }}
                   type="button"
                   onClick={() => setActive(i)}
-                  className={`h-[4.5rem] w-[4.5rem] shrink-0 snap-start overflow-hidden rounded-2xl border-2 transition sm:h-20 sm:w-20 ${
+                  className={`h-16 w-16 shrink-0 snap-start overflow-hidden rounded-xl border-2 transition sm:h-[4.5rem] sm:w-[4.5rem] sm:rounded-2xl ${
                     i === active ? "border-accent opacity-100" : "border-transparent opacity-70"
                   }`}
                   aria-label={`${i + 1} / ${total}`}
@@ -266,7 +262,7 @@ export function ProductGallery({
                     loading="lazy"
                     width={96}
                     height={96}
-                    sizes="96px"
+                    sizes="72px"
                     className="h-full w-full object-cover"
                   />
                 </button>
@@ -314,17 +310,21 @@ export function ProductGallery({
                   type="button"
                   aria-label={t("galleryPrev")}
                   onClick={() => go(-1)}
-                  className="absolute start-4 z-10 flex h-11 w-11 items-center justify-center rounded-full bg-white/15 text-paper transition hover:bg-white/25"
+                  className="absolute start-4 z-10 flex h-11 w-11 items-center justify-center rounded-xl bg-white/15 text-paper transition hover:bg-white/25"
                 >
-                  ‹
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden>
+                    <path d="M15 6l-6 6 6 6" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
                 </button>
                 <button
                   type="button"
                   aria-label={t("galleryNext")}
                   onClick={() => go(1)}
-                  className="absolute end-4 z-10 flex h-11 w-11 items-center justify-center rounded-full bg-white/15 text-paper transition hover:bg-white/25 md:end-16"
+                  className="absolute end-4 z-10 flex h-11 w-11 items-center justify-center rounded-xl bg-white/15 text-paper transition hover:bg-white/25 md:end-16"
                 >
-                  ›
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden>
+                    <path d="M9 6l6 6-6 6" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
                 </button>
               </>
             ) : null}

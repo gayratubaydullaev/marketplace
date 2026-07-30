@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { rewriteMediaUrl } from "@/lib/media";
 
@@ -164,9 +165,11 @@ export function CategoryRail({
           type="button"
           aria-label="Previous"
           onClick={() => scrollByDir(-1)}
-          className="absolute start-0 top-1/2 z-10 hidden h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-night/10 bg-paper/95 text-night shadow-md transition hover:bg-white md:flex"
+          className="absolute start-0 top-1/2 z-10 hidden h-9 w-9 -translate-y-1/2 items-center justify-center rounded-xl border border-night/10 bg-paper/95 text-night shadow-sm transition hover:border-teal/35 hover:text-teal md:flex"
         >
-          ‹
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden>
+            <path d="M15 5 8 12l7 7" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
         </button>
       ) : null}
       {canNext ? (
@@ -174,9 +177,11 @@ export function CategoryRail({
           type="button"
           aria-label="Next"
           onClick={() => scrollByDir(1)}
-          className="absolute end-0 top-1/2 z-10 hidden h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-night/10 bg-paper/95 text-night shadow-md transition hover:bg-white md:flex"
+          className="absolute end-0 top-1/2 z-10 hidden h-9 w-9 -translate-y-1/2 items-center justify-center rounded-xl border border-night/10 bg-paper/95 text-night shadow-sm transition hover:border-teal/35 hover:text-teal md:flex"
         >
-          ›
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden>
+            <path d="M9 5l7 7-7 7" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
         </button>
       ) : null}
 
@@ -211,19 +216,15 @@ export function CategoryRail({
                   onDragStart={(e) => e.preventDefault()}
                   className="group flex w-[5.75rem] flex-col sm:w-[8.5rem]"
                 >
-                  <span className="relative block aspect-square w-full overflow-hidden rounded-lg bg-[#e8eef0] sm:rounded-xl">
+                  <span className="relative block aspect-square w-full overflow-hidden rounded-lg bg-surface-muted sm:rounded-xl">
                     {image ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
+                      <Image
                         src={image}
                         alt=""
-                        draggable={false}
-                        loading="lazy"
-                        decoding="async"
-                        width={200}
-                        height={200}
+                        fill
                         sizes="120px"
-                        className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+                        draggable={false}
+                        className="pointer-events-none object-cover transition duration-300 group-hover:scale-[1.03]"
                       />
                     ) : (
                       <span

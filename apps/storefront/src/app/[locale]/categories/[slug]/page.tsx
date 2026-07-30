@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { setRequestLocale, getTranslations } from "next-intl/server";
-import { api, type Product } from "@/lib/api";
+import { apiPublic, publicTags, type Product } from "@/lib/api";
+import { getCategories, getSearchFacets } from "@/lib/catalog";
 import { buildFilterHref, countActiveFilters, type FilterState } from "@/lib/filters";
 import { ProductGrid } from "@/components/ProductGrid";
 import { Pagination } from "@/components/Pagination";
@@ -12,10 +13,8 @@ const PAGE_SIZE = 12;
 export async function generateMetadata({ params }: { params: Promise<{ locale: string; slug: string }> }) {
   const { locale, slug } = await params;
   try {
-    const cats = await api<{ items: { slug: string; translations?: Record<string, { name?: string }> }[] }>(
-      "/v1/categories"
-    );
-    const cat = (cats.items || []).find((c) => c.slug === slug);
+    const cats = await getCategories();
+    const cat = cats.find((c) => c.slug === slug);
     const name = cat?.translations?.[locale]?.name || cat?.translations?.uz?.name || slug;
     return {
       title: `${name} | Gayrat Market`,
@@ -67,21 +66,14 @@ export default async function CategoryPage({
   if (sp.in_stock) qs.set("in_stock", "true");
 
   try {
-    const [cats, prod, facets] = await Promise.all([
-      api<{
-        items: {
-          id: string;
-          slug: string;
-          parent_id?: string | null;
-          translations?: Record<string, { name?: string }>;
-        }[];
-      }>("/v1/categories"),
-      api<{ items: Product[]; total?: number }>(`/v1/categories/${slug}/products?${qs.toString()}`),
-      api<{ price_ranges?: { min: number; max: number }[] }>("/v1/search/facets").catch(
-        () => ({ price_ranges: undefined })
-      ),
+    const [all, prod, facets] = await Promise.all([
+      getCategories(),
+      apiPublic<{ items: Product[]; total?: number }>(`/v1/categories/${slug}/products?${qs.toString()}`, {
+        revalidate: 60,
+        tags: publicTags("products"),
+      }),
+      getSearchFacets(),
     ]);
-    const all = cats.items || [];
     const cat = all.find((c) => c.slug === slug);
     categoryName = cat?.translations?.[locale]?.name || cat?.translations?.uz?.name || slug;
     products = prod.items || [];

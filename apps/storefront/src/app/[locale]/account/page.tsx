@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState, Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
-import { api } from "@/lib/api";
+import { api, hasClientSessionFlag, logoutSession } from "@/lib/api";
 import { UZ_REGIONS } from "@/lib/regions";
 import { useWishlist } from "@/lib/wishlist";
 import { useCart } from "@/lib/cart";
@@ -136,8 +136,7 @@ function AccountInner() {
   }, [searchParams]);
 
   useEffect(() => {
-    const token = localStorage.getItem("access_token");
-    if (!token) {
+    if (!hasClientSessionFlag()) {
       loadOrders()
         .catch(() => setOrders([]))
         .finally(() => setBootstrapping(false));
@@ -168,8 +167,7 @@ function AccountInner() {
         user: User;
         tokens: { access_token: string; refresh_token: string };
       }>(path, { method: "POST", body: JSON.stringify({ email, password, locale }) });
-      localStorage.setItem("access_token", data.tokens.access_token);
-      localStorage.setItem("refresh_token", data.tokens.refresh_token);
+      // Tokens are stored in httpOnly cookies by the BFF — never localStorage.
       await Promise.all([
         syncWishlistToServer().catch(() => undefined),
         syncCartToServer().catch(() => undefined),
@@ -342,9 +340,8 @@ function AccountInner() {
     }
   }
 
-  function logout() {
-    localStorage.removeItem("access_token");
-    localStorage.removeItem("refresh_token");
+  async function logout() {
+    await logoutSession();
     window.location.assign(`/${locale}`);
   }
 
@@ -690,6 +687,7 @@ function AccountInner() {
                 description={t("noAddressesHint")}
                 actionLabel={t("addAddress")}
                 onAction={startCreateAddress}
+                variant="generic"
               />
             </div>
           ) : null}

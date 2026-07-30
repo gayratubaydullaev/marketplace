@@ -67,12 +67,12 @@ export function ProductDetail({
   );
 
   return (
-    <div className="flex w-full min-w-0 max-w-full flex-col gap-8 md:gap-10 lg:grid lg:grid-cols-[minmax(0,1.2fr)_minmax(22rem,0.8fr)] lg:items-start lg:gap-x-12 lg:gap-y-12 xl:grid-cols-[minmax(0,1.25fr)_minmax(24rem,0.75fr)] xl:gap-x-16">
+    <div className="flex w-full min-w-0 max-w-full flex-col gap-6 sm:gap-8 md:grid md:grid-cols-[minmax(0,1.05fr)_minmax(17.5rem,0.95fr)] md:items-start md:gap-x-8 md:gap-y-10 lg:grid-cols-[minmax(0,1.2fr)_minmax(22rem,0.8fr)] lg:gap-x-12 lg:gap-y-12 xl:grid-cols-[minmax(0,1.25fr)_minmax(24rem,0.75fr)] xl:gap-x-16">
       <div className="min-w-0 max-w-full">
         <ProductGallery images={images} focusIndex={focusIndex} name={name} />
       </div>
 
-      <div className="min-w-0 max-w-full lg:sticky lg:top-28 lg:row-span-2 lg:self-start">
+      <div className="min-w-0 max-w-full md:sticky md:top-24 md:row-span-2 md:self-start lg:top-28">
         <ProductPurchase
           product={product}
           variants={variants}
@@ -89,7 +89,7 @@ export function ProductDetail({
         />
       </div>
 
-      {info ? <div className="min-w-0 max-w-full">{info}</div> : null}
+      {info ? <div className="min-w-0 max-w-full md:col-start-1">{info}</div> : null}
     </div>
   );
 }

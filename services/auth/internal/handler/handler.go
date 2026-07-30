@@ -21,8 +21,14 @@ func New(svc *service.AuthService) *Handler {
 }
 
 func exposeDevSecrets() bool {
+	// Fail-closed: only expose reset/OTP tokens when explicitly in a local env.
 	env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
-	return env != "production" && env != "prod"
+	switch env {
+	case "development", "dev", "local", "test":
+		return true
+	default:
+		return false
+	}
 }
 
 func (h *Handler) Register(c *gin.Context) {

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { api, clearTokens, errMsg, getToken, tokenHasAdminRole } from "@/lib/api";
+import { api, clearTokens, errMsg, ensureAdminSession, isAdminRole } from "@/lib/api";
 import { Msg, PageHeader, CountPill } from "@/components/ui";
 import { LocaleSwitcher, useI18n } from "@/lib/i18n";
 
@@ -26,7 +26,7 @@ export default function AdminHome() {
   const [dashLoading, setDashLoading] = useState(false);
 
   useEffect(() => {
-    setAuthed(tokenHasAdminRole(getToken()));
+    void ensureAdminSession().then(setAuthed);
   }, []);
 
   useEffect(() => {
@@ -60,19 +60,12 @@ export default function AdminHome() {
     setLoading(true);
     setLoginMsg("");
     try {
-      const data = await api<{ tokens: { access_token: string; refresh_token?: string }; user?: { role?: string } }>(
-        "/v1/auth/login",
-        {
-          method: "POST",
-          body: JSON.stringify({ email: email.trim(), password }),
-        }
-      );
-      localStorage.setItem("access_token", data.tokens.access_token);
-      if (data.tokens.refresh_token) {
-        localStorage.setItem("refresh_token", data.tokens.refresh_token);
-      }
-      if (!tokenHasAdminRole(data.tokens.access_token)) {
-        clearTokens();
+      const data = await api<{ user?: { role?: string } }>("/v1/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ email: email.trim(), password }),
+      });
+      if (!isAdminRole(data.user?.role)) {
+        await clearTokens();
         setLoginMsg(t("loginNoAccess"));
         return;
       }

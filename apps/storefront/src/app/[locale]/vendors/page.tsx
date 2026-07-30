@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import { setRequestLocale, getTranslations } from "next-intl/server";
-import { api } from "@/lib/api";
+import { apiPublic, publicTags } from "@/lib/api";
 import { EmptyState, PageHeader } from "@/components/PageChrome";
 
 type Vendor = {
@@ -36,7 +36,10 @@ export default async function VendorsPage({
   const t = await getTranslations();
   let items: Vendor[] = [];
   try {
-    const data = await api<{ items: Vendor[] }>("/v1/vendors");
+    const data = await apiPublic<{ items: Vendor[] }>("/v1/vendors", {
+      revalidate: 120,
+      tags: publicTags("vendors"),
+    });
     items = [...(data.items || [])].sort((a, b) => Number(b.rating || 0) - Number(a.rating || 0));
   } catch {
     items = [];
@@ -47,7 +50,7 @@ export default async function VendorsPage({
       <PageHeader title={t("nav.vendors")} subtitle={t("vendors.sortedByRating")} />
       {items.length === 0 ? (
         <div className="mt-8">
-          <EmptyState title={t("vendors.empty")} actionHref={`/${locale}/products`} actionLabel={t("nav.catalog")} />
+          <EmptyState title={t("vendors.empty")} actionHref={`/${locale}/products`} actionLabel={t("nav.catalog")} variant="generic" />
         </div>
       ) : (
         <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">

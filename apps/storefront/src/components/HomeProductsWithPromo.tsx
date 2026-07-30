@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
-import { api, type Product } from "@/lib/api";
+import { apiPublic, publicTags, type Product } from "@/lib/api";
 import type { HeroSlide } from "@/components/HomeHero";
 import { ProductGrid } from "@/components/ProductGrid";
 import { PromoBanner } from "@/components/PromoBanner";
@@ -79,8 +79,9 @@ export function HomeProductsWithPromo({
     setError(false);
     const nextPage = page + 1;
     try {
-      const data = await api<{ items: Product[]; total?: number }>(
-        `/v1/products?sort=home&limit=${PAGE_SIZE}&page=${nextPage}`
+      const data = await apiPublic<{ items: Product[]; total?: number }>(
+        `/v1/products?sort=home&limit=${PAGE_SIZE}&page=${nextPage}`,
+        { revalidate: 60, tags: publicTags("products", "home") }
       );
       const next = data.items || [];
       let mergedLen = 0;

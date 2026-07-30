@@ -9,6 +9,7 @@ import (
 	kafkax "github.com/gayrat/marketplace/packages/go-common/kafka"
 	"github.com/gayrat/marketplace/packages/go-common/middleware"
 	"github.com/gayrat/marketplace/packages/go-common/otelx"
+	"github.com/gayrat/marketplace/packages/go-common/redisx"
 	"github.com/gayrat/marketplace/services/payments/internal/config"
 	"github.com/gayrat/marketplace/services/payments/internal/handler"
 	"github.com/gayrat/marketplace/services/payments/internal/repository"
@@ -21,45 +22,17 @@ func main() {
 	if err := cfg.ValidateSecrets(); err != nil {
 		log.Fatal(err)
 	}
-	database, _ := db.Connect(cfg.DatabaseURL)
-	if database != nil {
-		_, _ = database.Exec(`CREATE TABLE IF NOT EXISTS payment_splits (
-			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-			tenant_id UUID NOT NULL,
-			payment_id UUID NOT NULL,
-			order_id UUID NOT NULL,
-			vendor_id UUID,
-			gross_amount DECIMAL(14,2) NOT NULL,
-			commission_rate DECIMAL(5,2) NOT NULL DEFAULT 10,
-			commission_amount DECIMAL(14,2) NOT NULL,
-			vendor_amount DECIMAL(14,2) NOT NULL,
-			currency VARCHAR(3) DEFAULT 'UZS',
-			status VARCHAR(20) DEFAULT 'pending',
-			payout_id UUID,
-			created_at TIMESTAMPTZ DEFAULT NOW()
-		)`)
-		_, _ = database.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_payments_tenant_idempotency ON payments (tenant_id, idempotency_key) WHERE idempotency_key IS NOT NULL AND idempotency_key <> ''`)
-		_, _ = database.Exec(`CREATE INDEX IF NOT EXISTS idx_payment_splits_payment_pending ON payment_splits (payment_id, status)`)
-		_, _ = database.Exec(`CREATE INDEX IF NOT EXISTS idx_payment_splits_vendor_pending ON payment_splits (tenant_id, vendor_id, status) WHERE vendor_id IS NOT NULL AND status = 'pending'`)
-		// Tenant isolation: same FORCE RLS policy as other money tables.
-		_, _ = database.Exec(`ALTER TABLE IF EXISTS payment_splits ENABLE ROW LEVEL SECURITY`)
-		_, _ = database.Exec(`ALTER TABLE IF EXISTS payment_splits FORCE ROW LEVEL SECURITY`)
-		_, _ = database.Exec(`DROP POLICY IF EXISTS tenant_isolation_payment_splits ON payment_splits`)
-		_, _ = database.Exec(`
-			CREATE POLICY tenant_isolation_payment_splits ON payment_splits
-			USING (
-				current_setting('app.current_tenant', true) IS NOT NULL
-				AND current_setting('app.current_tenant', true) <> ''
-				AND tenant_id::text = current_setting('app.current_tenant', true)
-			)
-			WITH CHECK (
-				current_setting('app.current_tenant', true) IS NOT NULL
-				AND current_setting('app.current_tenant', true) <> ''
-				AND tenant_id::text = current_setting('app.current_tenant', true)
-			)`)
+	database, err := db.Connect(cfg.DatabaseURL)
+	if err != nil {
+		log.Fatalf("database: %v", err)
 	}
 	if err := service.ValidateProviderSecrets(); err != nil {
 		log.Fatal(err)
+	}
+	rdb, err := redisx.Connect(cfg.RedisURL)
+	if err != nil {
+		log.Printf("redis: %v", err)
+		rdb = nil
 	}
 	producer := kafkax.NewProducer(cfg.KafkaBrokers)
 	defer producer.Close()
@@ -68,7 +41,11 @@ func main() {
 	shutdown, _ := otelx.Init(cfg.ServiceName)
 	defer func() { _ = shutdown(context.Background()) }()
 	r := gin.New()
-	r.Use(gin.Recovery(), otelx.Middleware(cfg.ServiceName), middleware.CORS(), middleware.SecurityHeaders(), middleware.MaxBodyBytes(0), middleware.Tenant(), middleware.TenantDB(database), middleware.AuditLogger(database), middleware.Metrics(cfg.ServiceName))
+	middleware.SecureEngine(r)
+	r.Use(gin.Recovery(), otelx.Middleware(cfg.ServiceName), middleware.CORS(), middleware.SecurityHeaders(), middleware.MaxBodyBytes(0), middleware.Tenant(), middleware.SanitizeGuest(), middleware.TenantDB(database), middleware.AuditLogger(database), middleware.Metrics(cfg.ServiceName))
+	if rdb != nil {
+		r.Use(middleware.RateLimit(rdb, 40, 200))
+	}
 	middleware.MountMetrics(r)
 	r.GET("/health", func(c *gin.Context) { c.JSON(200, gin.H{"status": "ok", "sandbox": payments.Sandbox}) })
 	v1 := r.Group("/v1/payments")
@@ -76,11 +53,14 @@ func main() {
 	v1.POST("/intent", middleware.JWT(tokens, true), payments.Intent)
 	v1.POST("/confirm", middleware.JWT(tokens, true), payments.Confirm)
 	v1.POST("/collect", middleware.JWT(tokens, false), middleware.RequireRoles(commonauth.RoleTenantAdmin, commonauth.RoleManager, commonauth.RoleVendor, commonauth.RoleCourier), payments.Collect)
+	v1.POST("/refund", middleware.JWT(tokens, true), payments.Refund)
 	v1.POST("/webhooks/:provider", payments.Webhook)
 	v1.GET("/order/:order_id", middleware.JWT(tokens, false), payments.List)
 	v1.GET("/:id/status", middleware.JWT(tokens, true), payments.GetStatus)
-	v1.GET("/sandbox/pay/:id", payments.SandboxPayPage)
-	v1.POST("/sandbox/pay/:id", payments.SandboxPayPage)
+	if payments.Sandbox {
+		v1.GET("/sandbox/pay/:id", payments.SandboxPayPage)
+		v1.POST("/sandbox/pay/:id", payments.SandboxPayPage)
+	}
 	log.Printf("payments-service on :%s sandbox=%v", cfg.HTTPPort, payments.Sandbox)
 	log.Fatal(r.Run(":" + cfg.HTTPPort))
 }

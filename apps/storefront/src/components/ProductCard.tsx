@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useEffect, useRef, useState, type CSSProperties, type MouseEvent } from "react";
 import { useTranslations } from "next-intl";
 import { formatUZS, type Locale } from "@gayrat/i18n";
-import { api, productBadges, productCompareAt, productDiscountPercent, productName, variantImageList, type Product, type Variant } from "@/lib/api";
+import { apiPublic, productBadges, productCompareAt, productDiscountPercent, productName, publicTags, variantImageList, type Product, type Variant } from "@/lib/api";
 import { rewriteMediaUrls } from "@/lib/media";
 import { useCart, ensureCartHydrated } from "@/lib/cart";
 import { WishlistButton } from "@/components/WishlistButton";
@@ -27,12 +28,15 @@ export function ProductCard({
   index = 0,
   animate,
   vendor,
+  priority = false,
 }: {
   product: Product;
   locale: string;
   index?: number;
   animate?: boolean;
   vendor?: VendorInfo;
+  /** First-row cards: load eagerly for LCP. */
+  priority?: boolean;
 }) {
   const t = useTranslations("product");
   const add = useCart((s) => s.add);
@@ -102,7 +106,10 @@ export function ProductCard({
 
       let list: Variant[] = [];
       try {
-        const data = await api<{ variants?: Variant[] | null }>(`/v1/products/${product.slug}`);
+        const data = await apiPublic<{ variants?: Variant[] | null }>(`/v1/products/${product.slug}`, {
+          revalidate: 60,
+          tags: publicTags("products"),
+        });
         list = Array.isArray(data.variants) ? data.variants : [];
       } catch {
         // API hiccup must not block cart on mobile — add base SKU.
@@ -159,16 +166,14 @@ export function ProductCard({
         >
           <div className="relative aspect-[3/4] overflow-hidden rounded-2xl bg-surface-muted">
             {img ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
+              <Image
                 src={img}
                 alt={name}
-                loading="lazy"
-                decoding="async"
-                width={600}
-                height={800}
+                fill
                 sizes="(max-width: 639px) 50vw, (max-width: 1023px) 33vw, (max-width: 1279px) 25vw, 20vw"
-                className={`h-full w-full object-cover ${
+                priority={priority || index < 6}
+                loading={priority || index < 6 ? "eager" : "lazy"}
+                className={`object-cover ${
                   outOfStock ? "opacity-50" : "md:transition md:duration-300 md:group-hover:scale-[1.03]"
                 }`}
               />
@@ -327,7 +332,7 @@ export function ProductCard({
             onClick={onAdd}
             onPointerDown={(e) => e.stopPropagation()}
             disabled={loading}
-            className={`relative z-[1] mt-1.5 w-full touch-manipulation rounded-xl py-2 text-sm font-bold text-night transition disabled:opacity-60 sm:mt-2 sm:py-2.5 ${
+            className={`relative z-[1] mt-1.5 w-full touch-manipulation rounded-xl py-2 text-sm font-bold text-night transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal disabled:opacity-60 sm:mt-2 sm:py-2.5 ${
               added ? "bg-teal text-paper" : "bg-accent hover:bg-accent-hover"
             }`}
           >

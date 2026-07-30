@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
+import "@gayrat/map/styles.css";
 
 const LocationPicker = dynamic(() => import("@gayrat/map").then((m) => m.LocationPicker), {
   ssr: false,

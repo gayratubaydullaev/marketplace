@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { clearTokens, getToken, tokenHasVendorRole } from "@/lib/api";
+import { clearTokens, isVendorRole, probeSessionSafe } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
 
 export function AuthGate({ children }: { children: React.ReactNode }) {
@@ -10,25 +10,36 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { t } = useI18n();
   const [ready, setReady] = useState(pathname === "/");
+  const [ok, setOk] = useState(false);
   const [denied, setDenied] = useState("");
 
   useEffect(() => {
-    const token = getToken();
-    if (!token) {
+    let cancelled = false;
+    (async () => {
+      const session = await probeSessionSafe();
+      if (cancelled) return;
+      if (!session.authenticated) {
+        setOk(false);
+        setDenied("");
+        if (pathname !== "/") router.replace("/");
+        setReady(true);
+        return;
+      }
+      if (!isVendorRole(session.role)) {
+        await clearTokens();
+        setOk(false);
+        setDenied(t("authNoAccess"));
+        if (pathname !== "/") router.replace("/");
+        setReady(true);
+        return;
+      }
       setDenied("");
-      if (pathname !== "/") router.replace("/");
+      setOk(true);
       setReady(true);
-      return;
-    }
-    if (!tokenHasVendorRole(token)) {
-      clearTokens();
-      setDenied(t("authNoAccess"));
-      if (pathname !== "/") router.replace("/");
-      setReady(true);
-      return;
-    }
-    setDenied("");
-    setReady(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [pathname, router, t]);
 
   if (pathname === "/") {
@@ -52,9 +63,6 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (!tokenHasVendorRole(getToken())) {
-    return null;
-  }
-
+  if (!ok) return null;
   return <>{children}</>;
 }

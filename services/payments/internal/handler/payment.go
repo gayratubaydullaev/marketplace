@@ -10,12 +10,14 @@ import (
 	"strings"
 
 	commonauth "github.com/gayrat/marketplace/packages/go-common/auth"
+	"github.com/gayrat/marketplace/packages/go-common/db"
 	"github.com/gayrat/marketplace/packages/go-common/httpx"
 	"github.com/gayrat/marketplace/packages/go-common/middleware"
 	"github.com/gayrat/marketplace/services/payments/internal/model"
 	"github.com/gayrat/marketplace/services/payments/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/jmoiron/sqlx"
 )
 
 type PaymentHandler struct {
@@ -167,13 +169,19 @@ func (h *PaymentHandler) Intent(c *gin.Context) {
 	}
 	meta := mustJSON(metaValues)
 	if _, err = h.Service.Repo.DB.Exec(`INSERT INTO payments (id,tenant_id,order_id,user_id,amount,currency,provider,provider_payment_id,status,idempotency_key,metadata) VALUES ($1,$2,$3,$4,$5,'UZS',$6,$7,'pending',$8,$9)`, id, tenantID, body.OrderID, userID, order.Total, body.Provider, providerID, idem, meta); err != nil {
-		httpx.BadRequest(c, err.Error())
+		httpx.WriteDBError(c, err)
 		return
 	}
-	_, _ = h.Service.Repo.DB.Exec(`UPDATE orders SET payment_method=$1, updated_at=NOW() WHERE id=$2 AND tenant_id=$3`, body.Provider, body.OrderID, tenantID)
+	if _, err = h.Service.Repo.DB.Exec(`UPDATE orders SET payment_method=$1, updated_at=NOW() WHERE id=$2 AND tenant_id=$3`, body.Provider, body.OrderID, tenantID); err != nil {
+		httpx.WriteDBError(c, err)
+		return
+	}
 	// COD / bank: confirm fulfillment pipeline without collecting money yet.
 	if body.Provider == "cash_on_delivery" || body.Provider == "card_on_delivery" || body.Provider == "bank_transfer" {
-		_, _ = h.Service.Repo.DB.Exec(`UPDATE orders SET status='confirmed', updated_at=NOW() WHERE id=$1 AND tenant_id=$2 AND status='pending'`, body.OrderID, tenantID)
+		if _, err = h.Service.Repo.DB.Exec(`UPDATE orders SET status='confirmed', updated_at=NOW() WHERE id=$1 AND tenant_id=$2 AND status='pending'`, body.OrderID, tenantID); err != nil {
+			httpx.WriteDBError(c, err)
+			return
+		}
 	}
 	middleware.WriteAudit(c, "create_intent", "payment", id, nil, gin.H{"order_id": body.OrderID, "provider": body.Provider, "amount": order.Total})
 	httpx.Created(c, gin.H{"id": id, "provider": body.Provider, "provider_payment_id": providerID, "amount": order.Total, "currency": "UZS", "redirect_url": sandboxRedirect, "sandbox": h.Sandbox})
@@ -188,16 +196,12 @@ func (h *PaymentHandler) Confirm(c *gin.Context) {
 		httpx.BadRequest(c, err.Error())
 		return
 	}
-	payment, err := h.Service.Repo.Find(body.PaymentID)
+	payment, err := h.Service.Repo.FindInTenant(body.PaymentID, middleware.GetTenantID(c))
 	if err != nil {
 		httpx.NotFound(c, "payment not found")
 		return
 	}
 	tenantID := middleware.GetTenantID(c)
-	if payment.TenantID != "" && payment.TenantID != tenantID {
-		httpx.NotFound(c, "payment not found")
-		return
-	}
 	if !h.canAccessOrder(c, payment.OrderID, tenantID) {
 		httpx.NotFound(c, "payment not found")
 		return
@@ -228,14 +232,23 @@ func safeReturnURL(raw string) string {
 	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
 		return ""
 	}
+	env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
+	prod := env == "production" || env == "prod" || env == ""
 	allowed := map[string]struct{}{}
-	for _, base := range []string{
+	bases := []string{
 		os.Getenv("NEXT_PUBLIC_STOREFRONT_URL"),
-		"http://localhost:3000",
-		"http://127.0.0.1:3000",
 		"https://gayrat.uz",
 		"https://www.gayrat.uz",
-	} {
+	}
+	if !prod {
+		bases = append(bases, "http://localhost:3000", "http://127.0.0.1:3000")
+	}
+	if extra := strings.TrimSpace(os.Getenv("PAYMENT_RETURN_ORIGINS")); extra != "" {
+		for _, p := range strings.Split(extra, ",") {
+			bases = append(bases, strings.TrimSpace(p))
+		}
+	}
+	for _, base := range bases {
 		base = strings.TrimSpace(base)
 		if base == "" {
 			continue
@@ -244,7 +257,11 @@ func safeReturnURL(raw string) string {
 			allowed[strings.ToLower(bu.Host)] = struct{}{}
 		}
 	}
-	if _, ok := allowed[strings.ToLower(u.Host)]; !ok {
+	host := strings.ToLower(u.Host)
+	if prod && (strings.HasPrefix(host, "localhost") || strings.HasPrefix(host, "127.0.0.1")) {
+		return ""
+	}
+	if _, ok := allowed[host]; !ok {
 		return ""
 	}
 	if strings.Contains(u.Path, "//") || strings.Contains(u.RawPath, "\\") {
@@ -387,7 +404,13 @@ func (h *PaymentHandler) Webhook(c *gin.Context) {
 		httpx.OK(c, gin.H{"status": "succeeded", "order_id": payment.OrderID})
 		return
 	}
-	_, _ = h.Service.Repo.DB.Exec(`UPDATE payments SET status=$1,updated_at=NOW() WHERE id=$2`, status, payment.ID)
+	if err := db.WithTenant(h.Service.Repo.DB, payment.TenantID, func(tx *sqlx.Tx) error {
+		_, err := tx.Exec(`UPDATE payments SET status=$1,updated_at=NOW() WHERE id=$2`, status, payment.ID)
+		return err
+	}); err != nil {
+		httpx.Internal(c, err.Error())
+		return
+	}
 	httpx.OK(c, gin.H{"received": true, "status": status})
 }
 
@@ -469,6 +492,38 @@ func (h *PaymentHandler) GetStatus(c *gin.Context) {
 		return
 	}
 	httpx.OK(c, gin.H{"id": payment.ID, "status": payment.Status, "order_id": payment.OrderID, "provider": payment.Provider, "amount": payment.Amount})
+}
+
+// Refund marks a paid order's succeeded payment as refunded (sandbox ledger or live PSP).
+func (h *PaymentHandler) Refund(c *gin.Context) {
+	var body struct {
+		OrderID string `json:"order_id" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		httpx.BadRequest(c, err.Error())
+		return
+	}
+	tenantID := middleware.GetTenantID(c)
+	claims := middleware.GetClaims(c)
+	internalOK := middleware.InternalKeyOK(c)
+	if !internalOK {
+		if claims == nil {
+			httpx.Unauthorized(c, "auth required")
+			return
+		}
+		switch claims.Role {
+		case commonauth.RoleTenantAdmin, commonauth.RoleManager, commonauth.RoleSuperAdmin:
+		default:
+			httpx.Forbidden(c, "forbidden")
+			return
+		}
+	}
+	if err := h.Service.MarkRefunded(c.Request.Context(), body.OrderID, tenantID); err != nil {
+		httpx.BadRequest(c, err.Error())
+		return
+	}
+	middleware.WriteAudit(c, "refund_payment", "order", body.OrderID, nil, gin.H{"payment_status": "refunded"})
+	httpx.OK(c, gin.H{"order_id": body.OrderID, "status": "refunded"})
 }
 
 var _ = model.Payment{}

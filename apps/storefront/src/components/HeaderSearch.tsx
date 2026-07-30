@@ -5,8 +5,9 @@ import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { FormEvent, Suspense, useEffect, useId, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { formatUZS, type Locale } from "@gayrat/i18n";
-import { api, productName, type Product } from "@/lib/api";
+import { apiPublic, productName, publicTags, type Product } from "@/lib/api";
 import { rewriteMediaUrl } from "@/lib/media";
+import { fetchPopularQueries } from "@/lib/catalog";
 import {
   clearRecentSearches,
   loadRecentSearches,
@@ -14,7 +15,13 @@ import {
   pushRecentSearch,
 } from "@/lib/search";
 
-function HeaderSearchInner({ locale, compact }: { locale: string; compact?: boolean }) {
+function HeaderSearchInner({
+  locale,
+  compact,
+}: {
+  locale: string;
+  compact?: boolean;
+}) {
   const t = useTranslations();
   const router = useRouter();
   const pathname = usePathname();
@@ -37,9 +44,7 @@ function HeaderSearchInner({ locale, compact }: { locale: string; compact?: bool
 
   useEffect(() => {
     setRecent(loadRecentSearches());
-    api<{ items?: { query: string }[] }>("/v1/search/popular")
-      .then((d) => setPopular((d.items || []).map((x) => x.query).filter(Boolean).slice(0, 6)))
-      .catch(() => setPopular([]));
+    void fetchPopularQueries().then((items) => setPopular(items.slice(0, 6)));
   }, []);
 
   useEffect(() => {
@@ -51,8 +56,9 @@ function HeaderSearchInner({ locale, compact }: { locale: string; compact?: bool
       return;
     }
     const timer = setTimeout(() => {
-      api<{ suggestions?: string[]; items?: string[]; products?: Product[] }>(
-        `/v1/search/suggest?q=${encodeURIComponent(needle)}&locale=${locale}`
+      apiPublic<{ suggestions?: string[]; items?: string[]; products?: Product[] }>(
+        `/v1/search/suggest?q=${encodeURIComponent(needle)}&locale=${locale}`,
+        { revalidate: 30, tags: publicTags("search-suggest") }
       )
         .then((d) => {
           setSuggestions(parseSuggestions(d).slice(0, 6));
@@ -405,11 +411,14 @@ export function SearchLanding({ locale }: { locale: string }) {
 
   useEffect(() => {
     setRecent(loadRecentSearches());
-    Promise.all([
-      api<{ items?: { query: string }[] }>("/v1/search/popular").catch(() => ({ items: [] })),
-      api<{ items: typeof categories }>("/v1/categories").catch(() => ({ items: [] })),
+    void Promise.all([
+      fetchPopularQueries(),
+      apiPublic<{ items: typeof categories }>("/v1/categories", {
+        revalidate: 120,
+        tags: publicTags("categories"),
+      }).catch(() => ({ items: [] as typeof categories })),
     ]).then(([pop, cats]) => {
-      setPopular((pop.items || []).map((x) => x.query).filter(Boolean).slice(0, 8));
+      setPopular(pop.slice(0, 8));
       setCategories((cats.items || []).filter((c) => c.slug && !c.parent_id).slice(0, 8));
     });
   }, []);

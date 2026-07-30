@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { formatUZS, type Locale } from "@gayrat/i18n";
 import { useCart } from "@/lib/cart";
-import { api } from "@/lib/api";
+import { api, hasClientSessionFlag } from "@/lib/api";
 import { EmptyState, PageHeader } from "@/components/PageChrome";
 import { MobileStickyPortal } from "@/components/MobileStickyPortal";
 import { MapPinField, type Pin } from "@/components/MapPinField";
@@ -65,7 +65,7 @@ export default function CheckoutPage() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    const has = Boolean(localStorage.getItem("access_token"));
+    const has = hasClientSessionFlag();
     setLoggedIn(has);
     setGuestMode(!has);
   }, []);
@@ -237,7 +237,7 @@ export default function CheckoutPage() {
       <div className="animate-rise py-6">
         <PageHeader title={t("title")} />
         <div className="mt-8">
-          <EmptyState title={t("emptyCart")} actionHref={`/${locale}/products`} actionLabel={t("browse")} />
+          <EmptyState title={t("emptyCart")} actionHref={`/${locale}/products`} actionLabel={t("browse")} variant="cart" />
         </div>
       </div>
     );
@@ -250,7 +250,7 @@ export default function CheckoutPage() {
   ];
 
   return (
-    <div className="mx-auto max-w-2xl animate-rise pb-[calc(var(--sticky-action-h)+1rem)] md:pb-0">
+    <div className="mx-auto max-w-2xl animate-rise pb-[calc(var(--sticky-action-h)+1rem)] lg:pb-0">
       <PageHeader title={t("title")} />
       <p className="mt-2 text-lg font-bold text-night">
         {formatUZS(total() + shippingCost, locale as Locale)}

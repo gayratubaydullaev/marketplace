@@ -6,6 +6,7 @@ import (
 )
 
 func TestStripeProviderSandbox(t *testing.T) {
+	t.Setenv("APP_ENV", "development")
 	t.Setenv("PAYMENTS_SANDBOX", "true")
 	provider := StripeProvider{Secret: "sandbox-secret"}
 
@@ -24,6 +25,7 @@ func TestStripeProviderSandbox(t *testing.T) {
 }
 
 func TestBankTransferWebhookNeverAutoConfirms(t *testing.T) {
+	t.Setenv("APP_ENV", "development")
 	t.Setenv("PAYMENTS_SANDBOX", "true")
 	_, _, err := BankTransferProvider{}.VerifyWebhook([]byte(`{"id":"bank_1"}`), "sandbox")
 	if err == nil {
@@ -32,6 +34,7 @@ func TestBankTransferWebhookNeverAutoConfirms(t *testing.T) {
 }
 
 func TestVerifyHMACRejectsEmptyOutsideSandbox(t *testing.T) {
+	t.Setenv("APP_ENV", "production")
 	t.Setenv("PAYMENTS_SANDBOX", "false")
 	if err := verifyHMAC([]byte(`{}`), "", "secret"); err == nil {
 		t.Fatal("expected missing signature error outside sandbox")

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslations } from "next-intl";
-import { api } from "@/lib/api";
+import { apiPublic, publicTags } from "@/lib/api";
 
 export type CatalogCat = {
   id: string;
@@ -40,7 +40,10 @@ export function useCategoryTree(initial: CatalogCat[] = []) {
     }
     let cancelled = false;
     setStatus("loading");
-    void api<{ items: CatalogCat[] }>("/v1/categories")
+    void apiPublic<{ items: CatalogCat[] }>("/v1/categories", {
+      revalidate: 120,
+      tags: publicTags("categories"),
+    })
       .then((d) => {
         if (cancelled) return;
         setCats(d.items || []);
@@ -82,7 +85,10 @@ export function useCategoryTree(initial: CatalogCat[] = []) {
     status,
     reload: () => {
       setStatus("loading");
-      void api<{ items: CatalogCat[] }>("/v1/categories")
+      void apiPublic<{ items: CatalogCat[] }>("/v1/categories", {
+        revalidate: 120,
+        tags: publicTags("categories"),
+      })
         .then((d) => {
           setCats(d.items || []);
           setStatus("idle");

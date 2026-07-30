@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { useCarouselDrag } from "@/lib/useCarouselDrag";
 import { track } from "@/lib/track";
@@ -136,17 +137,21 @@ export function HomeHero({
               type="button"
               aria-label="Previous"
               onClick={() => go(-1)}
-              className="absolute start-2 top-1/2 z-[3] flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-paper/25 bg-night/50 text-base text-paper transition hover:bg-night/70 sm:start-3 sm:h-10 sm:w-10 sm:text-lg"
+              className="absolute start-2 top-1/2 z-[3] flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-xl border border-paper/25 bg-night/50 text-paper transition hover:bg-night/70 sm:start-3 sm:h-10 sm:w-10"
             >
-              ‹
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden>
+                <path d="M15 5 8 12l7 7" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
             </button>
             <button
               type="button"
               aria-label="Next"
               onClick={() => go(1)}
-              className="absolute end-2 top-1/2 z-[3] flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-paper/25 bg-night/50 text-base text-paper transition hover:bg-night/70 sm:end-3 sm:h-10 sm:w-10 sm:text-lg"
+              className="absolute end-2 top-1/2 z-[3] flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-xl border border-paper/25 bg-night/50 text-paper transition hover:bg-night/70 sm:end-3 sm:h-10 sm:w-10"
             >
-              ›
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden>
+                <path d="M9 5l7 7-7 7" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
             </button>
           </>
         ) : null}
@@ -171,15 +176,15 @@ export function HomeHero({
                     track("banner_click", item.id, { kind: "hero", href: item.href || "" })
                   }
                 >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
+                  <Image
                     src={item.image}
                     alt=""
-                    draggable={false}
-                    decoding="async"
+                    fill
+                    sizes="100vw"
+                    priority={i === 0}
                     fetchPriority={isActive ? "high" : "low"}
-                    loading={i === 0 ? "eager" : "lazy"}
-                    className="absolute inset-0 h-full w-full object-cover"
+                    draggable={false}
+                    className="object-cover"
                   />
                 </SlideLink>
               </div>

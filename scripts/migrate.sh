@@ -17,18 +17,19 @@ for svc in "${ORDER[@]}"; do
     echo "→ $svc"
     for f in "$dir"/*.up.sql; do
       [[ -f "$f" ]] || continue
-      psql "$DB" -v ON_ERROR_STOP=0 -f "$f" >/dev/null
+      echo "  $f"
+      psql "$DB" -v ON_ERROR_STOP=1 -f "$f" >/dev/null
     done
   fi
 done
 # apply v2 additive migration
-psql "$DB" -v ON_ERROR_STOP=0 -f "$ROOT/infra/docker/migrate_v2.sql" >/dev/null || true
+psql "$DB" -v ON_ERROR_STOP=1 -f "$ROOT/infra/docker/migrate_v2.sql" >/dev/null
 # payment splits + outbox extras
-psql "$DB" -v ON_ERROR_STOP=0 -f "$ROOT/infra/docker/migrate_v3.sql" >/dev/null || true
+psql "$DB" -v ON_ERROR_STOP=1 -f "$ROOT/infra/docker/migrate_v3.sql" >/dev/null
 # FORCE RLS + app role
-psql "$DB" -v ON_ERROR_STOP=0 -f "$ROOT/infra/docker/migrate_v4_rls.sql" >/dev/null || true
+psql "$DB" -v ON_ERROR_STOP=1 -f "$ROOT/infra/docker/migrate_v4_rls.sql" >/dev/null
 # FX rates, locale extras, citus prep markers
-psql "$DB" -v ON_ERROR_STOP=0 -f "$ROOT/infra/docker/migrate_v5_prod.sql" >/dev/null || true
+psql "$DB" -v ON_ERROR_STOP=1 -f "$ROOT/infra/docker/migrate_v5_prod.sql" >/dev/null
 # Strict RLS (no NULL-tenant bypass) + audit_logs
-psql "$DB" -v ON_ERROR_STOP=0 -f "$ROOT/infra/docker/migrate_v6_rls_strict.sql" >/dev/null || true
+psql "$DB" -v ON_ERROR_STOP=1 -f "$ROOT/infra/docker/migrate_v6_rls_strict.sql" >/dev/null
 echo "Done."

@@ -1,7 +1,8 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import { setRequestLocale, getTranslations } from "next-intl/server";
-import { api, type Product } from "@/lib/api";
+import { apiPublic, publicTags, type Product } from "@/lib/api";
+import { getCategories, getSearchFacets } from "@/lib/catalog";
 import { extractSearchItems } from "@/lib/search";
 import { buildFilterHref, countActiveFilters, type FilterState } from "@/lib/filters";
 import { ProductGrid } from "@/components/ProductGrid";
@@ -76,11 +77,8 @@ export default async function ProductsPage({
   if (sp.in_stock) qs.set("in_stock", "true");
 
   try {
-    const [cats, facetData] = await Promise.all([
-      api<{ items: FilterCategory[] }>("/v1/categories"),
-      api<typeof facets>("/v1/search/facets"),
-    ]);
-    categories = cats.items || [];
+    const [cats, facetData] = await Promise.all([getCategories(), getSearchFacets()]);
+    categories = cats as FilterCategory[];
     facets = facetData || {};
 
     if (sp.q) {
@@ -91,22 +89,29 @@ export default async function ProductsPage({
         const cat = categories.find((c) => c.slug === sp.category);
         if (cat?.id) searchQs.set("category_id", cat.id);
       }
-      const prod = await api<{
+      const prod = await apiPublic<{
         items?: Product[];
         result?: { hits?: { hits?: { _source?: Product }[] } };
         total?: number;
         results_count?: number;
-      }>(`/v1/search?${searchQs.toString()}`);
+      }>(`/v1/search?${searchQs.toString()}`, {
+        revalidate: 30,
+        tags: publicTags("search"),
+      });
       products = extractSearchItems(prod);
       total = prod.results_count ?? prod.total ?? products.length;
     } else if (sp.category) {
-      const prod = await api<{ items: Product[]; total?: number }>(
-        `/v1/categories/${sp.category}/products?${qs.toString()}`
+      const prod = await apiPublic<{ items: Product[]; total?: number }>(
+        `/v1/categories/${sp.category}/products?${qs.toString()}`,
+        { revalidate: 60, tags: publicTags("products") }
       );
       products = prod.items || [];
       total = prod.total ?? products.length;
     } else {
-      const prod = await api<{ items: Product[]; total?: number }>(`/v1/products?${qs.toString()}`);
+      const prod = await apiPublic<{ items: Product[]; total?: number }>(`/v1/products?${qs.toString()}`, {
+        revalidate: 60,
+        tags: publicTags("products"),
+      });
       products = prod.items || [];
       total = prod.total ?? products.length;
     }

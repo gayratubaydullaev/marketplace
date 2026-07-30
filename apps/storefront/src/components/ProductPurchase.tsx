@@ -404,7 +404,7 @@ export function ProductPurchase({
 
         {/* Desktop purchase panel */}
         {inStock ? (
-          <div className="hidden space-y-4 md:block">
+          <div className="hidden space-y-4 lg:block">
             <div className="grid grid-cols-2 gap-3">
               {inCart ? (
                 <div className="flex h-12 items-center justify-center rounded-xl border border-night/12 bg-white">
@@ -469,7 +469,7 @@ export function ProductPurchase({
             </ul>
           </div>
         ) : (
-          <p className="hidden rounded-xl bg-night/5 px-4 py-3 text-sm font-semibold text-muted md:block">
+          <p className="hidden rounded-xl bg-night/5 px-4 py-3 text-sm font-semibold text-muted lg:block">
             {t("outOfStock")}
           </p>
         )}

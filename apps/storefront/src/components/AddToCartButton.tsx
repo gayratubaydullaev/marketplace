@@ -19,7 +19,7 @@ export function AddToCartButton({
       type="button"
       disabled={disabled}
       onClick={() => add(product)}
-      className={`rounded-full bg-teal px-6 py-3 text-sm font-bold text-paper transition hover:bg-night disabled:opacity-50 sm:px-8 ${className}`}
+      className={`inline-flex min-h-11 items-center justify-center rounded-xl bg-accent px-6 py-3 text-sm font-bold text-night transition hover:bg-accent-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal disabled:opacity-50 sm:px-8 ${className}`}
     >
       {label}
     </button>

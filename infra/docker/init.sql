@@ -64,6 +64,9 @@ CREATE TABLE vendors (
     status VARCHAR(20) DEFAULT 'pending',
     kyc_verified BOOLEAN DEFAULT FALSE,
     rating DECIMAL(2,1) DEFAULT 0.0,
+    rating_delivery DECIMAL(2,1) DEFAULT 0,
+    rating_quality DECIMAL(2,1) DEFAULT 0,
+    rating_communication DECIMAL(2,1) DEFAULT 0,
     review_count INTEGER DEFAULT 0,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
@@ -183,6 +186,8 @@ CREATE TABLE addresses (
     apartment VARCHAR(50),
     postal_code VARCHAR(20),
     is_default BOOLEAN DEFAULT FALSE,
+    lat DOUBLE PRECISION,
+    lng DOUBLE PRECISION,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 

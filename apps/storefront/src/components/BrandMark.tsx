@@ -1,0 +1,35 @@
+type BrandMarkProps = {
+  size?: "sm" | "md" | "lg";
+  className?: string;
+  title?: string;
+};
+
+const SIZE_PX = {
+  sm: 32,
+  md: 40,
+  lg: 48,
+} as const;
+
+/** Teal rounded mark with geometric G — matches /brand-mark.svg and /favicon.svg. */
+export function BrandMark({ size = "md", className = "", title }: BrandMarkProps) {
+  const px = SIZE_PX[size];
+  return (
+    <svg
+      width={px}
+      height={px}
+      viewBox="0 0 32 32"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className={`shrink-0 ${className}`}
+      aria-hidden={title ? undefined : true}
+      role={title ? "img" : undefined}
+    >
+      {title ? <title>{title}</title> : null}
+      <rect width="32" height="32" rx="8" fill="#0d7377" />
+      <path
+        fill="#f8fbfa"
+        d="M16.2 7.2c-4.9 0-8.8 3.8-8.8 8.8s3.9 8.8 8.8 8.8c2.1 0 4-.7 5.5-1.9l-1.6-1.7c-1.1.9-2.4 1.4-3.9 1.4-3.4 0-6.1-2.6-6.1-6.6s2.7-6.6 6.1-6.6c3 0 5.4 2.1 5.9 4.9h-4.2v2.4H24.8c.1-.5.2-1 .2-1.6 0-4.9-3.9-8.5-8.8-8.5z"
+      />
+    </svg>
+  );
+}

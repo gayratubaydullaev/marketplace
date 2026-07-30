@@ -29,7 +29,7 @@ export function WishlistButton({
           e.stopPropagation();
           toggle(product);
         }}
-        className={`flex h-9 w-9 items-center justify-center rounded-full bg-white/90 text-[#1a1a1a] shadow-[0_2px_8px_rgba(0,0,0,0.12)] backdrop-blur-sm transition hover:scale-105 ${
+        className={`flex h-9 w-9 items-center justify-center rounded-full bg-white/90 text-night shadow-[0_2px_8px_rgba(11,31,36,0.12)] backdrop-blur-sm transition hover:scale-105 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal ${
           has ? "text-danger" : "hover:text-teal"
         } ${className}`}
       >
