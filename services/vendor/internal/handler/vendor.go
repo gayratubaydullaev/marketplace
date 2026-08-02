@@ -35,10 +35,14 @@ func (h *VendorHandler) Stats(c *gin.Context)          { stats(c, h.Service.Repo
 func (h *VendorHandler) Orders(c *gin.Context)         { vendorOrders(c, h.Service.Repo.DB) }
 func (h *VendorHandler) MyProducts(c *gin.Context)     { myProducts(c, h.Service.Repo.DB) }
 func (h *VendorHandler) Payouts(c *gin.Context)        { payouts(c, h.Service.Repo.DB) }
+func (h *VendorHandler) Balance(c *gin.Context)          { balance(c, h.Service.Repo.DB) }
 func (h *VendorHandler) Settings(c *gin.Context)       { settings(c, h.Service.Repo.DB) }
 func (h *VendorHandler) UpdateSettings(c *gin.Context) { updateSettings(c, h.Service.Repo.DB) }
 func (h *VendorHandler) GetWarehouse(c *gin.Context)   { getWarehouse(c, h.Service.Repo.DB) }
 func (h *VendorHandler) PutWarehouse(c *gin.Context)   { putWarehouse(c, h.Service.Repo.DB) }
+func (h *VendorHandler) GetTenantSettings(c *gin.Context) {
+	getTenantSettings(c, h.Service.Repo.DB)
+}
 func (h *VendorHandler) UpdateTenantSettings(c *gin.Context) {
 	updateTenantSettings(c, h.Service.Repo.DB)
 }
@@ -263,6 +267,46 @@ func payouts(c *gin.Context, database *sqlx.DB) {
 	}
 	defer rows.Close()
 	httpx.OK(c, gin.H{"items": maps(rows)})
+}
+
+func balance(c *gin.Context, database *sqlx.DB) {
+	vid, err := resolveVendorID(c, database)
+	if err != nil {
+		httpx.NotFound(c, "vendor not found")
+		return
+	}
+	var totalNet, paidTotal, available, splitPending float64
+	_ = database.Get(&totalNet, `
+		SELECT COALESCE(SUM(oi.total_price - oi.commission_amount), 0)
+		FROM order_items oi
+		JOIN orders o ON o.id = oi.order_id
+		WHERE oi.vendor_id = $1 AND o.payment_status = 'paid'`, vid)
+	_ = database.Get(&paidTotal, `
+		SELECT COALESCE(SUM(amount), 0)
+		FROM vendor_payouts
+		WHERE vendor_id = $1 AND status = 'completed'`, vid)
+	_ = database.Get(&available, `
+		SELECT COALESCE(SUM(amount), 0)
+		FROM vendor_payouts
+		WHERE vendor_id = $1 AND status IN ('pending', 'processing')`, vid)
+	_ = database.Get(&splitPending, `
+		SELECT COALESCE(SUM(ps.vendor_amount), 0)
+		FROM payment_splits ps
+		JOIN payments p ON p.id = ps.payment_id
+		WHERE ps.vendor_id = $1 AND ps.status = 'pending' AND p.status = 'succeeded'`, vid)
+	pending := splitPending
+	if pending <= 0 {
+		pending = totalNet - paidTotal - available
+	}
+	if pending < 0 {
+		pending = 0
+	}
+	httpx.OK(c, gin.H{
+		"pending":    pending,
+		"available":  available,
+		"paid_total": paidTotal,
+		"currency":   "UZS",
+	})
 }
 func settings(c *gin.Context, database *sqlx.DB) {
 	vid, err := resolveVendorID(c, database)
@@ -667,6 +711,20 @@ func switchMode(c *gin.Context, database *sqlx.DB) {
 	}
 	middleware.WriteAudit(c, "switch_mode", "tenant", tenantID, nil, gin.H{"mode": body.Mode})
 	httpx.OK(c, gin.H{"mode": body.Mode, "migrated": true, "migration_notes": notes})
+}
+
+func getTenantSettings(c *gin.Context, database *sqlx.DB) {
+	var mode string
+	var settings json.RawMessage
+	err := database.QueryRow(
+		`SELECT COALESCE(mode,'multi_vendor'), COALESCE(settings,'{}'::jsonb) FROM tenants WHERE id=$1`,
+		middleware.GetTenantID(c),
+	).Scan(&mode, &settings)
+	if err != nil {
+		httpx.OK(c, gin.H{"mode": "multi_vendor", "settings": json.RawMessage(`{"currency":"UZS","default_locale":"uz"}`)})
+		return
+	}
+	httpx.OK(c, gin.H{"mode": mode, "settings": settings})
 }
 
 func updateTenantSettings(c *gin.Context, database *sqlx.DB) {

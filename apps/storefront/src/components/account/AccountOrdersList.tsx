@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { formatUZS, type Locale } from "@gayrat/i18n";
-import { EmptyState, StatusBadge } from "@/components/PageChrome";
+import { EmptyState, ErrorPanel, LoadingBlock, StatusBadge } from "@/components/PageChrome";
 import { orderStatusLabel, type Order } from "@/components/account/types";
 
 type Filter = "all" | "active" | "done" | "cancelled";
@@ -25,13 +25,18 @@ export function AccountOrdersList({
   orders,
   loading,
   emptyTitle,
+  error,
+  onRetry,
 }: {
   orders: Order[];
   loading: boolean;
   emptyTitle: string;
+  error?: string;
+  onRetry?: () => void;
 }) {
   const t = useTranslations("account");
   const to = useTranslations("orders");
+  const tc = useTranslations("common");
   const locale = useLocale();
   const [filter, setFilter] = useState<Filter>("all");
 
@@ -48,12 +53,17 @@ export function AccountOrdersList({
   ];
 
   if (loading) {
+    return <LoadingBlock rows={3} />;
+  }
+
+  if (error) {
     return (
-      <div className="space-y-3">
-        {[1, 2, 3].map((i) => (
-          <div key={i} className="h-24 animate-pulse rounded-2xl bg-night/5" />
-        ))}
-      </div>
+      <ErrorPanel
+        title={to("loadError")}
+        description={error}
+        onRetry={onRetry}
+        retryLabel={tc("retry")}
+      />
     );
   }
 
@@ -91,8 +101,13 @@ export function AccountOrdersList({
       </div>
 
       {filtered.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-night/10 bg-white/70 px-4 py-10 text-center">
-          <p className="text-sm font-medium text-muted">{t("ordersFilterEmpty")}</p>
+        <div className="rounded-3xl border border-dashed border-night/12 bg-white/60">
+          <EmptyState
+            title={t("ordersFilterEmpty")}
+            actionHref={`/${locale}/products`}
+            actionLabel={t("browseCatalog")}
+            variant="generic"
+          />
         </div>
       ) : (
         <ul className="space-y-3">

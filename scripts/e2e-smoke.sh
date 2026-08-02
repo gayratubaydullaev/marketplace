@@ -9,6 +9,7 @@ ORDERS=http://localhost:8005
 PAY=http://localhost:8006
 NOTIFY=http://localhost:8009
 VENDOR=http://localhost:8007
+DELIVERY=http://localhost:8013
 DB="${DATABASE_URL:-postgres://marketplace:marketplace@localhost:5432/marketplace?sslmode=disable}"
 H=(-H "Content-Type: application/json" -H "X-Tenant-ID: $TENANT")
 
@@ -24,6 +25,14 @@ AH=(-H "Authorization: Bearer $TOK" -H "Content-Type: application/json" -H "X-Te
 
 echo "1b email verification request"
 curl -sf "${AH[@]}" -X POST "$AUTH/v1/auth/request-email-verification" >/dev/null || true
+
+echo "1c vendor + courier login"
+VENDOR_TOK=$(curl -sf "${H[@]}" -d '{"email":"vendor@gayrat.uz","password":"Vendor123!"}' "$AUTH/v1/auth/login" | python3 -c "import sys,json; print(json.load(sys.stdin)['tokens']['access_token'])")
+VH=(-H "Authorization: Bearer $VENDOR_TOK" -H "Content-Type: application/json" -H "X-Tenant-ID: $TENANT")
+COURIER_TOK=$(curl -sf "${H[@]}" -d '{"email":"courier@gayrat.uz","password":"Courier123!"}' "$AUTH/v1/auth/login" | python3 -c "import sys,json; print(json.load(sys.stdin)['tokens']['access_token'])" 2>/dev/null || true)
+CH=(-H "Authorization: Bearer $COURIER_TOK" -H "Content-Type: application/json" -H "X-Tenant-ID: $TENANT")
+ADMIN_TOK=$(curl -sf "${H[@]}" -d '{"email":"admin@gayrat.uz","password":"Admin123!"}' "$AUTH/v1/auth/login" | python3 -c "import sys,json; print(json.load(sys.stdin)['tokens']['access_token'])")
+ADH=(-H "Authorization: Bearer $ADMIN_TOK" -H "Content-Type: application/json" -H "X-Tenant-ID: $TENANT")
 
 echo "2 catalog"
 PID=$(curl -sf "${H[@]}" "$CATALOG/v1/products?status=active&limit=1" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['items'][0]['id'] if d.get('items') else '')")
@@ -42,6 +51,7 @@ CART_ID=$(echo "$CART_JSON" | python3 -c "import sys,json; print(json.load(sys.s
 echo "4 create order from cart"
 ORDER=$(curl -sf "${AH[@]}" -d "{\"cart_id\":\"$CART_ID\",\"shipping_address\":{\"region\":\"Toshkent shahri\",\"district\":\"Chilonzor\",\"phone\":\"+998907654321\"},\"shipping_cost\":15000}" "$ORDERS/v1/orders")
 OID=$(echo "$ORDER" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+TAX=$(echo "$ORDER" | python3 -c "import sys,json; print(json.load(sys.stdin).get('tax_total',0))" 2>/dev/null || echo "0")
 
 echo "5 payment intent + sandbox confirm"
 INTENT=$(curl -sf "${AH[@]}" -d "{\"order_id\":\"$OID\",\"provider\":\"payme\",\"idempotency_key\":\"e2e-$OID\"}" "$PAY/v1/payments/intent")
@@ -55,8 +65,11 @@ curl -sf "${AH[@]}" -d "{\"payment_id\":\"$PAY_ID\",\"sandbox_force\":true}" "$P
 
 echo "5b payment_splits"
 SPLITS=$(psql "$DB" -Atqc "SELECT COUNT(*) FROM payment_splits WHERE payment_id='$PAY_ID'" 2>/dev/null || echo "0")
-# -q silences SET notices when search_path is in URL options
 echo "   splits=$SPLITS"
+
+echo "5c invoice"
+curl -sf "${AH[@]}" "$ORDERS/v1/orders/$OID/invoice?format=json" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d.get('order') or d.get('id')" >/dev/null
+echo "   invoice OK"
 
 echo "6 notifications + outbox"
 curl -sf "${AH[@]}" "$NOTIFY/v1/notifications" >/dev/null
@@ -67,4 +80,23 @@ echo "   outbox_rows=$OUTBOX"
 echo "7 tenant mode"
 curl -sf "${H[@]}" "$VENDOR/v1/tenant/mode" >/dev/null
 
-echo "OK order=$OID payment=$PAY_ID product=$PID price=$PRICE splits=$SPLITS"
+echo "8 vendor ready-for-delivery + delivery job + auto-assign"
+curl -sf "${VH[@]}" -X POST "$ORDERS/v1/orders/$OID/status" -d '{"status":"processing"}' >/dev/null || true
+JOB_JSON=$(curl -sf "${VH[@]}" -X POST "$DELIVERY/v1/delivery/ready-for-delivery" -d "{\"order_id\":\"$OID\"}" 2>/dev/null || \
+  curl -sf "${VH[@]}" -X POST "$DELIVERY/v1/orders/$OID/ready-for-delivery" 2>/dev/null || echo "{}")
+JOB_ID=$(echo "$JOB_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('id') or d.get('job',{}).get('id',''))" 2>/dev/null || true)
+if [[ -n "$JOB_ID" && -n "$COURIER_TOK" ]]; then
+  echo "   job=$JOB_ID"
+  curl -sf "${ADH[@]}" -X POST "$DELIVERY/v1/admin/deliveries/$JOB_ID/auto-assign" -d '{}' >/dev/null
+  for action in accept arrive-pickup picked-up in-transit delivered; do
+    curl -sf "${CH[@]}" -X POST "$DELIVERY/v1/courier/jobs/$JOB_ID/$action" -d '{}' >/dev/null || true
+  done
+fi
+
+echo "9 vendor payouts + balance"
+curl -sf "${VH[@]}" "$VENDOR/v1/vendor/payouts" >/dev/null || true
+BAL=$(curl -sf "${VH[@]}" "$VENDOR/v1/vendor/balance")
+echo "$BAL" | python3 -c "import sys,json; d=json.load(sys.stdin); assert 'currency' in d" >/dev/null
+echo "   balance OK"
+
+echo "OK order=$OID payment=$PAY_ID product=$PID price=$PRICE tax=$TAX splits=$SPLITS job=${JOB_ID:-none}"

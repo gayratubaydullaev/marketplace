@@ -25,8 +25,26 @@ func storefrontBase() string {
 	return base
 }
 
-func paymentReturnURL(orderID string) string {
-	return storefrontBase() + "/uz/orders/" + orderID + "/payment-return"
+func normalizeLocale(locale string) string {
+	locale = strings.ToLower(strings.TrimSpace(locale))
+	switch locale {
+	case "uz", "ru", "en", "ar":
+		return locale
+	default:
+		return "uz"
+	}
+}
+
+// NormalizeLocale is exported for the payments HTTP handler.
+func NormalizeLocale(locale string) string { return normalizeLocale(locale) }
+
+// paymentReturnURL builds the storefront payment-return path for the given locale.
+func paymentReturnURL(orderID, locale string) string {
+	return storefrontBase() + "/" + normalizeLocale(locale) + "/orders/" + orderID + "/payment-return"
+}
+
+func paymentCancelURL(locale string) string {
+	return storefrontBase() + "/" + normalizeLocale(locale) + "/checkout"
 }
 
 // PaymeCheckoutURL builds the official GET checkout link (base64 params).
@@ -52,9 +70,9 @@ func PaymeCheckoutURL(merchantID string, amountUZS float64, orderID, paymentID, 
 	return host + "/" + encoded
 }
 
-func (p PaymeProvider) CreateIntent(amount float64, _ string, orderID string) (string, string, error) {
+func (p PaymeProvider) CreateIntent(amount float64, _ string, orderID, locale string) (string, string, error) {
 	id := "payme_" + uuid.NewString()[:12]
-	return id, PaymeCheckoutURL(p.MerchantID, amount, orderID, id, paymentReturnURL(orderID)), nil
+	return id, PaymeCheckoutURL(p.MerchantID, amount, orderID, id, paymentReturnURL(orderID, locale)), nil
 }
 
 func (p PaymeProvider) VerifyWebhook(payload []byte, credential string) (string, string, error) {
@@ -89,7 +107,7 @@ func verifyPaymeAuth(credential, secret string) bool {
 	return string(raw) == "Paycom:"+secret || string(raw) == ":"+secret
 }
 
-func (p ClickProvider) CreateIntent(amount float64, _ string, orderID string) (string, string, error) {
+func (p ClickProvider) CreateIntent(amount float64, _ string, orderID, locale string) (string, string, error) {
 	id := "click_" + uuid.NewString()[:12]
 	serviceID := firstSet(os.Getenv("CLICK_SERVICE_ID"), p.MerchantID)
 	merchantID := firstSet(os.Getenv("CLICK_MERCHANT_ID"), p.MerchantID)
@@ -100,7 +118,7 @@ func (p ClickProvider) CreateIntent(amount float64, _ string, orderID string) (s
 		"transaction_param":  {orderID},
 		"merchant_trans_id":  {id},
 		"merchant_user_id":   {firstSet(os.Getenv("CLICK_MERCHANT_USER_ID"), "0")},
-		"return_url":         {paymentReturnURL(orderID)},
+		"return_url":         {paymentReturnURL(orderID, locale)},
 	}
 	return id, "https://my.click.uz/services/pay?" + q.Encode(), nil
 }
@@ -153,11 +171,11 @@ func ParseClickForm(payload []byte, secret string) (merchantTransID, status stri
 	return merchantTransID, status, nil
 }
 
-func (p UzumProvider) CreateIntent(amount float64, _ string, orderID string) (string, string, error) {
+func (p UzumProvider) CreateIntent(amount float64, _ string, orderID, locale string) (string, string, error) {
 	id := "uzum_" + uuid.NewString()[:12]
 	if base := strings.TrimRight(os.Getenv("UZUM_API_BASE"), "/"); base != "" && !Sandbox() {
 		// Merchant create-order API when configured; fall back to checkout URL on failure.
-		if url, err := createUzumPayment(base, p.MerchantID, p.Secret, amount, orderID, id); err == nil && url != "" {
+		if url, err := createUzumPayment(base, p.MerchantID, p.Secret, amount, orderID, id, locale); err == nil && url != "" {
 			return id, url, nil
 		}
 	}
@@ -165,7 +183,7 @@ func (p UzumProvider) CreateIntent(amount float64, _ string, orderID string) (st
 		"amount":     {strconv.FormatInt(int64(amount), 10)},
 		"orderId":    {orderID},
 		"paymentId":  {id},
-		"returnUrl":  {paymentReturnURL(orderID)},
+		"returnUrl":  {paymentReturnURL(orderID, locale)},
 		"merchantId": {p.MerchantID},
 	}
 	return id, "https://www.uzumbank.uz/open-service?" + q.Encode(), nil
@@ -186,13 +204,13 @@ func (p UzumProvider) VerifyWebhook(payload []byte, credential string) (string, 
 	return webhookResult(payload)
 }
 
-func createUzumPayment(apiBase, merchantID, secret string, amount float64, orderID, paymentID string) (string, error) {
+func createUzumPayment(apiBase, merchantID, secret string, amount float64, orderID, paymentID, locale string) (string, error) {
 	body, _ := json.Marshal(map[string]any{
 		"amount":     int64(amount),
 		"orderId":    orderID,
 		"paymentId":  paymentID,
 		"merchantId": merchantID,
-		"returnUrl":  paymentReturnURL(orderID),
+		"returnUrl":  paymentReturnURL(orderID, locale),
 		"currency":   "UZS",
 	})
 	req, err := http.NewRequest(http.MethodPost, apiBase+"/v1/payments", strings.NewReader(string(body)))

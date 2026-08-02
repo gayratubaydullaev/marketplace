@@ -85,6 +85,82 @@ func (h *PaymentHandler) ProvidersList(c *gin.Context) {
 	httpx.OK(c, gin.H{"providers": []string{"payme", "click", "uzum", "stripe", "paypal", "bank_transfer", "cash_on_delivery", "card_on_delivery"}, "currency": "UZS", "sandbox": h.Sandbox})
 }
 
+func (h *PaymentHandler) ProvidersHealth(c *gin.Context) {
+	httpx.OK(c, service.ProviderHealthReport())
+}
+
+// AdminMarkPaid lets tenant admins confirm a pending payment (e.g. bank transfer received).
+func (h *PaymentHandler) AdminMarkPaid(c *gin.Context) {
+	claims := middleware.GetClaims(c)
+	if claims == nil {
+		httpx.Unauthorized(c, "auth required")
+		return
+	}
+	switch claims.Role {
+	case commonauth.RoleTenantAdmin, commonauth.RoleManager, commonauth.RoleSuperAdmin:
+	default:
+		httpx.Forbidden(c, "forbidden")
+		return
+	}
+	var body struct {
+		PaymentID string `json:"payment_id"`
+		OrderID   string `json:"order_id"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		httpx.BadRequest(c, err.Error())
+		return
+	}
+	if body.PaymentID == "" && body.OrderID == "" {
+		httpx.BadRequest(c, "payment_id or order_id required")
+		return
+	}
+	tenantID := middleware.GetTenantID(c)
+	var payment model.Payment
+	var err error
+	if body.PaymentID != "" {
+		payment, err = h.Service.Repo.FindInTenant(body.PaymentID, tenantID)
+	} else {
+		err = h.Service.Repo.DB.Get(&payment, `
+			SELECT id,tenant_id,order_id,user_id,amount,currency,provider,provider_payment_id,status,created_at
+			FROM payments
+			WHERE order_id=$1 AND tenant_id=$2 AND status IN ('pending','processing')
+			ORDER BY created_at DESC
+			LIMIT 1`, body.OrderID, tenantID)
+	}
+	if err != nil {
+		httpx.NotFound(c, "payment not found")
+		return
+	}
+	if payment.Status == "succeeded" {
+		httpx.OK(c, gin.H{"status": "succeeded", "order_id": payment.OrderID, "payment_id": payment.ID})
+		return
+	}
+	if err := h.Service.MarkPaid(c.Request.Context(), payment); err != nil {
+		httpx.BadRequest(c, err.Error())
+		return
+	}
+	middleware.WriteAudit(c, "admin_mark_paid", "payment", payment.ID, nil, gin.H{"order_id": payment.OrderID, "provider": payment.Provider})
+	httpx.OK(c, gin.H{"status": "succeeded", "order_id": payment.OrderID, "payment_id": payment.ID})
+}
+
+// AdminConfirmRefund records a refund already completed in the PSP dashboard (payme/click/uzum/paypal).
+func (h *PaymentHandler) AdminConfirmRefund(c *gin.Context) {
+	var body struct {
+		OrderID string `json:"order_id" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		httpx.BadRequest(c, err.Error())
+		return
+	}
+	tenantID := middleware.GetTenantID(c)
+	if err := h.Service.ConfirmRefundManual(c.Request.Context(), body.OrderID, tenantID); err != nil {
+		httpx.BadRequest(c, err.Error())
+		return
+	}
+	middleware.WriteAudit(c, "admin_confirm_refund", "order", body.OrderID, nil, gin.H{"manual": true})
+	httpx.OK(c, gin.H{"status": "refunded", "order_id": body.OrderID})
+}
+
 func (h *PaymentHandler) Intent(c *gin.Context) {
 	var body struct {
 		OrderID        string `json:"order_id" binding:"required"`
@@ -130,7 +206,13 @@ func (h *PaymentHandler) Intent(c *gin.Context) {
 		httpx.Conflict(c, "order already paid")
 		return
 	}
-	providerID, redirect, err := provider.CreateIntent(order.Total, "UZS", body.OrderID)
+	locale := "uz"
+	if body.Metadata != nil {
+		if v, ok := body.Metadata["locale"].(string); ok && strings.TrimSpace(v) != "" {
+			locale = service.NormalizeLocale(v)
+		}
+	}
+	providerID, redirect, err := provider.CreateIntent(order.Total, "UZS", body.OrderID, locale)
 	if err != nil {
 		httpx.Internal(c, err.Error())
 		return
@@ -152,15 +234,16 @@ func (h *PaymentHandler) Intent(c *gin.Context) {
 	if storefront == "" {
 		storefront = "http://localhost:3000"
 	}
+	storefront = strings.TrimRight(storefront, "/")
 	var sandboxRedirect string
 	if redirect != "" {
 		if h.Sandbox {
-			sandboxRedirect = fmt.Sprintf("%s/v1/payments/sandbox/pay/%s?return_url=%s/uz/orders/%s/payment-return", publicBase, id, storefront, body.OrderID)
+			sandboxRedirect = fmt.Sprintf("%s/v1/payments/sandbox/pay/%s?return_url=%s/%s/orders/%s/payment-return", publicBase, id, storefront, locale, body.OrderID)
 		} else {
 			sandboxRedirect = redirect
 		}
 	}
-	metaValues := gin.H{"redirect_url": sandboxRedirect, "sandbox": h.Sandbox}
+	metaValues := gin.H{"redirect_url": sandboxRedirect, "sandbox": h.Sandbox, "locale": locale}
 	for key, value := range body.Metadata {
 		metaValues[key] = value
 	}

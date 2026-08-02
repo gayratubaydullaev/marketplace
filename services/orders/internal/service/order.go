@@ -21,15 +21,16 @@ import (
 )
 
 var transitions = map[string][]string{
-	"pending":    {"confirmed", "cancelled"},
-	"confirmed":  {"processing", "refunded", "cancelled"},
-	"processing": {"shipped", "returned", "cancelled"},
-	"shipped":    {"delivered"},
-	"delivered":  {"completed"},
-	"completed":  {},
-	"cancelled":  {},
-	"refunded":   {},
-	"returned":   {},
+	"pending":             {"confirmed", "cancelled"},
+	"confirmed":           {"processing", "refunded", "cancelled"},
+	"processing":          {"shipped", "returned", "cancelled"},
+	"shipped":             {"delivered", "returned", "partially_returned"},
+	"delivered":           {"completed", "returned", "partially_returned"},
+	"completed":           {"returned", "partially_returned"},
+	"partially_returned":  {"returned", "completed"},
+	"cancelled":           {},
+	"refunded":            {},
+	"returned":            {},
 }
 
 // ValidateStatusTransition enforces the order state machine from FR-5.3:
@@ -120,19 +121,20 @@ func (s *OrderService) Create(ctx context.Context, in CreateInput) (map[string]a
 			return fmt.Errorf("cart empty or not found")
 		}
 		type line struct {
-			ProductID string
-			VariantID *string
-			VendorID  *string
-			Title     string
-			Quantity  int
-			UnitPrice float64
+			ProductID       string
+			VariantID       *string
+			VendorID        *string
+			Title           string
+			Quantity        int
+			UnitPrice       float64
+			InventoryPolicy string
 		}
 		lines := make([]line, 0, len(cart))
 		var subtotal float64
 		for _, item := range cart {
 			var line line
 			line.ProductID, line.Quantity, line.VariantID = item.ProductID, item.Quantity, item.VariantID
-			if err := tx.QueryRow(`SELECT price, COALESCE(translations->'uz'->>'name', slug), vendor_id FROM products WHERE id=$1 AND tenant_id=$2 AND status IN ('active','out_of_stock')`, item.ProductID, in.TenantID).Scan(&line.UnitPrice, &line.Title, &line.VendorID); err != nil {
+			if err := tx.QueryRow(`SELECT price, COALESCE(translations->'uz'->>'name', slug), vendor_id, COALESCE(inventory_policy,'deny') FROM products WHERE id=$1 AND tenant_id=$2 AND status IN ('active','out_of_stock')`, item.ProductID, in.TenantID).Scan(&line.UnitPrice, &line.Title, &line.VendorID, &line.InventoryPolicy); err != nil {
 				return fmt.Errorf("product unavailable: %s", item.ProductID)
 			}
 			if item.VariantID != nil && *item.VariantID != "" {
@@ -182,7 +184,13 @@ func (s *OrderService) Create(ctx context.Context, in CreateInput) (map[string]a
 		} else {
 			shippingCost = commerce.EstimateShipping(region, merchandise)
 		}
-		orderTotal := merchandise + shippingCost
+		taxRate := resolveTaxRate(tx, in.TenantID)
+		taxable := merchandise
+		if taxRate < 0 {
+			taxRate = 0
+		}
+		taxTotal := roundMoney(taxable * taxRate / 100)
+		orderTotal := merchandise + shippingCost + taxTotal
 
 		id, number := uuid.NewString(), randomOrderNumber()
 		var userID, guestEmail *string
@@ -203,10 +211,14 @@ func (s *OrderService) Create(ctx context.Context, in CreateInput) (map[string]a
 		if couponDiscount > 0 {
 			meta["coupon_discount"] = couponDiscount
 		}
+		meta["tax_rate"] = taxRate
+		meta["tax_breakdown"] = map[string]any{
+			"name": "VAT", "rate": taxRate, "base": taxable, "amount": taxTotal,
+		}
 		metaJSON, _ := json.Marshal(meta)
 
-		_, err := tx.Exec(`INSERT INTO orders (id, tenant_id, user_id, guest_email, order_number, status, payment_status, payment_method, fulfillment_status, currency, subtotal, discount, shipping_cost, tax_total, total, coupon_code, shipping_address, notes, metadata) VALUES ($1,$2,$3,$4,$5,'pending','unpaid',$6,'unfulfilled','UZS',$7,$8,$9,0,$10,$11,$12,$13,$14)`,
-			id, in.TenantID, userID, guestEmail, number, in.PaymentMethod, subtotal, discountTotal, shippingCost, orderTotal, couponCode, in.ShippingAddress, in.Notes, metaJSON)
+		_, err := tx.Exec(`INSERT INTO orders (id, tenant_id, user_id, guest_email, order_number, status, payment_status, payment_method, fulfillment_status, currency, subtotal, discount, shipping_cost, tax_total, total, coupon_code, shipping_address, notes, metadata) VALUES ($1,$2,$3,$4,$5,'pending','unpaid',$6,'unfulfilled','UZS',$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+			id, in.TenantID, userID, guestEmail, number, in.PaymentMethod, subtotal, discountTotal, shippingCost, taxTotal, orderTotal, couponCode, in.ShippingAddress, in.Notes, metaJSON)
 		if err != nil {
 			return err
 		}
@@ -227,15 +239,16 @@ func (s *OrderService) Create(ctx context.Context, in CreateInput) (map[string]a
 			if err != nil {
 				return err
 			}
+			denyStock := line.InventoryPolicy != "continue"
 			if line.VariantID != nil && *line.VariantID != "" {
 				var avail int
 				if err := tx.QueryRow(`SELECT inventory_quantity FROM product_variants WHERE id=$1 FOR UPDATE`, *line.VariantID).Scan(&avail); err != nil {
 					return fmt.Errorf("variant unavailable: %s", *line.VariantID)
 				}
-				if avail < line.Quantity {
+				if denyStock && avail < line.Quantity {
 					return fmt.Errorf("insufficient stock for variant %s", *line.VariantID)
 				}
-				if _, err := tx.Exec(`UPDATE product_variants SET inventory_quantity=inventory_quantity-$1 WHERE id=$2`, line.Quantity, *line.VariantID); err != nil {
+				if _, err := tx.Exec(`UPDATE product_variants SET inventory_quantity=GREATEST(0, inventory_quantity-$1) WHERE id=$2`, line.Quantity, *line.VariantID); err != nil {
 					return err
 				}
 			}
@@ -243,10 +256,10 @@ func (s *OrderService) Create(ctx context.Context, in CreateInput) (map[string]a
 			if err := tx.QueryRow(`SELECT inventory_quantity FROM products WHERE id=$1 FOR UPDATE`, line.ProductID).Scan(&productAvail); err != nil {
 				return fmt.Errorf("product unavailable: %s", line.ProductID)
 			}
-			if productAvail < line.Quantity {
+			if denyStock && productAvail < line.Quantity {
 				return fmt.Errorf("insufficient stock for product %s", line.ProductID)
 			}
-			if _, err := tx.Exec(`UPDATE products SET inventory_quantity=inventory_quantity-$1, sales_count=sales_count+$1, status=CASE WHEN inventory_quantity-$1<=0 THEN 'out_of_stock' ELSE status END, updated_at=NOW() WHERE id=$2`, line.Quantity, line.ProductID); err != nil {
+			if _, err := tx.Exec(`UPDATE products SET inventory_quantity=GREATEST(0, inventory_quantity-$1), sales_count=sales_count+$1, status=CASE WHEN inventory_quantity-$1<=0 AND COALESCE(inventory_policy,'deny')<>'continue' THEN 'out_of_stock' ELSE status END, updated_at=NOW() WHERE id=$2`, line.Quantity, line.ProductID); err != nil {
 				return err
 			}
 		}
@@ -276,6 +289,8 @@ func (s *OrderService) Create(ctx context.Context, in CreateInput) (map[string]a
 			"subtotal":       subtotal,
 			"discount":       discountTotal,
 			"shipping_cost":  shippingCost,
+			"tax_total":      taxTotal,
+			"tax_rate":       taxRate,
 			"total":          orderTotal,
 			"status":         "pending",
 			"payment_status": "unpaid",
@@ -397,8 +412,21 @@ func restoreOrderReservations(tx *sqlx.Tx, orderID, tenantID string) error {
 }
 
 func (s *OrderService) Refund(ctx context.Context, id, tenantID string) error {
+	return s.RefundReturn(ctx, id, tenantID, nil, 0)
+}
+
+type ReturnLine struct {
+	OrderItemID string `json:"order_item_id"`
+	Quantity    int    `json:"quantity"`
+	ProductID   string `json:"product_id"`
+	VariantID   string `json:"variant_id"`
+}
+
+// RefundReturn restores stock for returned lines (or all items when lines empty) and marks payment refunded/partial.
+func (s *OrderService) RefundReturn(ctx context.Context, id, tenantID string, lines []ReturnLine, refundAmount float64) error {
 	live := os.Getenv("PAYMENTS_SANDBOX") == "false"
-	if live {
+	fullRefund := len(lines) == 0
+	if live && fullRefund {
 		paymentsURL := strings.TrimRight(os.Getenv("PAYMENTS_URL"), "/")
 		if paymentsURL == "" {
 			paymentsURL = "http://127.0.0.1:8006"
@@ -411,38 +439,78 @@ func (s *OrderService) Refund(ctx context.Context, id, tenantID string) error {
 	var userID *string
 	err := commondb.WithTenant(s.Repo.DB, tenantID, func(tx *sqlx.Tx) error {
 		var paymentStatus string
+		var orderTotal float64
 		if err := tx.QueryRow(
-			`SELECT COALESCE(payment_status,'unpaid'), user_id FROM orders WHERE id=$1 AND tenant_id=$2 FOR UPDATE`,
+			`SELECT COALESCE(payment_status,'unpaid'), user_id, total FROM orders WHERE id=$1 AND tenant_id=$2 FOR UPDATE`,
 			id, tenantID,
-		).Scan(&paymentStatus, &userID); err != nil {
+		).Scan(&paymentStatus, &userID, &orderTotal); err != nil {
 			return err
 		}
-		if paymentStatus != "paid" && paymentStatus != "refunded" {
+		if paymentStatus != "paid" && paymentStatus != "refunded" && paymentStatus != "partially_refunded" {
 			return fmt.Errorf("only paid orders can be refunded")
 		}
-		if paymentStatus != "refunded" {
-			if _, err := tx.Exec(
-				`UPDATE orders SET payment_status='refunded', updated_at=NOW() WHERE id=$1 AND tenant_id=$2`,
-				id, tenantID,
-			); err != nil {
+		if fullRefund {
+			if paymentStatus != "refunded" {
+				if _, err := tx.Exec(
+					`UPDATE orders SET payment_status='refunded', updated_at=NOW() WHERE id=$1 AND tenant_id=$2`,
+					id, tenantID,
+				); err != nil {
+					return err
+				}
+			}
+			if !live {
+				if _, err := tx.Exec(
+					`UPDATE payments SET status='refunded', updated_at=NOW() WHERE order_id=$1 AND status='succeeded'`,
+					id,
+				); err != nil {
+					return err
+				}
+			}
+			return restoreOrderReservations(tx, id, tenantID)
+		}
+
+		// Partial: restore only returned quantities.
+		for _, line := range lines {
+			if line.Quantity <= 0 {
+				continue
+			}
+			var productID string
+			var variantID *string
+			if err := tx.QueryRow(`SELECT product_id, variant_id FROM order_items WHERE id=$1 AND order_id=$2`, line.OrderItemID, id).Scan(&productID, &variantID); err != nil {
+				return fmt.Errorf("order item not found: %s", line.OrderItemID)
+			}
+			if variantID != nil && *variantID != "" {
+				if _, err := tx.Exec(`UPDATE product_variants SET inventory_quantity=inventory_quantity+$1 WHERE id=$2`, line.Quantity, *variantID); err != nil {
+					return err
+				}
+			}
+			if _, err := tx.Exec(`
+				UPDATE products SET
+					inventory_quantity=inventory_quantity+$1,
+					sales_count=GREATEST(0, sales_count-$1),
+					status=CASE WHEN status='out_of_stock' AND inventory_quantity+$1>0 THEN 'active' ELSE status END,
+					updated_at=NOW()
+				WHERE id=$2 AND tenant_id=$3`, line.Quantity, productID, tenantID); err != nil {
 				return err
 			}
+		}
+		payStatus := "partially_refunded"
+		if refundAmount > 0 && refundAmount >= orderTotal-0.01 {
+			payStatus = "refunded"
+		}
+		if _, err := tx.Exec(`UPDATE orders SET payment_status=$1, updated_at=NOW() WHERE id=$2 AND tenant_id=$3`, payStatus, id, tenantID); err != nil {
+			return err
 		}
 		if !live {
-			if _, err := tx.Exec(
-				`UPDATE payments SET status='refunded', updated_at=NOW() WHERE order_id=$1 AND status='succeeded'`,
-				id,
-			); err != nil {
-				return err
-			}
+			_, _ = tx.Exec(`UPDATE payments SET status=$1, updated_at=NOW() WHERE order_id=$2 AND status='succeeded'`, payStatus, id)
 		}
-		return restoreOrderReservations(tx, id, tenantID)
+		return nil
 	})
 	if err != nil {
 		return err
 	}
 	return s.Producer.Publish(ctx, "order.refunded", id, map[string]any{
-		"order_id": id, "tenant_id": tenantID, "user_id": userID, "payment_status": "refunded",
+		"order_id": id, "tenant_id": tenantID, "user_id": userID, "partial": !fullRefund, "refund_amount": refundAmount,
 	})
 }
 
@@ -517,6 +585,25 @@ func randomOrderNumber() string {
 		buf[i] = alphabet[int(buf[i])%len(alphabet)]
 	}
 	return "GZ-" + string(buf)
+}
+
+func resolveTaxRate(tx *sqlx.Tx, tenantID string) float64 {
+	var rate float64
+	err := tx.QueryRow(`
+		SELECT COALESCE(
+			NULLIF(settings->>'tax_rate','')::float,
+			NULLIF(settings->'tax'->>'rate','')::float,
+			12
+		)
+		FROM tenants WHERE id=$1`, tenantID).Scan(&rate)
+	if err != nil {
+		return 12
+	}
+	return rate
+}
+
+func roundMoney(v float64) float64 {
+	return float64(int(v*100+0.5)) / 100
 }
 
 // ClassifyCreateError maps create failures to HTTP-ish codes for the handler.

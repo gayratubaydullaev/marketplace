@@ -1,16 +1,16 @@
 "use client";
 
-import Link from "next/link";
 import { useTranslations } from "next-intl";
 import type { Product } from "@/lib/api";
 import { ProductCard } from "@/components/ProductCard";
+import { EmptyState } from "@/components/PageChrome";
 import { useVendorMap } from "@/lib/vendors";
 
 const colClass = {
   2: "grid-cols-2",
   3: "grid-cols-2 sm:grid-cols-3",
-  4: "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5",
-  5: "grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6",
+  4: "grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5",
+  5: "grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 2xl:grid-cols-6",
 } as const;
 
 export function ProductGrid({
@@ -31,15 +31,13 @@ export function ProductGrid({
 
   if (products.length === 0) {
     return (
-      <div className="mt-10 px-4 py-12 text-center">
-        <p className="text-sm text-muted">{t("common.emptyProducts")}</p>
-        <Link
-          href={`/${locale}/products`}
-          className="mt-4 inline-block rounded-xl bg-accent px-5 py-2.5 text-sm font-bold text-night transition hover:bg-accent-hover"
-        >
-          {t("nav.catalog")}
-        </Link>
-      </div>
+      <EmptyState
+        title={t("common.emptyProducts")}
+        description={t("search.tryDifferent")}
+        actionHref={`/${locale}/products`}
+        actionLabel={t("nav.catalog")}
+        variant="search"
+      />
     );
   }
 
@@ -47,7 +45,7 @@ export function ProductGrid({
 
   return (
     <div
-      className={`${marginClass} grid gap-x-2 gap-y-3 sm:gap-x-3.5 sm:gap-y-5 ${colClass[columns]} ${className}`}
+      className={`${marginClass} grid gap-x-2 gap-y-3 sm:gap-x-3.5 sm:gap-y-5 lg:gap-x-4 lg:gap-y-6 xl:gap-x-5 ${colClass[columns]} ${className}`}
     >
       {products.map((p, i) => (
         <ProductCard

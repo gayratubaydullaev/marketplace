@@ -35,11 +35,16 @@ export function VariantPicker({
     if (hit) {
       setColor(hit.color);
       setSize(hit.size);
-    } else if (!variantId) {
-      setColor(null);
-      setSize(null);
+      return;
     }
-  }, [variantId, items]);
+    if (!variantId && variants.length > 0) {
+      const first = variants.find(
+        (v) => typeof v.inventory_quantity !== "number" || v.inventory_quantity > 0
+      );
+      if (first) onVariantChange(first.id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- auto-select once when variants load
+  }, [variantId, items, variants]);
 
   if (!matrix) {
     return (

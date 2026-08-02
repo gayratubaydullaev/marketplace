@@ -1,6 +1,9 @@
 package model
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 type Courier struct {
 	ID          string     `db:"id" json:"id"`
@@ -51,9 +54,13 @@ type Job struct {
 	PickedUpAt     *time.Time `db:"picked_up_at" json:"picked_up_at,omitempty"`
 	DeliveredAt    *time.Time `db:"delivered_at" json:"delivered_at,omitempty"`
 	Sequence       int        `db:"sequence" json:"sequence"`
-	CODAmount      float64    `db:"cod_amount" json:"cod_amount"`
-	DeliveryFee    float64    `db:"delivery_fee" json:"delivery_fee"`
-	Currency       string     `db:"currency" json:"currency"`
+	CODAmount          float64    `db:"cod_amount" json:"cod_amount"`
+	CODCollectedAmount *float64   `db:"cod_collected_amount" json:"cod_collected_amount,omitempty"`
+	CODDispute         bool       `db:"cod_dispute" json:"cod_dispute"`
+	CODDisputeNote     string     `db:"cod_dispute_note" json:"cod_dispute_note,omitempty"`
+	Metadata           json.RawMessage `db:"metadata" json:"metadata,omitempty"`
+	DeliveryFee        float64    `db:"delivery_fee" json:"delivery_fee"`
+	Currency           string     `db:"currency" json:"currency"`
 	CreatedAt      time.Time  `db:"created_at" json:"created_at"`
 	UpdatedAt      time.Time  `db:"updated_at" json:"updated_at"`
 	OrderNumber    string     `db:"order_number" json:"order_number,omitempty"`

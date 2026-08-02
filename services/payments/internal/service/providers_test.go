@@ -10,7 +10,7 @@ func TestStripeProviderSandbox(t *testing.T) {
 	t.Setenv("PAYMENTS_SANDBOX", "true")
 	provider := StripeProvider{Secret: "sandbox-secret"}
 
-	id, redirect, err := provider.CreateIntent(12_500, "UZS", "order-123")
+	id, redirect, err := provider.CreateIntent(12_500, "UZS", "order-123", "uz")
 	if err != nil {
 		t.Fatalf("CreateIntent() error = %v", err)
 	}

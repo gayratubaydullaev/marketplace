@@ -155,7 +155,9 @@ export function ProductGallery({
           */}
           <div
             className="group relative w-full overflow-hidden rounded-2xl bg-surface-muted aspect-square
-              lg:aspect-[4/5] lg:h-[min(78dvh,40rem)] lg:max-h-[min(78dvh,40rem)] lg:rounded-3xl lg:shadow-[0_24px_60px_-36px_rgba(11,31,36,0.4)]"
+              lg:aspect-[4/5] lg:h-[min(72dvh,36rem)] lg:max-h-[min(72dvh,36rem)] lg:rounded-3xl lg:shadow-[0_24px_60px_-36px_rgba(11,31,36,0.4)]
+              xl:h-[min(78dvh,42rem)] xl:max-h-[min(78dvh,42rem)]
+              2xl:h-[min(80dvh,46rem)] 2xl:max-h-[min(80dvh,46rem)]"
             onTouchStart={onTouchStart}
             onTouchEnd={onTouchEnd}
           >

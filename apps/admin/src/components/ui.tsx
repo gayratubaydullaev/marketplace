@@ -1,63 +1,59 @@
+import {
+  PageHeader as SharedPageHeader,
+  FormField,
+  Select as SharedSelect,
+  TableShell as SharedTableShell,
+  EmptyState as SharedEmptyState,
+  StatusBadge as SharedStatusBadge,
+  Pagination as SharedPagination,
+  Msg as SharedMsg,
+  ConfirmDialog,
+  LoadingBlock,
+  KpiCard,
+  Button,
+  Input,
+  Badge,
+  Card,
+  formatApiError,
+  readApiError,
+} from "@gayrat/ui";
 import { statusBadgeTone } from "@/lib/status";
 
-export function PageHeader({
-  title,
-  description,
-  actions,
-}: {
+export {
+  ConfirmDialog,
+  LoadingBlock,
+  KpiCard,
+  Button,
+  Input,
+  Badge,
+  Card,
+  formatApiError,
+  readApiError,
+  FormField,
+};
+
+export function PageHeader(props: {
   title: string;
   description?: string;
   actions?: React.ReactNode;
 }) {
-  return (
-    <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
-      <div>
-        <h1 className="font-display text-2xl font-bold tracking-tight text-night sm:text-3xl">{title}</h1>
-        {description ? <p className="mt-1 max-w-2xl text-sm text-slate-500">{description}</p> : null}
-      </div>
-      {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}
-    </div>
-  );
+  return <SharedPageHeader {...props} />;
 }
 
-export function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <label className="block space-y-1">
-      <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</span>
-      {children}
-    </label>
-  );
+export function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return <FormField label={label}>{children}</FormField>;
 }
 
 export function Select(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
-  return (
-    <select
-      {...props}
-      className={`rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-teal focus:ring-2 focus:ring-teal/20 ${props.className || ""}`}
-    />
-  );
+  return <SharedSelect {...props} />;
 }
 
 export function TableShell({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="overflow-x-auto rounded-2xl border border-slate-200/80 bg-white shadow-sm">
-      <table className="min-w-full text-left text-sm">{children}</table>
-    </div>
-  );
+  return <SharedTableShell>{children}</SharedTableShell>;
 }
 
 export function EmptyState({ text }: { text: string }) {
-  return (
-    <p className="rounded-2xl border border-dashed border-slate-200 bg-white px-4 py-10 text-center text-sm text-slate-500">
-      {text}
-    </p>
-  );
+  return <SharedEmptyState text={text} />;
 }
 
 export function StatusBadge({ status, label }: { status?: string; label?: string }) {
@@ -112,61 +108,21 @@ export function SectionTabs({
 }
 
 export function PanelCard({ children, className = "" }: { children: React.ReactNode; className?: string }) {
-  return (
-    <div className={`rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm sm:p-5 ${className}`}>{children}</div>
-  );
+  return <Card className={className}>{children}</Card>;
 }
 
-export function Pagination({
-  page,
-  pageSize,
-  total,
-  onPage,
-}: {
+export function Pagination(props: {
   page: number;
   pageSize: number;
   total: number;
   onPage: (p: number) => void;
 }) {
-  const pages = Math.max(1, Math.ceil(total / pageSize));
-  if (pages <= 1) return null;
-  return (
-    <div className="mt-4 flex items-center justify-center gap-3 text-sm">
-      <button
-        type="button"
-        disabled={page <= 1}
-        className="rounded-full border border-slate-200 bg-white px-3 py-1.5 disabled:opacity-40"
-        onClick={() => onPage(page - 1)}
-        aria-label="Previous page"
-      >
-        ←
-      </button>
-      <span className="tabular-nums text-slate-600">
-        {page} / {pages}
-      </span>
-      <button
-        type="button"
-        disabled={page >= pages}
-        className="rounded-full border border-slate-200 bg-white px-3 py-1.5 disabled:opacity-40"
-        onClick={() => onPage(page + 1)}
-        aria-label="Next page"
-      >
-        →
-      </button>
-    </div>
-  );
+  return <SharedPagination {...props} />;
 }
 
 export function Msg({ text, tone = "error" }: { text: string; tone?: "error" | "ok" }) {
-  if (!text) return null;
-  return (
-    <p
-      className={`mt-3 rounded-xl px-3 py-2 text-sm break-all ${
-        tone === "ok" ? "bg-teal/10 text-teal" : "bg-rose-50 text-rose-700"
-      }`}
-      role="status"
-    >
-      {text}
-    </p>
-  );
+  return <SharedMsg text={text} tone={tone} />;
 }
+
+// Keep SharedStatusBadge available for pages that prefer toneMap API.
+export { SharedStatusBadge };

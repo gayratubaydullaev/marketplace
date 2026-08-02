@@ -107,17 +107,18 @@ export function CatalogMenu({
         aria-expanded={open}
         aria-haspopup="true"
         onClick={toggleOpen}
-        className={`inline-flex h-11 items-center gap-2 rounded-xl px-3.5 text-sm font-bold transition ${
+        className={`inline-flex h-10 items-center gap-1.5 rounded-xl px-2.5 text-sm font-bold transition lg:h-11 lg:gap-2 lg:px-3.5 ${
           open
             ? "bg-teal text-paper shadow-sm"
             : "border border-night/12 bg-white text-night hover:border-teal/40 hover:text-teal"
         }`}
+        aria-label={t("nav.catalog")}
       >
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
           <path d="M4 7h16M4 12h16M4 17h16" strokeLinecap="round" />
         </svg>
-        {t("nav.catalog")}
-        <span className={`text-[10px] transition ${open ? "rotate-180" : ""}`}>▾</span>
+        <span className="hidden lg:inline">{t("nav.catalog")}</span>
+        <span className={`hidden text-[10px] transition lg:inline ${open ? "rotate-180" : ""}`}>▾</span>
       </button>
 
       {open ? (

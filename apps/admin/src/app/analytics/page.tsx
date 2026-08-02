@@ -58,6 +58,7 @@ export default function AnalyticsPage() {
     popular?: { query: string; cnt: number }[];
     zero_results?: { query: string; cnt: number }[];
   }>({});
+  const [searchHealth, setSearchHealth] = useState<{ elasticsearch?: { available?: boolean }; search_backend?: string } | null>(null);
   const [banners, setBanners] = useState<{ items?: BannerRow[]; totals?: { impressions: number; clicks: number; ctr: number } }>({});
   const [products, setProducts] = useState<{ items?: ProductRow[]; totals?: { views: number; add_to_cart: number; sold: number } }>({});
   const [msg, setMsg] = useState("");
@@ -72,6 +73,9 @@ export default function AnalyticsPage() {
     api<typeof searchAnalytics>("/v1/search/analytics")
       .then(setSearchAnalytics)
       .catch(() => undefined);
+    api<{ elasticsearch?: { available?: boolean }; search_backend?: string }>("/v1/search/health")
+      .then((d) => setSearchHealth(d))
+      .catch(() => setSearchHealth(null));
     const tick = () =>
       api<typeof rt>("/v1/analytics/realtime")
         .then(setRt)
@@ -169,6 +173,11 @@ export default function AnalyticsPage() {
         }
       />
       <Msg text={msg} />
+      {searchHealth != null && searchHealth.elasticsearch?.available === false && (
+        <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900" role="status">
+          Elasticsearch is unavailable — search uses PostgreSQL fallback ({searchHealth.search_backend || "postgres"}).
+        </div>
+      )}
       <div className="mt-4">
         <SectionTabs
           items={[

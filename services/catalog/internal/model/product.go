@@ -100,6 +100,15 @@ type CreateVariantRequest struct {
 	Images            []string        `json:"images"`
 }
 
+type UpdateVariantRequest struct {
+	Title             *string  `json:"title"`
+	Price             *float64 `json:"price"`
+	InventoryQuantity *int     `json:"inventory_quantity"`
+	ImageURL          *string  `json:"image_url"`
+	Status            *string  `json:"status"`
+	SKU               *string  `json:"sku"`
+}
+
 type BulkProductRequest struct {
 	CategoryID   string          `json:"category_id"`
 	Slug         string          `json:"slug"`

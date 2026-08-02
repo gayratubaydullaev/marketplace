@@ -16,7 +16,7 @@ func NewOrderRepository(db *sqlx.DB) *OrderRepository {
 
 const orderSelect = `id, tenant_id, user_id, guest_email, order_number, status, COALESCE(payment_status,'unpaid') AS payment_status, COALESCE(payment_method,'') AS payment_method, COALESCE(fulfillment_status,'unfulfilled') AS fulfillment_status, currency, subtotal, discount, shipping_cost, COALESCE(tax_total,0) AS tax_total, total, coupon_code, shipping_address, notes, tracking_carrier, tracking_number, tracking_url, shipped_at, created_at`
 
-const itemSelect = `id, order_id, vendor_id, product_id, title, quantity, unit_price, total_price, commission_rate, commission_amount, status`
+const itemSelect = `id, order_id, vendor_id, product_id, title, quantity, COALESCE(returned_quantity,0) AS returned_quantity, unit_price, total_price, commission_rate, commission_amount, status`
 
 func (r *OrderRepository) List(tenantID, userID string, customerOnly bool) ([]model.Order, error) {
 	var orders []model.Order

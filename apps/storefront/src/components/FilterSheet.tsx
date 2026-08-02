@@ -118,7 +118,7 @@ function FilterSheetInner({
         </div>
       ) : null}
 
-      <aside className="mb-6 hidden space-y-4 lg:mb-0 lg:block lg:sticky lg:top-24 lg:self-start">
+      <aside className="mb-6 hidden space-y-4 lg:mb-0 lg:block lg:sticky lg:top-header-offset lg:self-start lg:max-h-[calc(100dvh-var(--header-offset)-1.5rem)] lg:overflow-y-auto lg:overscroll-contain [scrollbar-width:thin]">
         <div className="flex items-center justify-between gap-2">
           <h2 className="text-sm font-bold uppercase tracking-wide text-muted">{t("filters")}</h2>
           {clearHref && activeCount > 0 ? (

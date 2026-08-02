@@ -26,6 +26,7 @@ function resolveMoney(serverVal: number | undefined, localVal: number) {
 
 export default function CartPage() {
   const t = useTranslations("cart");
+  const tc = useTranslations("common");
   const locale = useLocale();
   const { items, setQty, remove, total, syncToServer } = useCart();
   const [coupon, setCoupon] = useState("");
@@ -33,11 +34,13 @@ export default function CartPage() {
   const [couponMessage, setCouponMessage] = useState("");
   const [giftMessage, setGiftMessage] = useState("");
   const [server, setServer] = useState<CartTotals>({});
+  const [syncing, setSyncing] = useState(false);
   const [vendorNames, setVendorNames] = useState<Record<string, string>>({});
 
   const localSubtotal = useMemo(() => total(), [items]);
 
   async function refreshServer() {
+    setSyncing(true);
     try {
       await syncToServer();
       const data = await api<CartTotals & { cart?: unknown }>("/v1/cart");
@@ -49,6 +52,8 @@ export default function CartPage() {
       });
     } catch {
       /* local totals fallback */
+    } finally {
+      setSyncing(false);
     }
   }
 
@@ -203,8 +208,13 @@ export default function CartPage() {
   return (
     <div className="animate-rise pb-[calc(var(--sticky-action-h)+1rem)] lg:pb-0">
       <PageHeader title={t("title")} subtitle={t("itemsCount", { count })} />
+      {syncing ? (
+        <p className="mt-2 text-xs font-medium text-muted" aria-live="polite">
+          {tc("loading")}
+        </p>
+      ) : null}
 
-      <div className="mt-8 grid gap-10 lg:grid-cols-[minmax(0,1fr)_300px]">
+      <div className="mt-8 grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(17rem,20rem)] xl:gap-12">
         <div className="space-y-8">
           {Object.entries(vendorGroups).map(([vendorLabel, vendorItems]) => (
             <section key={vendorLabel}>

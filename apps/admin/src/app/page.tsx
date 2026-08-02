@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { api, clearTokens, errMsg, ensureAdminSession, isAdminRole } from "@/lib/api";
-import { Msg, PageHeader, CountPill } from "@/components/ui";
+import { Msg, PageHeader, CountPill, KpiCard } from "@/components/ui";
 import { LocaleSwitcher, useI18n } from "@/lib/i18n";
 
 export default function AdminHome() {
@@ -154,9 +154,17 @@ export default function AdminHome() {
       {dashLoading && <p className="mb-4 text-sm text-slate-500">{t("dashLoading")}</p>}
       <Msg text={dashErr} />
       <div className="grid gap-4 sm:grid-cols-3">
-        <Stat label={t("dashRevenue")} value={stats.revenue ?? 0} href="/analytics" locale={numberLocale} />
-        <Stat label={t("dashOrders")} value={stats.orders ?? 0} href="/orders" locale={numberLocale} />
-        <Stat label={t("dashCustomers")} value={stats.customers ?? 0} href="/customers" locale={numberLocale} />
+        <KpiCard
+          label={t("dashRevenue")}
+          value={(stats.revenue ?? 0).toLocaleString(numberLocale)}
+          href="/analytics"
+        />
+        <KpiCard label={t("dashOrders")} value={(stats.orders ?? 0).toLocaleString(numberLocale)} href="/orders" />
+        <KpiCard
+          label={t("dashCustomers")}
+          value={(stats.customers ?? 0).toLocaleString(numberLocale)}
+          href="/customers"
+        />
       </div>
       <div className="mt-8">
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">{t("dashAttention")}</h2>
@@ -191,28 +199,6 @@ export default function AdminHome() {
         </div>
       </div>
     </div>
-  );
-}
-
-function Stat({
-  label,
-  value,
-  href,
-  locale,
-}: {
-  label: string;
-  value: number;
-  href: string;
-  locale: string;
-}) {
-  return (
-    <Link
-      href={href}
-      className="block rounded-2xl border border-slate-200/80 bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
-    >
-      <p className="text-sm text-slate-500">{label}</p>
-      <p className="mt-2 font-display text-3xl font-bold text-teal">{value.toLocaleString(locale)}</p>
-    </Link>
   );
 }
 

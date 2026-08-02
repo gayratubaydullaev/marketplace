@@ -6,6 +6,7 @@ import { getCategories, getSearchFacets } from "@/lib/catalog";
 import { extractSearchItems } from "@/lib/search";
 import { buildFilterHref, countActiveFilters, type FilterState } from "@/lib/filters";
 import { ProductGrid } from "@/components/ProductGrid";
+import { CatalogError } from "@/components/CatalogError";
 import { Pagination } from "@/components/Pagination";
 import { FilterSheet } from "@/components/FilterSheet";
 import { ActiveFilterChips, CatalogFilters, type FilterCategory } from "@/components/CatalogFilters";
@@ -35,7 +36,7 @@ export async function generateMetadata({
   };
 }
 
-const PAGE_SIZE = 12;
+const PAGE_SIZE = 24;
 
 export default async function ProductsPage({
   params,
@@ -65,6 +66,7 @@ export default async function ProductsPage({
   let facets: { categories?: { category_id: string; count: number }[]; price_ranges?: { min: number; max: number }[] } =
     {};
   let total = 0;
+  let loadError = false;
 
   const qs = new URLSearchParams();
   qs.set("limit", String(PAGE_SIZE));
@@ -118,6 +120,7 @@ export default async function ProductsPage({
   } catch {
     products = [];
     total = 0;
+    loadError = true;
   }
 
   const values: FilterState = {
@@ -135,7 +138,7 @@ export default async function ProductsPage({
   const activeCount = countActiveFilters(values, { ignoreSort: true });
 
   return (
-    <div className="animate-rise lg:grid lg:grid-cols-[240px_1fr] lg:gap-10">
+    <div className="animate-rise lg:grid lg:grid-cols-[minmax(12.5rem,15rem)_minmax(0,1fr)] lg:gap-8 xl:grid-cols-[minmax(14rem,16rem)_minmax(0,1fr)] xl:gap-12">
       <FilterSheet activeCount={activeCount} resultCount={total} clearHref={clearHref}>
         <CatalogFilters
           locale={locale}
@@ -185,7 +188,7 @@ export default async function ProductsPage({
             </Link>
           ))}
         </div>
-        <ProductGrid products={products} locale={locale} columns={5} />
+        {loadError ? <CatalogError /> : <ProductGrid products={products} locale={locale} columns={4} />}
         <Pagination
           locale={locale}
           basePath={basePath}

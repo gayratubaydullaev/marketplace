@@ -7,14 +7,14 @@ import { useLocale, useTranslations } from "next-intl";
 import { apiPublic, publicTags, type Product } from "@/lib/api";
 import { extractSearchItems, pushRecentSearch } from "@/lib/search";
 import { buildFilterHref, countActiveFilters, type FilterState } from "@/lib/filters";
+import { EmptyState, ErrorPanel, ProductGridSkeleton } from "@/components/PageChrome";
 import { ProductGrid } from "@/components/ProductGrid";
 import { Pagination } from "@/components/Pagination";
 import { FilterSheet } from "@/components/FilterSheet";
 import { ActiveFilterChips, CatalogFilters, type FilterCategory } from "@/components/CatalogFilters";
-import { EmptyState } from "@/components/PageChrome";
 import { SearchLanding } from "@/components/HeaderSearch";
 
-const PAGE_SIZE = 12;
+const PAGE_SIZE = 24;
 
 function SearchInner() {
   const locale = useLocale();
@@ -136,7 +136,7 @@ function SearchInner() {
   }
 
   return (
-    <div className="animate-rise lg:grid lg:grid-cols-[240px_1fr] lg:gap-10">
+    <div className="animate-rise lg:grid lg:grid-cols-[minmax(12.5rem,15rem)_minmax(0,1fr)] lg:gap-8 xl:grid-cols-[minmax(14rem,16rem)_minmax(0,1fr)] xl:gap-12">
       <FilterSheet activeCount={activeCount} resultCount={total} clearHref={clearHref}>
         <CatalogFilters
           locale={locale}
@@ -193,26 +193,14 @@ function SearchInner() {
         </div>
 
         {loading ? (
-          <div className="mt-8 grid animate-pulse grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-            {Array.from({ length: 8 }).map((_, i) => (
-              <div key={i} className="space-y-2">
-                <div className="aspect-[3/4] rounded-2xl bg-night/8" />
-                <div className="h-3 w-2/3 rounded bg-night/10" />
-              </div>
-            ))}
-          </div>
+          <ProductGridSkeleton count={8} />
         ) : error ? (
-          <div className="px-4 py-16 text-center sm:py-20">
-            <p className="font-display text-lg font-bold text-night">{t("common.error")}</p>
-            <p className="mx-auto mt-2 max-w-sm text-sm text-muted">{t("search.tryDifferent")}</p>
-            <button
-              type="button"
-              onClick={() => setReloadKey((k) => k + 1)}
-              className="mt-7 inline-block rounded-xl bg-accent px-6 py-3 text-sm font-bold text-night transition hover:bg-accent-hover"
-            >
-              {t("common.retry")}
-            </button>
-          </div>
+          <ErrorPanel
+            title={t("common.error")}
+            description={t("search.tryDifferent")}
+            onRetry={() => setReloadKey((k) => k + 1)}
+            retryLabel={t("common.retry")}
+          />
         ) : items.length === 0 ? (
           <EmptyState
             title={t("search.noResults")}
@@ -223,7 +211,7 @@ function SearchInner() {
           />
         ) : (
           <>
-            <ProductGrid products={items} locale={locale} columns={5} />
+            <ProductGrid products={items} locale={locale} columns={4} />
             <Pagination
               locale={locale}
               basePath={basePath}

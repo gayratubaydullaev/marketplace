@@ -21,7 +21,7 @@ func New(svc *service.AuthService) *Handler {
 }
 
 func exposeDevSecrets() bool {
-	// Fail-closed: only expose reset/OTP tokens when explicitly in a local env.
+	// Fail-closed: only expose reset/verification tokens when explicitly in a local env.
 	env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
 	switch env {
 	case "development", "dev", "local", "test":
@@ -29,6 +29,11 @@ func exposeDevSecrets() bool {
 	default:
 		return false
 	}
+}
+
+func exposeOTPDebug() bool {
+	// OTP codes must never leak based on APP_ENV alone — require explicit OTP_DEBUG=1.
+	return strings.TrimSpace(os.Getenv("OTP_DEBUG")) == "1"
 }
 
 func (h *Handler) Register(c *gin.Context) {
@@ -168,7 +173,7 @@ func (h *Handler) SendOTP(c *gin.Context) {
 		return
 	}
 	resp := gin.H{"message": "otp sent"}
-	if exposeDevSecrets() && code != "" {
+	if exposeOTPDebug() && code != "" {
 		resp["dev_code"] = code
 	}
 	httpx.OK(c, resp)
@@ -204,7 +209,7 @@ func (h *Handler) SendEmailOTP(c *gin.Context) {
 		return
 	}
 	resp := gin.H{"message": "otp sent"}
-	if exposeDevSecrets() && code != "" {
+	if exposeOTPDebug() && code != "" {
 		resp["dev_code"] = code
 	}
 	httpx.OK(c, resp)

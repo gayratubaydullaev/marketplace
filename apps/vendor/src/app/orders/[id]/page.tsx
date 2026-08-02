@@ -121,6 +121,9 @@ export default function OrderDetailPage() {
   const [chatBusy, setChatBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const [ok, setOk] = useState("");
+  const [readyBusy, setReadyBusy] = useState(false);
+  const [cancelReason, setCancelReason] = useState("");
+  const [showCancelForm, setShowCancelForm] = useState(false);
   const [liveCourier, setLiveCourier] = useState<{ lat: number; lng: number; updated_at?: string } | null>(null);
 
   function labelStatus(status?: string) {
@@ -222,12 +225,25 @@ export default function OrderDetailPage() {
     return stops;
   }, [delivery, t]);
 
-  async function setStatus(status: string) {
+  async function setStatus(status: string, reason?: string) {
     setMsg("");
     setOk("");
-    await api(`/v1/orders/${id}/status`, { method: "POST", body: JSON.stringify({ status }) });
+    if (status === "cancelled" && !reason?.trim()) {
+      setMsg(t("orderCancelReasonRequired"));
+      return;
+    }
+    await api(`/v1/orders/${id}/status`, {
+      method: "POST",
+      body: JSON.stringify({ status, reason: reason?.trim() || undefined }),
+    });
     setOk(t("orderStatusChanged", { status: labelStatus(status) }));
+    setShowCancelForm(false);
+    setCancelReason("");
     await load();
+  }
+
+  async function packOrder() {
+    await setStatus("processing");
   }
 
   async function collectPayment() {
@@ -239,11 +255,19 @@ export default function OrderDetailPage() {
   }
 
   async function readyForDelivery() {
+    if (readyBusy) return;
+    setReadyBusy(true);
     setMsg("");
     setOk("");
-    await api(`/v1/orders/${id}/ready-for-delivery`, { method: "POST", body: "{}" });
-    setOk(t("orderReadyOk"));
-    await load();
+    try {
+      await api(`/v1/orders/${id}/ready-for-delivery`, { method: "POST", body: "{}" });
+      setOk(t("orderReadyOk"));
+      await load();
+    } catch (e) {
+      setMsg(errMsg(e));
+    } finally {
+      setReadyBusy(false);
+    }
   }
 
   async function sendDeliveryChat() {
@@ -303,6 +327,8 @@ export default function OrderDetailPage() {
     addr.delivery_method !== "pickup" &&
     o.status === "processing" &&
     (!delivery || delivery.status === "cancelled");
+  const deliveryQueued =
+    !!delivery && delivery.status !== "cancelled" && o.status === "processing";
 
   return (
     <div>
@@ -353,27 +379,83 @@ export default function OrderDetailPage() {
                 {t("orderCollectPay")}
               </Button>
             )}
+            {o.status === "confirmed" && (
+              <Button variant="primary" className="!px-3 !py-1.5 text-xs" onClick={() => packOrder().catch((e) => setMsg(errMsg(e)))}>
+                {t("orderPack")}
+              </Button>
+            )}
             {canReady && (
-              <Button variant="primary" className="!px-3 !py-1.5 text-xs" onClick={() => readyForDelivery().catch((e) => setMsg(errMsg(e)))}>
+              <Button
+                variant="primary"
+                className="!px-3 !py-1.5 text-xs"
+                disabled={readyBusy}
+                onClick={() => readyForDelivery().catch((e) => setMsg(errMsg(e)))}
+              >
                 {t("orderReadyForDelivery")}
               </Button>
             )}
-            {actions.map((s) => {
+            {deliveryQueued && !canReady ? (
+              <p className="w-full text-xs text-amber-700">{t("orderReadyPending")}</p>
+            ) : null}
+            {actions.filter((s) => !(s === "processing" && o.status === "confirmed")).map((s) => {
+              if (s === "cancelled") {
+                return (
+                  <Button
+                    key={s}
+                    variant="secondary"
+                    className="!px-3 !py-1.5 text-xs"
+                    onClick={() => setShowCancelForm((v) => !v)}
+                  >
+                    {t("orderCancel")}
+                  </Button>
+                );
+              }
               const blocked = (s === "delivered" || s === "completed") && o.payment_status !== "paid";
               return (
                 <Button
                   key={s}
-                  variant={s === "cancelled" || s === "returned" ? "secondary" : "primary"}
+                  variant={s === "returned" ? "secondary" : "primary"}
                   className="!px-3 !py-1.5 text-xs"
                   disabled={blocked}
                   title={blocked ? t("orderPayBeforeDeliver") : undefined}
                   onClick={() => setStatus(s).catch((e) => setMsg(errMsg(e)))}
                 >
-                  {labelStatus(s)}
+                  {s === "processing" ? t("orderPack") : labelStatus(s)}
                 </Button>
               );
             })}
           </div>
+          {showCancelForm && (
+            <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50/50 p-3">
+              <label className="block text-xs font-semibold text-rose-900">{t("orderCancelReason")}</label>
+              <textarea
+                className="mt-1 w-full rounded-lg border border-rose-200 px-2.5 py-1.5 text-sm"
+                rows={2}
+                value={cancelReason}
+                onChange={(e) => setCancelReason(e.target.value)}
+                placeholder={t("orderCancelReasonPlaceholder")}
+              />
+              <div className="mt-2 flex gap-2">
+                <Button
+                  variant="secondary"
+                  className="!px-3 !py-1.5 text-xs"
+                  onClick={() => {
+                    setShowCancelForm(false);
+                    setCancelReason("");
+                  }}
+                >
+                  {t("commonCancel")}
+                </Button>
+                <Button
+                  variant="primary"
+                  className="!px-3 !py-1.5 text-xs !bg-rose-700"
+                  onClick={() => setStatus("cancelled", cancelReason).catch((e) => setMsg(errMsg(e)))}
+                >
+                  {t("orderConfirmCancel")}
+                </Button>
+              </div>
+            </div>
+          )}
           {needsPayBeforeHandoff && <p className="mt-2 text-xs text-amber-700">{t("orderPayBeforeDeliver")}</p>}
         </section>
       )}

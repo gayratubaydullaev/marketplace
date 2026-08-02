@@ -116,3 +116,130 @@ export function StatusBadge({ status, label }: { status: string; label: string }
     </span>
   );
 }
+
+const retryBtnClass =
+  "mt-7 inline-flex min-h-11 items-center justify-center rounded-xl bg-accent px-6 py-3 text-sm font-bold text-night transition hover:bg-accent-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal";
+
+/** Inline error panel with optional retry — matches search page pattern. */
+export function ErrorPanel({
+  title,
+  description,
+  onRetry,
+  retryLabel,
+}: {
+  title: string;
+  description?: string;
+  onRetry?: () => void;
+  retryLabel?: string;
+}) {
+  return (
+    <div className="px-4 py-16 text-center sm:py-20">
+      <p className="font-display text-lg font-bold text-night sm:text-xl">{title}</p>
+      {description ? <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-muted">{description}</p> : null}
+      {onRetry && retryLabel ? (
+        <button type="button" onClick={onRetry} className={retryBtnClass}>
+          {retryLabel}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+/** Generic list/card loading skeleton. */
+export function LoadingBlock({ rows = 3 }: { rows?: number }) {
+  return (
+    <div className="space-y-3">
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} className="h-24 animate-pulse rounded-2xl bg-night/5" />
+      ))}
+    </div>
+  );
+}
+
+/** Product grid loading skeleton — shared across catalog/search. */
+export function ProductGridSkeleton({ count = 8 }: { count?: number }) {
+  return (
+    <div className="mt-8 grid animate-pulse grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+      {Array.from({ length: count }).map((_, i) => (
+        <div key={i} className="space-y-2">
+          <div className="aspect-[3/4] rounded-2xl bg-night/8" />
+          <div className="h-3 w-2/3 rounded bg-night/10" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Vertical order status timeline — pending → delivered. */
+export function StatusTimeline({
+  steps,
+  currentStatus,
+  label,
+}: {
+  steps: readonly string[];
+  currentStatus: string;
+  label: (status: string) => string;
+}) {
+  const terminal = currentStatus === "cancelled" || currentStatus === "refunded";
+  const statusIdx = terminal ? -1 : steps.indexOf(currentStatus);
+
+  return (
+    <ol className="relative mt-4 space-y-0">
+      {steps.map((step, i) => {
+        const done = !terminal && statusIdx >= 0 && i <= statusIdx;
+        const current = !terminal && currentStatus === step;
+        const upcoming = !done && !current;
+        const isLast = i === steps.length - 1;
+        return (
+          <li key={step} className="relative flex gap-3 pb-5 last:pb-0">
+            {!isLast ? (
+              <span
+                className={`absolute start-[11px] top-6 h-[calc(100%-12px)] w-0.5 ${
+                  done ? "bg-teal/40" : "bg-night/8"
+                }`}
+                aria-hidden
+              />
+            ) : null}
+            <span
+              className={`relative z-[1] flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${
+                current
+                  ? "bg-accent text-night ring-2 ring-accent/30"
+                  : done
+                    ? "bg-teal text-paper"
+                    : "border border-night/12 bg-white text-night/30"
+              }`}
+              aria-hidden
+            >
+              {done && !current ? (
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                  <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              ) : (
+                i + 1
+              )}
+            </span>
+            <div className="min-w-0 pt-0.5">
+              <p
+                className={`text-sm font-semibold ${
+                  current ? "text-night" : done ? "text-teal" : upcoming ? "text-night/40" : "text-night/70"
+                }`}
+              >
+                {label(step)}
+              </p>
+            </div>
+          </li>
+        );
+      })}
+      {terminal ? (
+        <li className="relative flex gap-3 pt-1">
+          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-danger-muted text-danger">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <path d="M6 6l12 12M18 6L6 18" strokeLinecap="round" />
+            </svg>
+          </span>
+          <p className="pt-0.5 text-sm font-semibold text-danger">{label(currentStatus)}</p>
+        </li>
+      ) : null}
+    </ol>
+  );
+}

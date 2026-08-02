@@ -2,7 +2,8 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Button } from "@gayrat/ui";
 import { Msg, PageHeader, Select } from "@/components/ui";
 import { api, errMsg } from "@/lib/api";
@@ -57,12 +58,15 @@ function gpsFreshness(iso: string | null | undefined): "fresh" | "warm" | "stale
   return "stale";
 }
 
-export default function FleetMapPage() {
+function FleetMapInner() {
   const { t } = useI18n();
+  const search = useSearchParams();
+  const focusJob = search.get("job") || "";
   const [couriers, setCouriers] = useState<Courier[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [msg, setMsg] = useState("");
   const [ok, setOk] = useState("");
+  const [busy, setBusy] = useState(false);
   const [selected, setSelected] = useState<{ id: string; kind: "courier" | "job" } | null>(null);
   const [assignCourier, setAssignCourier] = useState("");
 
@@ -83,11 +87,25 @@ export default function FleetMapPage() {
     return () => window.clearInterval(tmr);
   }, []);
 
+  useEffect(() => {
+    if (!focusJob) return;
+    setSelected({ id: focusJob, kind: "job" });
+  }, [focusJob]);
+
   const courierById = useMemo(() => {
     const m = new Map<string, Courier>();
     for (const c of couriers) m.set(c.id, c);
     return m;
   }, [couriers]);
+
+  const activeJobs = useMemo(
+    () => jobs.filter((j) => !["delivered", "cancelled"].includes(j.status)),
+    [jobs]
+  );
+  const onlineCouriers = useMemo(
+    () => couriers.filter((c) => c.on_shift && c.status === "active"),
+    [couriers]
+  );
 
   const courierMarkers = useMemo(
     () =>
@@ -107,8 +125,7 @@ export default function FleetMapPage() {
   );
 
   const jobMarkers = useMemo(() => {
-    return jobs
-      .filter((j) => !["delivered", "cancelled"].includes(j.status))
+    return activeJobs
       .map((j) => {
         const toDrop = ["picked_up", "in_transit"].includes(j.status);
         const lat = toDrop ? j.dropoff_lat : j.pickup_lat;
@@ -123,28 +140,89 @@ export default function FleetMapPage() {
         };
       })
       .filter(Boolean) as { id: string; lat: number; lng: number; label: string }[];
-  }, [jobs, t]);
+  }, [activeJobs, t]);
 
   const selectedJob = selected?.kind === "job" ? jobs.find((j) => j.id === selected.id) : null;
   const selectedCourier = selected?.kind === "courier" ? couriers.find((c) => c.id === selected.id) : null;
 
-  async function assign() {
-    if (!selectedJob || !assignCourier) return;
+  useEffect(() => {
+    if (selectedJob?.courier_id) setAssignCourier(selectedJob.courier_id);
+    else setAssignCourier("");
+  }, [selectedJob?.id, selectedJob?.courier_id]);
+
+  async function assign(auto = false) {
+    if (!selectedJob) return;
+    if (!auto && !assignCourier) return;
+    setBusy(true);
     setMsg("");
     setOk("");
-    await api(`/v1/admin/deliveries/${selectedJob.id}/assign`, {
-      method: "POST",
-      body: JSON.stringify({ courier_id: assignCourier }),
-    });
-    setOk(t("deliveryAssigned"));
-    await load();
+    try {
+      await api(`/v1/admin/deliveries/${selectedJob.id}/assign`, {
+        method: "POST",
+        body: JSON.stringify(auto ? {} : { courier_id: assignCourier }),
+      });
+      setOk(t(auto ? "deliveryRetryDone" : "deliveryAssigned"));
+      await load();
+    } catch (e) {
+      setMsg(errMsg(e));
+    } finally {
+      setBusy(false);
+    }
   }
+
+  async function reassign() {
+    if (!selectedJob || !assignCourier) return;
+    setBusy(true);
+    setMsg("");
+    setOk("");
+    try {
+      await api(`/v1/admin/deliveries/${selectedJob.id}/reassign`, {
+        method: "POST",
+        body: JSON.stringify({ courier_id: assignCourier }),
+      });
+      setOk(t("deliveryReassigned"));
+      await load();
+    } catch (e) {
+      setMsg(errMsg(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function autoAssignJob() {
+    if (!selectedJob) return;
+    setBusy(true);
+    setMsg("");
+    setOk("");
+    try {
+      await api(`/v1/admin/deliveries/${selectedJob.id}/auto-assign`, { method: "POST", body: "{}" });
+      setOk(t("deliveryRetryDone"));
+      await load();
+    } catch (e) {
+      setMsg(errMsg(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const onShiftCouriers = couriers.filter((c) => c.status === "active" && c.on_shift);
 
   return (
     <div>
       <PageHeader title={t("pageFleetTitle")} description={t("pageFleetDesc")} />
       <Msg text={msg} />
       <Msg text={ok} tone="ok" />
+
+      <div className="mb-4 grid gap-3 sm:grid-cols-2">
+        <div className="rounded-xl border bg-white px-4 py-3">
+          <p className="text-xs font-semibold uppercase text-slate-500">{t("fleetStatsOnline")}</p>
+          <p className="font-display text-2xl font-bold text-teal">{onlineCouriers.length}</p>
+        </div>
+        <div className="rounded-xl border bg-white px-4 py-3">
+          <p className="text-xs font-semibold uppercase text-slate-500">{t("fleetStatsActiveJobs")}</p>
+          <p className="font-display text-2xl font-bold text-amber-700">{activeJobs.length}</p>
+        </div>
+      </div>
 
       <div className="mt-4 overflow-hidden rounded-2xl border bg-white shadow-sm">
         <FleetMap
@@ -158,7 +236,6 @@ export default function FleetMapPage() {
           ]}
           onSelect={(id, kind) => {
             setSelected({ id, kind });
-            setAssignCourier("");
           }}
         />
       </div>
@@ -192,7 +269,7 @@ export default function FleetMapPage() {
                               : "text-rose-600"
                         }`}
                       >
-                        GPS · {ageLabel(full?.last_seen_at, t)}
+                        GPS · {ageLabel(full?.last_seen_at, t)} · {full?.active_jobs || 0} jobs
                       </span>
                     </button>
                   </li>
@@ -218,36 +295,65 @@ export default function FleetMapPage() {
                   ? selectedJob.dropoff_address || selectedJob.pickup_address || "—"
                   : selectedJob.pickup_address || "—"}
               </p>
-              {!selectedJob.courier_id ? (
-                <div className="flex flex-wrap items-end gap-2">
-                  <label className="block min-w-[10rem] flex-1 text-xs font-medium text-slate-500">
-                    {t("navCouriers")}
-                    <Select
-                      className="mt-1"
-                      value={assignCourier}
-                      onChange={(e) => setAssignCourier(e.target.value)}
-                    >
-                      <option value="">—</option>
-                      {couriers
-                        .filter((c) => c.status === "active")
-                        .map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.full_name}
-                          </option>
-                        ))}
-                    </Select>
-                  </label>
-                  <Button
-                    className="!px-3 !py-2 text-xs"
-                    disabled={!assignCourier}
-                    onClick={() => assign().catch((e) => setMsg(errMsg(e)))}
+              <div className="flex flex-wrap items-end gap-2">
+                <label className="block min-w-[10rem] flex-1 text-xs font-medium text-slate-500">
+                  {t("navCouriers")}
+                  <Select
+                    className="mt-1"
+                    value={assignCourier}
+                    onChange={(e) => setAssignCourier(e.target.value)}
                   >
-                    {t("deliveryAssign")}
-                  </Button>
-                </div>
-              ) : (
-                <p className="text-xs text-teal">{t("deliveryAssigned")}</p>
-              )}
+                    <option value="">—</option>
+                    {onShiftCouriers.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.full_name} · {c.active_jobs || 0}
+                      </option>
+                    ))}
+                  </Select>
+                </label>
+                {!selectedJob.courier_id ? (
+                  <>
+                    <Button
+                      className="!px-3 !py-2 text-xs"
+                      disabled={busy || !assignCourier}
+                      onClick={() => assign(false).catch((e) => setMsg(errMsg(e)))}
+                    >
+                      {t("deliveryAssign")}
+                    </Button>
+                    {selectedJob.status === "pending_assign" ? (
+                      <Button
+                        variant="secondary"
+                        className="!px-3 !py-2 text-xs"
+                        disabled={busy}
+                        onClick={() => assign(true).catch((e) => setMsg(errMsg(e)))}
+                      >
+                        {t("deliveryAutoAssign")}
+                      </Button>
+                    ) : null}
+                  </>
+                ) : (
+                  <>
+                    <Button
+                      variant="secondary"
+                      className="!px-3 !py-2 text-xs"
+                      disabled={busy || !assignCourier || assignCourier === selectedJob.courier_id}
+                      onClick={() => reassign().catch((e) => setMsg(errMsg(e)))}
+                    >
+                      {t("deliveryReassign")}
+                    </Button>
+                    {selectedJob.status === "pending_assign" ? (
+                      <Button
+                        variant="secondary"
+                        className="!px-3 !py-2 text-xs"
+                        disabled={busy}
+                        onClick={() => autoAssignJob().catch((e) => setMsg(errMsg(e)))}
+                      >
+                        {t("deliveryRetry")}
+                      </Button>
+                    ) : null}
+                  </>
+                )}
+              </div>
               <Link
                 href={`/deliveries?job=${selectedJob.id}`}
                 className="inline-block text-teal hover:underline"
@@ -286,5 +392,13 @@ export default function FleetMapPage() {
         </section>
       </div>
     </div>
+  );
+}
+
+export default function FleetMapPage() {
+  return (
+    <Suspense fallback={<div className="h-40 animate-pulse rounded-2xl bg-white/80" />}>
+      <FleetMapInner />
+    </Suspense>
   );
 }

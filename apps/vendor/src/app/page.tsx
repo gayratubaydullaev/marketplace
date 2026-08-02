@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { api, clearTokens, errMsg, ensureVendorSession, isVendorRole } from "@/lib/api";
-import { CountPill, Msg, PageHeader } from "@/components/ui";
+import { CountPill, KpiCard, Msg, PageHeader } from "@/components/ui";
 import { LocaleSwitcher, useI18n } from "@/lib/i18n";
 
 export default function VendorHome() {
@@ -156,24 +156,12 @@ export default function VendorHome() {
       {dashLoading && <p className="mb-4 text-sm text-slate-500">{t("dashLoading")}</p>}
       <Msg text={dashErr} />
       <div className="grid gap-4 sm:grid-cols-2">
-        <Link
+        <KpiCard
+          label={t("dashRevenue")}
+          value={(stats.revenue ?? 0).toLocaleString(numberLocale)}
           href="/analytics"
-          className="block rounded-2xl border border-slate-200/80 bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
-        >
-          <p className="text-sm text-slate-500">{t("dashRevenue")}</p>
-          <p className="mt-2 font-display text-3xl font-bold text-teal">
-            {(stats.revenue ?? 0).toLocaleString(numberLocale)}
-          </p>
-        </Link>
-        <Link
-          href="/orders"
-          className="block rounded-2xl border border-slate-200/80 bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
-        >
-          <p className="text-sm text-slate-500">{t("dashOrders")}</p>
-          <p className="mt-2 font-display text-3xl font-bold text-teal">
-            {(stats.orders ?? 0).toLocaleString(numberLocale)}
-          </p>
-        </Link>
+        />
+        <KpiCard label={t("dashOrders")} value={(stats.orders ?? 0).toLocaleString(numberLocale)} href="/orders" />
       </div>
       <div className="mt-8">
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">{t("dashAttention")}</h2>

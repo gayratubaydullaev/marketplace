@@ -16,43 +16,60 @@ type Payout = {
   created_at?: string;
 };
 
-type Overview = { revenue?: number; commission?: number; currency?: string };
+type Balance = {
+  pending?: number;
+  available?: number;
+  paid_total?: number;
+  currency?: string;
+};
 
 export default function PayoutsPage() {
   const { t } = useI18n();
   const [items, setItems] = useState<Payout[]>([]);
-  const [summary, setSummary] = useState<Overview>({});
+  const [balance, setBalance] = useState<Balance>({});
   const [msg, setMsg] = useState("");
 
   useEffect(() => {
     Promise.all([
       api<{ items: Payout[] }>("/v1/vendor/payouts").catch(() => ({ items: [] as Payout[] })),
-      api<Overview>("/v1/analytics/vendor/overview").catch(() => ({})),
+      api<Balance>("/v1/vendor/balance").catch(() => ({})),
     ])
-      .then(([payouts, overview]) => {
+      .then(([payouts, bal]) => {
         setItems(payouts.items || []);
-        setSummary(overview || {});
+        setBalance(bal || {});
       })
       .catch((e) => setMsg(errMsg(e)));
   }, []);
+
+  const currency = balance.currency || "UZS";
+  const fmt = (n: number) => Number(n).toLocaleString("ru-RU");
 
   return (
     <div>
       <PageHeader title={t("pagePayoutsTitle")} description={t("pagePayoutsDesc")} />
       <Msg text={msg} />
 
-      <div className="mb-6 grid gap-4 sm:grid-cols-2">
+      <div className="mb-6 grid gap-4 sm:grid-cols-3">
         <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
-          <p className="text-sm text-slate-500">Net revenue</p>
-          <p className="mt-2 font-display text-2xl font-bold text-teal">
-            {(summary.revenue ?? 0).toLocaleString("ru-RU")} {summary.currency || "UZS"}
+          <p className="text-sm text-slate-500">Pending earnings</p>
+          <p className="mt-2 font-display text-2xl font-bold text-amber-700">
+            {fmt(balance.pending ?? 0)} {currency}
           </p>
+          <p className="mt-1 text-xs text-slate-400">From paid orders, not yet batched</p>
         </div>
         <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
-          <p className="text-sm text-slate-500">Commission paid</p>
-          <p className="mt-2 font-display text-2xl font-bold">
-            {(summary.commission ?? 0).toLocaleString("ru-RU")} {summary.currency || "UZS"}
+          <p className="text-sm text-slate-500">In payout pipeline</p>
+          <p className="mt-2 font-display text-2xl font-bold text-teal">
+            {fmt(balance.available ?? 0)} {currency}
           </p>
+          <p className="mt-1 text-xs text-slate-400">Queued or processing payouts</p>
+        </div>
+        <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
+          <p className="text-sm text-slate-500">Paid out (total)</p>
+          <p className="mt-2 font-display text-2xl font-bold">
+            {fmt(balance.paid_total ?? 0)} {currency}
+          </p>
+          <p className="mt-1 text-xs text-slate-400">Completed payouts</p>
         </div>
       </div>
 
@@ -72,9 +89,9 @@ export default function PayoutsPage() {
             {items.map((p) => (
               <tr key={p.id} className="border-b last:border-0">
                 <td className="px-4 py-3 font-semibold">
-                  {Number(p.amount).toLocaleString("ru-RU")} {p.currency || "UZS"}
+                  {fmt(Number(p.amount))} {p.currency || currency}
                 </td>
-                <td className="px-4 py-3">{Number(p.commission_total).toLocaleString("ru-RU")}</td>
+                <td className="px-4 py-3">{fmt(Number(p.commission_total))}</td>
                 <td className="px-4 py-3 text-sm text-slate-500">
                   {String(p.period_start || "").slice(0, 10)} → {String(p.period_end || "").slice(0, 10)}
                 </td>

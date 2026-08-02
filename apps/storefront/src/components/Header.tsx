@@ -116,10 +116,10 @@ export function Header({
       </div>
 
       {/* Desktop / tablet */}
-      <div className="site-container hidden items-center gap-4 py-3 md:flex lg:gap-6 lg:py-3.5">
-        <Link href={`/${locale}`} className="group flex min-w-0 shrink-0 items-center gap-2.5">
+      <div className="site-container hidden items-center gap-2.5 py-2.5 md:flex lg:gap-5 lg:py-3.5 xl:gap-6">
+        <Link href={`/${locale}`} className="group flex min-w-0 shrink-0 items-center gap-2 md:gap-2.5">
           <BrandMark size="md" className="shadow-sm transition group-hover:opacity-90" />
-          <span className="font-display truncate text-xl font-bold tracking-tight text-night transition group-hover:text-teal lg:text-[1.35rem]">
+          <span className="font-display truncate text-lg font-bold tracking-tight text-night transition group-hover:text-teal lg:text-xl xl:text-[1.35rem]">
             {t("brand")}
           </span>
         </Link>
@@ -205,7 +205,7 @@ export function Header({
               <circle cx="9" cy="20" r="1" fill="currentColor" stroke="none" />
               <circle cx="18" cy="20" r="1" fill="currentColor" stroke="none" />
             </svg>
-            <span className="hidden sm:inline">{t("nav.cart")}</span>
+            <span className="hidden lg:inline">{t("nav.cart")}</span>
             {count > 0 && (
               <span className="absolute -end-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-night px-1 text-[10px] font-bold text-paper">
                 {count > 9 ? "9+" : count}
@@ -215,14 +215,14 @@ export function Header({
         </div>
       </div>
 
-      <div className="hidden border-t border-night/6 lg:block">
-        <div className="site-container flex items-center gap-1 py-1">
-          <nav className="flex flex-1 items-center gap-0.5">
+      <div className="hidden border-t border-night/6 md:block">
+        <div className="site-container flex items-center gap-1 py-0.5 lg:py-1">
+          <nav className="flex flex-1 items-center gap-0.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {secondaryNav.map((l) => (
               <Link
                 key={l.href}
                 href={l.href}
-                className={`rounded-md px-3 py-1.5 text-[13px] font-semibold transition ${
+                className={`shrink-0 rounded-md px-2.5 py-1.5 text-xs font-semibold transition lg:px-3 lg:text-[13px] ${
                   isActive(l.href)
                     ? "bg-teal/10 text-teal"
                     : "text-muted hover:bg-night/4 hover:text-night"

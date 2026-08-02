@@ -32,7 +32,8 @@ type ProductRow = {
 };
 
 export default function VendorAnalytics() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
+  const numberLocale = locale === "uz" ? "uz-UZ" : locale === "ru" ? "ru-RU" : locale === "ar" ? "ar" : "en";
   const [data, setData] = useState<Overview>({});
   const [funnel, setFunnel] = useState<ProductRow[]>([]);
   const [days, setDays] = useState(30);
@@ -55,6 +56,7 @@ export default function VendorAnalytics() {
   }, [days]);
 
   const top = data.top_products || [];
+  const currency = data.currency || "UZS";
 
   return (
     <div>
@@ -62,35 +64,35 @@ export default function VendorAnalytics() {
       <Msg text={msg} />
       <div className="mt-2 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
-          <p className="text-sm text-slate-500">Revenue</p>
+          <p className="text-sm text-slate-500">{t("analyticsRevenue")}</p>
           <p className="mt-2 font-display text-2xl font-bold text-teal">
-            {(data.revenue ?? 0).toLocaleString("ru-RU")} {data.currency || "UZS"}
+            {(data.revenue ?? 0).toLocaleString(numberLocale)} {currency}
           </p>
         </div>
         <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
-          <p className="text-sm text-slate-500">Orders</p>
+          <p className="text-sm text-slate-500">{t("analyticsOrders")}</p>
           <p className="mt-2 font-display text-2xl font-bold">{data.orders ?? 0}</p>
         </div>
         <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
-          <p className="text-sm text-slate-500">Views</p>
+          <p className="text-sm text-slate-500">{t("analyticsViews")}</p>
           <p className="mt-2 font-display text-2xl font-bold">{data.product_views ?? 0}</p>
         </div>
         <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
-          <p className="text-sm text-slate-500">Conversion</p>
+          <p className="text-sm text-slate-500">{t("analyticsConversion")}</p>
           <p className="mt-2 font-display text-2xl font-bold">{(data.conversion ?? 0).toFixed(2)}%</p>
         </div>
       </div>
 
       <div className="mt-4 flex flex-wrap gap-3 text-sm text-slate-600">
-        <span>Clicks: {data.product_clicks ?? 0}</span>
+        <span>{t("analyticsClicks")}: {data.product_clicks ?? 0}</span>
         <span>·</span>
-        <span>Add to cart: {data.add_to_cart ?? 0}</span>
+        <span>{t("analyticsAtc")}: {data.add_to_cart ?? 0}</span>
         <span>·</span>
-        <span>Commission: {(data.commission ?? 0).toLocaleString("ru-RU")}</span>
+        <span>{t("analyticsCommission")}: {(data.commission ?? 0).toLocaleString(numberLocale)}</span>
       </div>
 
       <div className="mt-8 flex flex-wrap items-center justify-between gap-3">
-        <h2 className="font-semibold">Product funnel</h2>
+        <h2 className="font-semibold">{t("analyticsFunnel")}</h2>
         <div className="flex gap-2">
           {[7, 14, 30].map((d) => (
             <button
@@ -109,20 +111,20 @@ export default function VendorAnalytics() {
 
       {funnel.length === 0 ? (
         <div className="mt-3">
-          <EmptyState text="Пока нет просмотров — откройте витрину с вашими товарами" />
+          <EmptyState text={t("analyticsFunnelEmpty")} />
         </div>
       ) : (
         <div className="mt-3">
           <TableShell>
             <thead>
               <tr className="border-b bg-slate-50/80 text-xs uppercase tracking-wide text-slate-500">
-                <th className="px-4 py-3">Product</th>
-                <th className="px-4 py-3">Views</th>
-                <th className="px-4 py-3">Clicks</th>
-                <th className="px-4 py-3">ATC</th>
-                <th className="px-4 py-3">Sold</th>
+                <th className="px-4 py-3">{t("productsColName")}</th>
+                <th className="px-4 py-3">{t("analyticsViews")}</th>
+                <th className="px-4 py-3">{t("analyticsClicks")}</th>
+                <th className="px-4 py-3">{t("analyticsAtc")}</th>
+                <th className="px-4 py-3">{t("analyticsSold")}</th>
                 <th className="px-4 py-3">CTR</th>
-                <th className="px-4 py-3">Conv</th>
+                <th className="px-4 py-3">{t("analyticsConversion")}</th>
               </tr>
             </thead>
             <tbody>
@@ -142,19 +144,19 @@ export default function VendorAnalytics() {
         </div>
       )}
 
-      <h2 className="mt-8 font-semibold">Top by sales</h2>
+      <h2 className="mt-8 font-semibold">{t("analyticsTopSales")}</h2>
       {top.length === 0 ? (
         <div className="mt-3">
-          <EmptyState text="Пока нет продаж" />
+          <EmptyState text={t("analyticsNoSales")} />
         </div>
       ) : (
         <div className="mt-3">
           <TableShell>
             <thead>
               <tr className="border-b bg-slate-50/80 text-xs uppercase tracking-wide text-slate-500">
-                <th className="px-4 py-3">Product</th>
-                <th className="px-4 py-3">Sold</th>
-                <th className="px-4 py-3">Revenue</th>
+                <th className="px-4 py-3">{t("productsColName")}</th>
+                <th className="px-4 py-3">{t("analyticsSold")}</th>
+                <th className="px-4 py-3">{t("analyticsRevenue")}</th>
               </tr>
             </thead>
             <tbody>
@@ -162,7 +164,7 @@ export default function VendorAnalytics() {
                 <tr key={p.product_id || i} className="border-b last:border-0">
                   <td className="px-4 py-3">{p.title || p.product_id || "—"}</td>
                   <td className="px-4 py-3">{p.sold ?? 0}</td>
-                  <td className="px-4 py-3">{Number(p.revenue || 0).toLocaleString("ru-RU")} UZS</td>
+                  <td className="px-4 py-3">{Number(p.revenue || 0).toLocaleString(numberLocale)} {currency}</td>
                 </tr>
               ))}
             </tbody>

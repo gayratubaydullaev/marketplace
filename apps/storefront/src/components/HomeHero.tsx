@@ -156,7 +156,7 @@ export function HomeHero({
           </>
         ) : null}
 
-        <div className="relative aspect-[2/1] w-full max-h-[min(38dvh,16rem)] select-none sm:aspect-[3/2] sm:max-h-[min(52vh,30rem)] lg:max-h-[32rem]">
+        <div className="relative aspect-[2/1] w-full max-h-[min(38dvh,16rem)] select-none sm:aspect-[21/9] sm:max-h-[min(48vh,28rem)] md:max-h-[min(46vh,32rem)] lg:aspect-[2.4/1] lg:max-h-[min(50vh,36rem)] xl:max-h-[min(52vh,40rem)] 2xl:max-h-[42rem]">
           {list.map((item, i) => {
             const isActive = i === active;
             const near = Math.abs(i - active) <= 1 || (active === 0 && i === total - 1) || (active === total - 1 && i === 0);

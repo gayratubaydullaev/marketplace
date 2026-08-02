@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"math"
@@ -307,14 +308,22 @@ func refundWithProvider(p model.Payment) error {
 }
 
 func stripeRefund(secret string, p model.Payment) error {
+	chargeOrPI := p.ProviderPaymentID
+	if strings.HasPrefix(chargeOrPI, "cs_") {
+		resolved, err := stripeSessionPaymentIntent(secret, chargeOrPI)
+		if err != nil {
+			return err
+		}
+		chargeOrPI = resolved
+	}
 	form := url.Values{}
 	form.Set("amount", fmt.Sprintf("%d", int64(p.Amount*100)))
-	if strings.HasPrefix(p.ProviderPaymentID, "pi_") {
-		form.Set("payment_intent", p.ProviderPaymentID)
-	} else if strings.HasPrefix(p.ProviderPaymentID, "ch_") {
-		form.Set("charge", p.ProviderPaymentID)
+	if strings.HasPrefix(chargeOrPI, "pi_") {
+		form.Set("payment_intent", chargeOrPI)
+	} else if strings.HasPrefix(chargeOrPI, "ch_") {
+		form.Set("charge", chargeOrPI)
 	} else {
-		return fmt.Errorf("stripe refund needs payment_intent or charge id, got %q", p.ProviderPaymentID)
+		return fmt.Errorf("stripe refund needs payment_intent or charge id, got %q", chargeOrPI)
 	}
 	req, err := http.NewRequest(http.MethodPost, "https://api.stripe.com/v1/refunds", strings.NewReader(form.Encode()))
 	if err != nil {
@@ -331,5 +340,70 @@ func stripeRefund(secret string, p model.Payment) error {
 	if resp.StatusCode/100 != 2 {
 		return fmt.Errorf("stripe refund: %s", strings.TrimSpace(string(body)))
 	}
+	return nil
+}
+
+func stripeSessionPaymentIntent(secret, sessionID string) (string, error) {
+	req, err := http.NewRequest(http.MethodGet, "https://api.stripe.com/v1/checkout/sessions/"+url.PathEscape(sessionID), nil)
+	if err != nil {
+		return "", err
+	}
+	req.SetBasicAuth(secret, "")
+	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode/100 != 2 {
+		return "", fmt.Errorf("stripe session lookup: %s", strings.TrimSpace(string(raw)))
+	}
+	var session struct {
+		PaymentIntent string `json:"payment_intent"`
+	}
+	if err := json.Unmarshal(raw, &session); err != nil || session.PaymentIntent == "" {
+		return "", fmt.Errorf("stripe session missing payment_intent")
+	}
+	return session.PaymentIntent, nil
+}
+
+// ConfirmRefundManual marks a succeeded payment refunded without calling the PSP
+// (ops confirmed the refund in Payme/Click/Uzum/PayPal dashboard).
+func (s *PaymentService) ConfirmRefundManual(ctx context.Context, orderID, tenantID string) error {
+	tx, err := s.Repo.DB.Beginx()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.Exec(`SELECT set_config('app.current_tenant', $1, true)`, tenantID); err != nil {
+		return err
+	}
+	var payment model.Payment
+	if err := tx.Get(&payment, `
+		SELECT id,tenant_id,order_id,user_id,amount,currency,provider,provider_payment_id,status,created_at
+		FROM payments
+		WHERE order_id=$1 AND tenant_id=$2 AND status IN ('succeeded','refunded')
+		ORDER BY created_at DESC LIMIT 1`, orderID, tenantID); err != nil {
+		return fmt.Errorf("succeeded payment not found for order")
+	}
+	if payment.Status == "refunded" {
+		return tx.Commit()
+	}
+	if _, err := tx.Exec(`UPDATE payments SET status='refunded', updated_at=NOW() WHERE id=$1`, payment.ID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`UPDATE orders SET payment_status='refunded', updated_at=NOW() WHERE id=$1 AND tenant_id=$2`, orderID, tenantID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`UPDATE payment_splits SET status='reversed' WHERE payment_id=$1 AND status='pending'`, payment.ID); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	_ = s.Producer.Publish(ctx, "order.refunded", orderID, map[string]any{
+		"order_id": orderID, "payment_id": payment.ID, "tenant_id": tenantID, "user_id": payment.UserID,
+		"payment_status": "refunded", "manual": true,
+	})
 	return nil
 }

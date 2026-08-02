@@ -468,7 +468,9 @@ func jobSelect() string {
 		SELECT j.id, j.tenant_id, j.order_id, j.courier_id, j.status, j.pickup_address, j.dropoff_address,
 		       j.pickup_lat, j.pickup_lng, j.dropoff_lat, j.dropoff_lng, j.customer_name, j.customer_phone,
 		       j.vendor_id, j.assigned_at, j.accepted_at, j.picked_up_at, j.delivered_at, j.sequence,
-		       j.cod_amount::float8 AS cod_amount, j.delivery_fee::float8 AS delivery_fee, j.currency,
+		       j.cod_amount::float8 AS cod_amount, j.cod_collected_amount::float8 AS cod_collected_amount,
+		       j.cod_dispute, j.cod_dispute_note, j.metadata,
+		       j.delivery_fee::float8 AS delivery_fee, j.currency,
 		       j.created_at, j.updated_at, COALESCE(o.order_number,'') AS order_number,
 		       COALESCE(o.payment_status,'unpaid') AS payment_status,
 		       COALESCE(c.full_name,'') AS courier_name, COALESCE(c.phone,'') AS courier_phone
@@ -593,6 +595,48 @@ func assignPendingJobsTx(tx *sqlx.Tx, tenantID string, limit int) {
 	}
 }
 
+type AutoAssignResult struct {
+	Attempted int `json:"attempted"`
+	Assigned  int `json:"assigned"`
+	Pending   int `json:"pending"`
+}
+
+func (s *Service) AutoAssignPending(tenantID string, limit int) (*AutoAssignResult, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	res := &AutoAssignResult{}
+	err := s.withTenant(tenantID, func(tx *sqlx.Tx) error {
+		var ids []string
+		if err := tx.Select(&ids, `
+			SELECT id::text FROM delivery_jobs
+			WHERE status='pending_assign'
+			ORDER BY created_at ASC
+			LIMIT $1`, limit); err != nil {
+			return err
+		}
+		res.Attempted = len(ids)
+		for _, id := range ids {
+			var before string
+			_ = tx.Get(&before, `SELECT status FROM delivery_jobs WHERE id=$1`, id)
+			if before != "pending_assign" {
+				continue
+			}
+			if err := autoAssignTx(tx, tenantID, id); err != nil {
+				continue
+			}
+			var after string
+			_ = tx.Get(&after, `SELECT status FROM delivery_jobs WHERE id=$1`, id)
+			if after == "assigned" {
+				res.Assigned++
+			}
+		}
+		_ = tx.Get(&res.Pending, `SELECT COUNT(*)::int FROM delivery_jobs WHERE status='pending_assign'`)
+		return nil
+	})
+	return res, err
+}
+
 func (s *Service) RetryAssign(tenantID, jobID string) (*model.Job, error) {
 	var job model.Job
 	err := s.withTenant(tenantID, func(tx *sqlx.Tx) error {
@@ -615,6 +659,9 @@ func (s *Service) RetryAssign(tenantID, jobID string) (*model.Job, error) {
 }
 
 func (s *Service) AdminAssign(tenantID, jobID, courierID, actorID string) (*model.Job, error) {
+	if courierID == "" {
+		return s.RetryAssign(tenantID, jobID)
+	}
 	var job model.Job
 	err := s.withTenant(tenantID, func(tx *sqlx.Tx) error {
 		var cst string
@@ -672,7 +719,7 @@ func (s *Service) Reassign(tenantID, jobID, courierID, actorID string) (*model.J
 	return &job, err
 }
 
-func (s *Service) ListJobs(tenantID, status string) ([]model.Job, error) {
+func (s *Service) ListJobs(tenantID, status, disputed string) ([]model.Job, error) {
 	var out []model.Job
 	err := s.withTenant(tenantID, func(tx *sqlx.Tx) error {
 		q := jobSelect() + " WHERE 1=1"
@@ -680,6 +727,9 @@ func (s *Service) ListJobs(tenantID, status string) ([]model.Job, error) {
 		if status != "" {
 			args = append(args, status)
 			q += fmt.Sprintf(" AND j.status=$%d", len(args))
+		}
+		if disputed == "true" || disputed == "1" {
+			q += " AND j.cod_dispute=true"
 		}
 		q += " ORDER BY j.created_at DESC LIMIT 200"
 		return tx.Select(&out, q, args...)
@@ -862,7 +912,7 @@ func (s *Service) TransitionJob(ctx context.Context, tenantID, jobID, courierID,
 	}
 	var job model.Job
 	var orderID string
-	var needShip, needDeliver, needCOD bool
+	var needShip, needTransit, needDeliver, needCOD bool
 	var codAmount float64
 
 	err := s.withTenant(tenantID, func(tx *sqlx.Tx) error {
@@ -892,6 +942,8 @@ func (s *Service) TransitionJob(ctx context.Context, tenantID, jobID, courierID,
 		case "picked_up":
 			sets += ", picked_up_at=NOW()"
 			needShip = true
+		case "in_transit":
+			needTransit = true
 		case "delivered":
 			sets += ", delivered_at=NOW()"
 			needDeliver = true
@@ -927,19 +979,10 @@ func (s *Service) TransitionJob(ctx context.Context, tenantID, jobID, courierID,
 	}
 
 	if needShip {
-		_ = s.withTenant(tenantID, func(tx *sqlx.Tx) error {
-			var st string
-			if err := tx.Get(&st, `SELECT status FROM orders WHERE id=$1`, orderID); err != nil {
-				return err
-			}
-			if st == "processing" {
-				_, err := tx.Exec(`
-					UPDATE orders SET status='shipped', fulfillment_status='shipped', tracking_carrier='platform_courier',
-					  tracking_number=$1, shipped_at=NOW(), updated_at=NOW() WHERE id=$2`, jobID[:8], orderID)
-				return err
-			}
-			return nil
-		})
+		_ = s.syncOrderShipped(tenantID, orderID, jobID)
+	}
+	if needTransit {
+		_ = s.syncOrderInTransit(tenantID, orderID, jobID)
 	}
 	if needDeliver {
 		_ = s.withTenant(tenantID, func(tx *sqlx.Tx) error {
@@ -961,6 +1004,46 @@ func (s *Service) TransitionJob(ctx context.Context, tenantID, jobID, courierID,
 		})
 	}
 	return s.GetJob(tenantID, jobID)
+}
+
+func (s *Service) syncOrderShipped(tenantID, orderID, jobID string) error {
+	return s.withTenant(tenantID, func(tx *sqlx.Tx) error {
+		var st string
+		if err := tx.Get(&st, `SELECT status FROM orders WHERE id=$1`, orderID); err != nil {
+			return err
+		}
+		if st == "processing" {
+			_, err := tx.Exec(`
+				UPDATE orders SET status='shipped', fulfillment_status='shipped', tracking_carrier='platform_courier',
+				  tracking_number=$1, shipped_at=NOW(), updated_at=NOW() WHERE id=$2`, jobID[:8], orderID)
+			return err
+		}
+		return nil
+	})
+}
+
+func (s *Service) syncOrderInTransit(tenantID, orderID, jobID string) error {
+	return s.withTenant(tenantID, func(tx *sqlx.Tx) error {
+		var st string
+		if err := tx.Get(&st, `SELECT status FROM orders WHERE id=$1`, orderID); err != nil {
+			return err
+		}
+		switch st {
+		case "processing":
+			_, err := tx.Exec(`
+				UPDATE orders SET status='shipped', fulfillment_status='shipped', tracking_carrier='platform_courier',
+				  tracking_number=$1, shipped_at=COALESCE(shipped_at, NOW()), updated_at=NOW() WHERE id=$2`, jobID[:8], orderID)
+			return err
+		case "shipped":
+			_, err := tx.Exec(`
+				UPDATE orders SET fulfillment_status='shipped',
+				  tracking_carrier=COALESCE(NULLIF(tracking_carrier,''),'platform_courier'),
+				  tracking_number=COALESCE(NULLIF(tracking_number,''),$1), updated_at=NOW() WHERE id=$2`, jobID[:8], orderID)
+			return err
+		default:
+			return nil
+		}
+	})
 }
 
 func (s *Service) collectCOD(ctx context.Context, orderID, tenantID, authHeader string) error {
@@ -986,15 +1069,62 @@ func (s *Service) collectCOD(ctx context.Context, orderID, tenantID, authHeader 
 	return nil
 }
 
-func (s *Service) CollectCODProxy(ctx context.Context, tenantID, jobID, courierID, authHeader string) error {
+func (s *Service) CollectCODProxy(ctx context.Context, tenantID, jobID, courierID, authHeader string, collectedAmount *float64) (*model.Job, error) {
 	job, err := s.GetJob(tenantID, jobID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if job.CourierID == nil || *job.CourierID != courierID {
-		return ErrForbidden
+		return nil, ErrForbidden
 	}
-	return s.collectCOD(ctx, job.OrderID, tenantID, authHeader)
+	var orderTotal float64
+	_ = s.withTenant(tenantID, func(tx *sqlx.Tx) error {
+		return tx.Get(&orderTotal, `SELECT total::float8 FROM orders WHERE id=$1`, job.OrderID)
+	})
+	expected := job.CODAmount
+	if expected <= 0 {
+		expected = orderTotal
+	}
+	dispute := false
+	note := ""
+	amount := expected
+	if collectedAmount != nil && *collectedAmount > 0 {
+		amount = *collectedAmount
+		if amount != expected && amount != orderTotal {
+			dispute = true
+			note = fmt.Sprintf("collected %.2f expected %.2f order %.2f", amount, expected, orderTotal)
+		}
+	}
+	if err := s.collectCOD(ctx, job.OrderID, tenantID, authHeader); err != nil {
+		return nil, err
+	}
+	err = s.withTenant(tenantID, func(tx *sqlx.Tx) error {
+		meta := map[string]any{}
+		if len(job.Metadata) > 0 {
+			_ = json.Unmarshal(job.Metadata, &meta)
+		}
+		if dispute {
+			meta["cod_dispute"] = true
+			meta["cod_collected_amount"] = amount
+			meta["cod_expected_amount"] = expected
+		}
+		metaJSON, _ := json.Marshal(meta)
+		_, e := tx.Exec(`
+			UPDATE delivery_jobs SET cod_collected_amount=$1, cod_dispute=$2, cod_dispute_note=$3,
+			  metadata=$4, updated_at=NOW() WHERE id=$5`,
+			amount, dispute, note, metaJSON, jobID)
+		if e != nil {
+			return e
+		}
+		if dispute {
+			_ = addEvent(tx, tenantID, jobID, job.Status, job.Status, "courier", courierID, "cod-dispute")
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return s.GetJob(tenantID, jobID)
 }
 
 func (s *Service) CourierRoute(tenantID, courierID string) ([]model.Job, error) {

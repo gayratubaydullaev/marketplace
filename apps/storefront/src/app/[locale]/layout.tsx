@@ -35,7 +35,7 @@ export default async function LocaleLayout({
       <HtmlLang locale={locale} />
       <div dir={dir} lang={locale} className="min-h-dvh">
         <Header locale={locale} categories={categories} />
-        <main className="site-container min-w-0 overflow-x-clip pb-3 pt-1 md:pb-12 md:pt-3">
+        <main className="site-container min-w-0 overflow-x-clip pb-3 pt-1 md:pb-12 md:pt-4 lg:pb-14 lg:pt-5">
           {children}
         </main>
         <Footer locale={locale} />

@@ -3,7 +3,10 @@ package handler
 import (
 	"encoding/json"
 	"fmt"
+	"html"
+	"net/http"
 	"strings"
+	"time"
 
 	commonauth "github.com/gayrat/marketplace/packages/go-common/auth"
 	"github.com/gayrat/marketplace/packages/go-common/db"
@@ -383,13 +386,17 @@ func (h *OrderHandler) SetTracking(c *gin.Context) {
 func (h *OrderHandler) CreateReturn(c *gin.Context) {
 	var body struct {
 		Reason string `json:"reason" binding:"required"`
+		Items  []struct {
+			OrderItemID string `json:"order_item_id"`
+			Quantity    int    `json:"quantity"`
+		} `json:"items"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		httpx.BadRequest(c, err.Error())
 		return
 	}
 	tenantID := middleware.GetTenantID(c)
-	order, _, err := h.Service.Repo.Get(c.Param("id"), tenantID)
+	order, items, err := h.Service.Repo.Get(c.Param("id"), tenantID)
 	claims := middleware.GetClaims(c)
 	if err != nil || claims == nil || order.UserID == nil || *order.UserID != claims.UserID {
 		httpx.NotFound(c, "order not found")
@@ -399,16 +406,113 @@ func (h *OrderHandler) CreateReturn(c *gin.Context) {
 		httpx.BadRequest(c, "only paid shipped, delivered, or completed orders can be returned")
 		return
 	}
+	type returnLine struct {
+		OrderItemID string  `json:"order_item_id"`
+		ProductID   string  `json:"product_id"`
+		Title       string  `json:"title"`
+		Quantity    int     `json:"quantity"`
+		UnitPrice   float64 `json:"unit_price"`
+		LineTotal   float64 `json:"line_total"`
+	}
+	var selected []returnLine
+	var refundAmount float64
+	if len(body.Items) == 0 {
+		for _, it := range items {
+			qty := it.Quantity
+			if qty <= 0 {
+				continue
+			}
+			lt := float64(qty) * it.UnitPrice
+			selected = append(selected, returnLine{
+				OrderItemID: it.ID, ProductID: it.ProductID, Title: it.Title,
+				Quantity: qty, UnitPrice: it.UnitPrice, LineTotal: lt,
+			})
+			refundAmount += lt
+		}
+	} else {
+		byID := map[string]model.OrderItem{}
+		for _, it := range items {
+			byID[it.ID] = it
+		}
+		for _, req := range body.Items {
+			it, ok := byID[req.OrderItemID]
+			if !ok {
+				httpx.BadRequest(c, "unknown order_item_id: "+req.OrderItemID)
+				return
+			}
+			if req.Quantity <= 0 {
+				httpx.BadRequest(c, "quantity must be > 0")
+				return
+			}
+			available := it.Quantity - it.ReturnedQuantity
+			if req.Quantity > available {
+				httpx.BadRequest(c, fmt.Sprintf("cannot return %d of %s (available %d)", req.Quantity, it.Title, available))
+				return
+			}
+			lt := float64(req.Quantity) * it.UnitPrice
+			selected = append(selected, returnLine{
+				OrderItemID: it.ID, ProductID: it.ProductID, Title: it.Title,
+				Quantity: req.Quantity, UnitPrice: it.UnitPrice, LineTotal: lt,
+			})
+			refundAmount += lt
+		}
+	}
+	if len(selected) == 0 {
+		httpx.BadRequest(c, "no returnable items")
+		return
+	}
+	itemsJSON, _ := json.Marshal(selected)
 	var id string
 	err = db.WithTenant(h.Service.Repo.DB, tenantID, func(tx *sqlx.Tx) error {
-		return tx.Get(&id, `INSERT INTO order_returns (tenant_id,order_id,user_id,reason,status) VALUES ($1,$2,$3,$4,'requested') RETURNING id::text`, tenantID, order.ID, claims.UserID, body.Reason)
+		return tx.Get(&id, `INSERT INTO order_returns (tenant_id,order_id,user_id,reason,status,items,refund_amount) VALUES ($1,$2,$3,$4,'requested',$5,$6) RETURNING id::text`,
+			tenantID, order.ID, claims.UserID, body.Reason, itemsJSON, refundAmount)
 	})
 	if err != nil {
 		httpx.WriteDBError(c, err)
 		return
 	}
-	middleware.WriteAudit(c, "create_return", "order_return", id, nil, gin.H{"order_id": order.ID})
-	httpx.Created(c, gin.H{"id": id, "status": "requested"})
+	middleware.WriteAudit(c, "create_return", "order_return", id, nil, gin.H{"order_id": order.ID, "refund_amount": refundAmount})
+	httpx.Created(c, gin.H{"id": id, "status": "requested", "refund_amount": refundAmount, "items": selected})
+}
+
+func (h *OrderHandler) Invoice(c *gin.Context) {
+	tenantID := middleware.GetTenantID(c)
+	order, items, err := h.Service.Repo.Get(c.Param("id"), tenantID)
+	if err != nil || !h.canViewOrder(c, order) {
+		httpx.NotFound(c, "order not found")
+		return
+	}
+	if c.Query("format") == "json" {
+		httpx.OK(c, gin.H{"order": order, "items": items})
+		return
+	}
+	var b strings.Builder
+	b.WriteString("<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>Invoice ")
+	b.WriteString(html.EscapeString(order.OrderNumber))
+	b.WriteString("</title><style>body{font-family:system-ui,sans-serif;max-width:720px;margin:2rem auto;color:#111}table{width:100%;border-collapse:collapse}th,td{border-bottom:1px solid #ddd;padding:.5rem;text-align:left}tfoot td{font-weight:700}@media print{button{display:none}}</style></head><body>")
+	b.WriteString("<button onclick=\"window.print()\">Print</button>")
+	b.WriteString("<h1>Invoice ")
+	b.WriteString(html.EscapeString(order.OrderNumber))
+	b.WriteString("</h1>")
+	b.WriteString("<p>Date: ")
+	b.WriteString(order.CreatedAt.Format(time.RFC3339))
+	b.WriteString("<br>Status: ")
+	b.WriteString(html.EscapeString(order.Status))
+	b.WriteString(" / ")
+	b.WriteString(html.EscapeString(order.PaymentStatus))
+	b.WriteString("</p><table><thead><tr><th>Item</th><th>Qty</th><th>Price</th><th>Total</th></tr></thead><tbody>")
+	for _, it := range items {
+		fmt.Fprintf(&b, "<tr><td>%s</td><td>%d</td><td>%.0f</td><td>%.0f</td></tr>",
+			html.EscapeString(it.Title), it.Quantity, it.UnitPrice, it.TotalPrice)
+	}
+	b.WriteString("</tbody><tfoot>")
+	fmt.Fprintf(&b, "<tr><td colspan=\"3\">Subtotal</td><td>%.0f UZS</td></tr>", order.Subtotal)
+	fmt.Fprintf(&b, "<tr><td colspan=\"3\">Discount</td><td>%.0f UZS</td></tr>", order.Discount)
+	fmt.Fprintf(&b, "<tr><td colspan=\"3\">Shipping</td><td>%.0f UZS</td></tr>", order.ShippingCost)
+	fmt.Fprintf(&b, "<tr><td colspan=\"3\">Tax (VAT)</td><td>%.0f UZS</td></tr>", order.TaxTotal)
+	fmt.Fprintf(&b, "<tr><td colspan=\"3\">Total</td><td>%.0f UZS</td></tr>", order.Total)
+	b.WriteString("</tfoot></table></body></html>")
+	c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(b.String()))
 }
 
 func (h *OrderHandler) Returns(c *gin.Context) {
@@ -420,7 +524,7 @@ func (h *OrderHandler) Returns(c *gin.Context) {
 		return
 	}
 	err = db.WithTenant(h.Service.Repo.DB, tenantID, func(tx *sqlx.Tx) error {
-		return tx.Select(&rows, `SELECT id::text,tenant_id::text,order_id::text,user_id::text,reason,status,admin_note,created_at,updated_at FROM order_returns WHERE tenant_id=$1 AND order_id=$2 ORDER BY created_at DESC`, tenantID, order.ID)
+		return tx.Select(&rows, `SELECT id::text,tenant_id::text,order_id::text,user_id::text,reason,status,admin_note,COALESCE(items,'[]') AS items,COALESCE(refund_amount,0) AS refund_amount,created_at,updated_at FROM order_returns WHERE tenant_id=$1 AND order_id=$2 ORDER BY created_at DESC`, tenantID, order.ID)
 	})
 	if err != nil {
 		httpx.Internal(c, err.Error())
@@ -432,7 +536,7 @@ func (h *OrderHandler) Returns(c *gin.Context) {
 func (h *OrderHandler) AdminReturns(c *gin.Context) {
 	var rows []model.OrderReturn
 	tenantID := middleware.GetTenantID(c)
-	q := `SELECT id::text,tenant_id::text,order_id::text,user_id::text,reason,status,admin_note,created_at,updated_at FROM order_returns WHERE tenant_id=$1`
+	q := `SELECT id::text,tenant_id::text,order_id::text,user_id::text,reason,status,admin_note,COALESCE(items,'[]') AS items,COALESCE(refund_amount,0) AS refund_amount,created_at,updated_at FROM order_returns WHERE tenant_id=$1`
 	args := []any{tenantID}
 	if status := c.Query("status"); status != "" {
 		q += ` AND status=$2`
@@ -456,7 +560,7 @@ func (h *OrderHandler) ProcessReturn(c *gin.Context) {
 	tenantID := middleware.GetTenantID(c)
 	var ret model.OrderReturn
 	err := db.WithTenant(h.Service.Repo.DB, tenantID, func(tx *sqlx.Tx) error {
-		return tx.Get(&ret, `SELECT id::text,tenant_id::text,order_id::text,user_id::text,reason,status,admin_note,created_at,updated_at FROM order_returns WHERE id=$1 AND tenant_id=$2`, c.Param("id"), tenantID)
+		return tx.Get(&ret, `SELECT id::text,tenant_id::text,order_id::text,user_id::text,reason,status,admin_note,COALESCE(items,'[]') AS items,COALESCE(refund_amount,0) AS refund_amount,created_at,updated_at FROM order_returns WHERE id=$1 AND tenant_id=$2`, c.Param("id"), tenantID)
 	})
 	if err != nil {
 		httpx.NotFound(c, "return not found")
@@ -467,7 +571,9 @@ func (h *OrderHandler) ProcessReturn(c *gin.Context) {
 			httpx.BadRequest(c, "return must be received before refund")
 			return
 		}
-		if err := h.Service.Refund(c.Request.Context(), ret.OrderID, ret.TenantID); err != nil {
+		var lines []service.ReturnLine
+		_ = json.Unmarshal(ret.Items, &lines)
+		if err := h.Service.RefundReturn(c.Request.Context(), ret.OrderID, ret.TenantID, lines, ret.RefundAmount); err != nil {
 			httpx.BadRequest(c, err.Error())
 			return
 		}
@@ -475,11 +581,23 @@ func (h *OrderHandler) ProcessReturn(c *gin.Context) {
 			if _, err := tx.Exec(`UPDATE order_returns SET status='refunded',admin_note=COALESCE(NULLIF($1,''),admin_note),updated_at=NOW() WHERE id=$2`, body.Note, ret.ID); err != nil {
 				return err
 			}
-			_, err := tx.Exec(`UPDATE orders SET status='returned',updated_at=NOW() WHERE id=$1 AND tenant_id=$2`, ret.OrderID, ret.TenantID)
+			for _, line := range lines {
+				if line.OrderItemID == "" || line.Quantity <= 0 {
+					continue
+				}
+				_, _ = tx.Exec(`UPDATE order_items SET returned_quantity=COALESCE(returned_quantity,0)+$1, status=CASE WHEN COALESCE(returned_quantity,0)+$1 >= quantity THEN 'returned' ELSE status END WHERE id=$2`, line.Quantity, line.OrderItemID)
+			}
+			var remaining int
+			_ = tx.Get(&remaining, `SELECT COUNT(*) FROM order_items WHERE order_id=$1 AND COALESCE(returned_quantity,0) < quantity`, ret.OrderID)
+			status := "returned"
+			if remaining > 0 {
+				status = "partially_returned"
+			}
+			_, err := tx.Exec(`UPDATE orders SET status=$1,updated_at=NOW() WHERE id=$2 AND tenant_id=$3`, status, ret.OrderID, ret.TenantID)
 			return err
 		})
 		middleware.WriteAudit(c, "return_refund", "order_return", ret.ID, gin.H{"status": ret.Status}, gin.H{"status": "refunded"})
-		httpx.OK(c, gin.H{"id": ret.ID, "status": "refunded"})
+		httpx.OK(c, gin.H{"id": ret.ID, "status": "refunded", "refund_amount": ret.RefundAmount})
 		return
 	}
 	target, ok := statuses[action]

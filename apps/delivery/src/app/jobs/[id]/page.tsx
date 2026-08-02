@@ -33,6 +33,7 @@ type Job = {
   cod_amount: number;
   currency?: string;
   payment_status?: string;
+  cod_dispute?: boolean;
 };
 
 type Msg = { id: string; sender_role: string; to_role?: string; body: string; created_at: string };
@@ -141,9 +142,17 @@ export default function JobDetailPage() {
     setErr("");
     setOk("");
     try {
-      await api(`/v1/courier/jobs/${id}/collect-cod`, { method: "POST", body: "{}" });
+      const updated = await api<Job>(`/v1/courier/jobs/${id}/collect-cod`, {
+        method: "POST",
+        body: JSON.stringify({ amount: job?.cod_amount || 0 }),
+      });
+      setJob(updated);
       await load();
-      setOk(t("jobCodCollected"));
+      if (updated.cod_dispute) {
+        setOk(t("jobCodDispute"));
+      } else {
+        setOk(t("jobCodCollected"));
+      }
     } catch (e) {
       setErr(errMsg(e));
     } finally {
@@ -250,6 +259,11 @@ export default function JobDetailPage() {
             />
           ))}
         </div>
+        {primary ? (
+          <p className="mt-2 text-xs text-slate-500">
+            {t("jobNextStep")}: <span className="font-semibold text-night">{t(primary.labelKey)}</span>
+          </p>
+        ) : null}
       </div>
 
       <Msg text={err} onRetry={() => load().catch((e) => setErr(errMsg(e)))} retryLabel={t("commonRetry")} />
@@ -287,8 +301,18 @@ export default function JobDetailPage() {
               codPaid ? "bg-emerald-50 text-emerald-900" : "bg-amber-50 text-amber-900"
             }`}
           >
-            {t("jobCod")}: {codLabel}
-            {codPaid ? ` · ${t("jobCodCollected")}` : null}
+            <p>
+              {t("jobCod")}: {codLabel}
+              {codPaid ? ` · ${t("jobCodCollected")}` : null}
+            </p>
+            {!codPaid ? (
+              <p className="mt-1 text-xs font-medium opacity-90">
+                {t("jobCodExpected")}: {codLabel}
+              </p>
+            ) : null}
+            {job.cod_dispute ? (
+              <p className="mt-1 text-xs font-bold text-rose-700">{t("jobCodDispute")}</p>
+            ) : null}
           </div>
         ) : null}
 
@@ -392,9 +416,16 @@ export default function JobDetailPage() {
         <div className="fixed inset-0 z-40 flex items-end justify-center bg-night/40 p-4 sm:items-center">
           <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl">
             <p className="text-sm font-medium text-night">
-              {confirm === "cod"
-                ? t("jobCodConfirm", { amount: codLabel })
-                : t("jobDeliverConfirm")}
+              {confirm === "cod" ? (
+                <>
+                  {t("jobCodConfirm", { amount: codLabel })}
+                  <span className="mt-2 block text-xs font-normal text-slate-500">
+                    {t("jobCodExpected")}: {codLabel}
+                  </span>
+                </>
+              ) : (
+                t("jobDeliverConfirm")
+              )}
             </p>
             <div className="mt-4 flex gap-2">
               <Button variant="secondary" className="flex-1 !py-2.5" onClick={() => setConfirm(null)}>

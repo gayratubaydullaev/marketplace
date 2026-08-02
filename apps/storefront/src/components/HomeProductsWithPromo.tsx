@@ -11,7 +11,7 @@ const PAGE_SIZE = 24;
 
 /** Column counts must match ProductGrid `columns={5}` breakpoints. */
 function columnsForWidth(w: number) {
-  if (w >= 1280) return 6; // xl
+  if (w >= 1536) return 6; // 2xl
   if (w >= 1024) return 5; // lg
   if (w >= 768) return 4; // md
   if (w >= 640) return 3; // sm
@@ -128,7 +128,7 @@ export function HomeProductsWithPromo({
 
   if (items.length === 0) {
     return (
-      <section className="home-section mt-3 sm:mt-8">
+      <section className="home-section">
         <p className="mt-2 text-sm text-muted sm:mt-4">{emptyLabel}</p>
         <PromoBanner slides={promoSlides} />
       </section>
@@ -141,21 +141,21 @@ export function HomeProductsWithPromo({
 
   return (
     <>
-      <section className="home-section mt-3 sm:mt-8" aria-label="products">
+      <section className="home-section" aria-label="products">
         <ProductGrid products={first} locale={locale} columns={5} animate className="mt-0" />
       </section>
 
       <PromoBanner slides={promoSlides} />
 
       {rest.length > 0 ? (
-        <section className="home-section mt-3 sm:mt-8" aria-label="products-more">
+        <section className="home-section" aria-label="products-more">
           <ProductGrid products={rest} locale={locale} columns={5} animate className="mt-0" />
         </section>
       ) : null}
 
       <div ref={sentinelRef} className="h-8 w-full" aria-hidden />
 
-      <div className="home-section pb-4 text-center sm:pb-6">
+      <div className="home-section pb-4 text-center sm:pb-6 lg:pb-8">
         {loading ? (
           <p className="text-sm text-muted">{tc("loading")}</p>
         ) : error ? (

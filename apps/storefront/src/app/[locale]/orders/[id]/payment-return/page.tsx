@@ -59,7 +59,11 @@ export default function PaymentReturnPage() {
       attempts += 1;
       try {
         const payment = await api<PaymentList>(`/v1/payments/order/${orderId}`);
-        const fromItems = payment.items?.[0]?.status;
+        const preferred =
+          payment.items?.find((p) => normalize(p.status || "") === "paid") ||
+          payment.items?.find((p) => (p.status || "").toLowerCase() === "pending") ||
+          payment.items?.[0];
+        const fromItems = preferred?.status;
         const raw = fromItems || payment.payment_status || payment.status || "";
         if (raw) {
           const next = normalize(raw);

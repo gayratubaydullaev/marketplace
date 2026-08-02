@@ -177,7 +177,7 @@ func (h *Handler) AdminBlockCourier(c *gin.Context) {
 }
 
 func (h *Handler) AdminListJobs(c *gin.Context) {
-	items, err := h.Svc.ListJobs(h.tenant(c), c.Query("status"))
+	items, err := h.Svc.ListJobs(h.tenant(c), c.Query("status"), c.Query("cod_dispute"))
 	if err != nil {
 		h.writeErr(c, err)
 		return
@@ -196,12 +196,10 @@ func (h *Handler) AdminGetJob(c *gin.Context) {
 
 func (h *Handler) AdminAssign(c *gin.Context) {
 	var body struct {
-		CourierID string `json:"courier_id" binding:"required"`
+		CourierID string `json:"courier_id"`
 	}
-	if err := c.ShouldBindJSON(&body); err != nil {
-		httpx.BadRequest(c, err.Error())
-		return
-	}
+	// Empty body or missing courier_id triggers auto-assign for pending jobs.
+	_ = c.ShouldBindJSON(&body)
 	cl := h.claims(c)
 	actor := ""
 	if cl != nil {
@@ -243,6 +241,25 @@ func (h *Handler) AdminRetryAssign(c *gin.Context) {
 		return
 	}
 	httpx.OK(c, job)
+}
+
+func (h *Handler) AdminAutoAssign(c *gin.Context) {
+	limit := 20
+	if v := c.Query("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	res, err := h.Svc.AutoAssignPending(h.tenant(c), limit)
+	if err != nil {
+		h.writeErr(c, err)
+		return
+	}
+	httpx.OK(c, res)
+}
+
+func (h *Handler) AdminAutoAssignJob(c *gin.Context) {
+	h.AdminRetryAssign(c)
 }
 
 func (h *Handler) AdminShifts(c *gin.Context) {
@@ -655,11 +672,16 @@ func (h *Handler) CourierCollectCOD(c *gin.Context) {
 	if !ok {
 		return
 	}
-	if err := h.Svc.CollectCODProxy(c.Request.Context(), h.tenant(c), c.Param("id"), cid, c.GetHeader("Authorization")); err != nil {
+	var body struct {
+		Amount *float64 `json:"amount"`
+	}
+	_ = c.ShouldBindJSON(&body)
+	job, err := h.Svc.CollectCODProxy(c.Request.Context(), h.tenant(c), c.Param("id"), cid, c.GetHeader("Authorization"), body.Amount)
+	if err != nil {
 		h.writeErr(c, err)
 		return
 	}
-	httpx.OK(c, gin.H{"ok": true})
+	httpx.OK(c, job)
 }
 
 func (h *Handler) CourierRoute(c *gin.Context) {

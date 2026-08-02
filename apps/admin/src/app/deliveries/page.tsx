@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { Suspense, useCallback, useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Button, Input } from "@gayrat/ui";
 import { EmptyState, Msg, PageHeader, Select, StatusBadge, TableShell } from "@/components/ui";
 import { api, errMsg } from "@/lib/api";
@@ -20,6 +20,7 @@ type Job = {
   pickup_address: string;
   dropoff_address: string;
   cod_amount: number;
+  cod_dispute?: boolean;
 };
 
 type Courier = { id: string; full_name: string; status: string; on_shift?: boolean };
@@ -37,13 +38,16 @@ type MsgItem = { id: string; sender_role: string; to_role?: string; body: string
 
 function DeliveriesInner() {
   const { t, locale } = useI18n();
+  const router = useRouter();
   const search = useSearchParams();
   const focusJob = search.get("job") || "";
   const statusFromUrl = search.get("status") || "";
+  const disputedFromUrl = search.get("cod_dispute") === "true";
   const [items, setItems] = useState<Job[]>([]);
   const [couriers, setCouriers] = useState<Courier[]>([]);
   const [payouts, setPayouts] = useState<Payout[]>([]);
   const [status, setStatus] = useState(statusFromUrl);
+  const [disputedOnly, setDisputedOnly] = useState(disputedFromUrl);
   const [msg, setMsg] = useState("");
   const [ok, setOk] = useState("");
   const [busyId, setBusyId] = useState("");
@@ -58,11 +62,34 @@ function DeliveriesInner() {
 
   useEffect(() => {
     if (statusFromUrl !== status) setStatus(statusFromUrl);
+    if (disputedFromUrl !== disputedOnly) setDisputedOnly(disputedFromUrl);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusFromUrl]);
+  }, [statusFromUrl, disputedFromUrl]);
+
+  function syncUrl(nextStatus: string, nextDisputed: boolean) {
+    const p = new URLSearchParams();
+    if (nextStatus) p.set("status", nextStatus);
+    if (nextDisputed) p.set("cod_dispute", "true");
+    if (focusJob) p.set("job", focusJob);
+    const q = p.toString();
+    router.replace(q ? `/deliveries?${q}` : "/deliveries", { scroll: false });
+  }
+
+  function onStatusChange(next: string) {
+    setStatus(next);
+    syncUrl(next, disputedOnly);
+  }
+
+  function onDisputedChange(next: boolean) {
+    setDisputedOnly(next);
+    syncUrl(status, next);
+  }
 
   const load = useCallback(async (soft = false) => {
-    const q = status ? `?status=${encodeURIComponent(status)}` : "";
+    const params = new URLSearchParams();
+    if (status) params.set("status", status);
+    if (disputedOnly) params.set("cod_dispute", "true");
+    const q = params.toString() ? `?${params}` : "";
     const [jobs, cos, pays] = await Promise.all([
       api<{ items: Job[] }>(`/v1/admin/deliveries${q}`),
       api<{ items: Courier[] }>("/v1/admin/couriers"),
@@ -72,7 +99,7 @@ function DeliveriesInner() {
     setCouriers((cos.items || []).filter((c) => c.status === "active"));
     setPayouts(pays.items || []);
     if (!soft) setMsg("");
-  }, [status]);
+  }, [status, disputedOnly]);
 
   useEffect(() => {
     load().catch((e) => setMsg(errMsg(e)));
@@ -85,6 +112,16 @@ function DeliveriesInner() {
     const el = document.getElementById(`delivery-${focusJob}`);
     el?.scrollIntoView({ behavior: "smooth", block: "center" });
   }, [focusJob, items]);
+
+  useEffect(() => {
+    setAssignFor((prev) => {
+      const next = { ...prev };
+      for (const j of items) {
+        if (j.courier_id && !next[j.id]) next[j.id] = j.courier_id;
+      }
+      return next;
+    });
+  }, [items]);
 
   async function withBusy(id: string, fn: () => Promise<void>) {
     setBusyId(id);
@@ -100,12 +137,15 @@ function DeliveriesInner() {
     }
   }
 
-  async function assign(id: string) {
+  async function assign(id: string, auto = false) {
     const courier_id = assignFor[id];
-    if (!courier_id) return;
+    if (!auto && !courier_id) return;
     await withBusy(id, async () => {
-      await api(`/v1/admin/deliveries/${id}/assign`, { method: "POST", body: JSON.stringify({ courier_id }) });
-      setOk(t("deliveryAssigned"));
+      await api(`/v1/admin/deliveries/${id}/assign`, {
+        method: "POST",
+        body: JSON.stringify(auto ? {} : { courier_id }),
+      });
+      setOk(t(auto ? "deliveryRetryDone" : "deliveryAssigned"));
     });
   }
 
@@ -120,9 +160,27 @@ function DeliveriesInner() {
 
   async function retry(id: string) {
     await withBusy(id, async () => {
-      await api(`/v1/admin/deliveries/${id}/retry-assign`, { method: "POST" });
+      await api(`/v1/admin/deliveries/${id}/auto-assign`, { method: "POST", body: "{}" });
       setOk(t("deliveryRetryDone"));
     });
+  }
+
+  async function autoAssignAll() {
+    setBusyId("bulk");
+    setMsg("");
+    setOk("");
+    try {
+      const res = await api<{ attempted: number; assigned: number }>("/v1/admin/deliveries/auto-assign", {
+        method: "POST",
+        body: "{}",
+      });
+      setOk(t("deliveryAutoAssignDone", { assigned: res.assigned, attempted: res.attempted }));
+      await load(true);
+    } catch (e) {
+      setMsg(errMsg(e));
+    } finally {
+      setBusyId("");
+    }
   }
 
   async function openChat(id: string) {
@@ -189,7 +247,15 @@ function DeliveriesInner() {
             >
               {t("navCouriers")}
             </Link>
-            <Select value={status} onChange={(e) => setStatus(e.target.value)}>
+            <Button
+              variant="secondary"
+              className="!px-3 !py-2 text-xs"
+              disabled={busyId === "bulk"}
+              onClick={() => autoAssignAll().catch((e) => setMsg(errMsg(e)))}
+            >
+              {t("deliveryAutoAssign")}
+            </Button>
+            <Select value={status} onChange={(e) => onStatusChange(e.target.value)}>
               <option value="">{t("deliveryFilterAll")}</option>
               {DELIVERY_STATUSES.map((s) => (
                 <option key={s} value={s}>
@@ -197,6 +263,10 @@ function DeliveriesInner() {
                 </option>
               ))}
             </Select>
+            <label className="flex items-center gap-1.5 text-xs font-medium text-slate-600">
+              <input type="checkbox" checked={disputedOnly} onChange={(e) => onDisputedChange(e.target.checked)} />
+              {t("deliveryFilterDisputed")}
+            </label>
           </div>
         }
       />
@@ -206,7 +276,7 @@ function DeliveriesInner() {
       {pendingCount > 0 && !status ? (
         <p className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
           {t("deliveryPendingHint", { n: pendingCount })}{" "}
-          <button type="button" className="font-semibold underline" onClick={() => setStatus("pending_assign")}>
+          <button type="button" className="font-semibold underline" onClick={() => onStatusChange("pending_assign")}>
             {deliveryStatusLabel(t, "pending_assign")}
           </button>
         </p>
@@ -243,16 +313,26 @@ function DeliveriesInner() {
                     <p className="mt-0.5 text-xs text-slate-500">{j.dropoff_address || j.pickup_address || "—"}</p>
                     {j.cod_amount > 0 ? (
                       <p className="text-xs font-semibold text-amber-700">
-                        COD {j.cod_amount.toLocaleString(numberLocale)} UZS
+                        {t("deliveryCodLabel")} {j.cod_amount.toLocaleString(numberLocale)} UZS
+                        {j.cod_dispute ? (
+                          <span className="ml-1 rounded bg-rose-100 px-1.5 py-0.5 text-[10px] font-bold uppercase text-rose-700">
+                            {t("deliveryDispute")}
+                          </span>
+                        ) : null}
                       </p>
                     ) : null}
-                    <button
-                      type="button"
-                      className="mt-1 text-xs font-semibold text-teal underline"
-                      onClick={() => openChat(j.id).catch((e) => setMsg(errMsg(e)))}
-                    >
-                      {t("deliveryChat")}
-                    </button>
+                    <div className="mt-1 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        className="text-xs font-semibold text-teal underline"
+                        onClick={() => openChat(j.id).catch((e) => setMsg(errMsg(e)))}
+                      >
+                        {t("deliveryChat")}
+                      </button>
+                      <Link href={`/fleet?job=${j.id}`} className="text-xs font-semibold text-teal underline">
+                        {t("deliveryViewFleet")}
+                      </Link>
+                    </div>
                   </td>
                   <td className="px-3 py-3">
                     <StatusBadge status={j.status} label={deliveryStatusLabel(t, j.status)} />
@@ -274,20 +354,32 @@ function DeliveriesInner() {
                         ))}
                       </Select>
                       {!assigned && j.status !== "delivered" && j.status !== "cancelled" ? (
-                        <Button
-                          variant="primary"
-                          className="!px-2 !py-1 text-xs"
-                          disabled={busy || !assignFor[j.id]}
-                          onClick={() => assign(j.id)}
-                        >
-                          {t("deliveryAssign")}
-                        </Button>
+                        <>
+                          <Button
+                            variant="primary"
+                            className="!px-2 !py-1 text-xs"
+                            disabled={busy || !assignFor[j.id]}
+                            onClick={() => assign(j.id)}
+                          >
+                            {t("deliveryAssign")}
+                          </Button>
+                          {j.status === "pending_assign" ? (
+                            <Button
+                              variant="secondary"
+                              className="!px-2 !py-1 text-xs"
+                              disabled={busy}
+                              onClick={() => assign(j.id, true)}
+                            >
+                              {t("deliveryAutoAssign")}
+                            </Button>
+                          ) : null}
+                        </>
                       ) : null}
                       {assigned && j.status !== "delivered" && j.status !== "cancelled" ? (
                         <Button
                           variant="secondary"
                           className="!px-2 !py-1 text-xs"
-                          disabled={busy || !assignFor[j.id]}
+                          disabled={busy || !assignFor[j.id] || assignFor[j.id] === j.courier_id}
                           onClick={() => reassign(j.id)}
                         >
                           {t("deliveryReassign")}
@@ -388,19 +480,25 @@ function DeliveriesInner() {
           </Button>
         </div>
         <ul className="mt-4 space-y-2">
-          {payouts.map((p) => (
-            <li key={p.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border bg-white px-3 py-2 text-sm">
-              <span>
-                {p.courier_name || p.courier_id.slice(0, 8)} · {p.period_start}→{p.period_end} ·{" "}
-                {p.amount.toLocaleString(numberLocale)} UZS · <StatusBadge status={p.status} />
-              </span>
-              {p.status !== "paid" ? (
-                <Button variant="secondary" className="!px-2 !py-1 text-xs" onClick={() => markPaid(p.id).catch((e) => setMsg(errMsg(e)))}>
-                  {t("payoutMarkPaid")}
-                </Button>
-              ) : null}
+          {payouts.length === 0 ? (
+            <li>
+              <EmptyState text={t("payoutEmpty")} />
             </li>
-          ))}
+          ) : (
+            payouts.map((p) => (
+              <li key={p.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border bg-white px-3 py-2 text-sm">
+                <span>
+                  {p.courier_name || p.courier_id.slice(0, 8)} · {p.period_start}→{p.period_end} ·{" "}
+                  {p.amount.toLocaleString(numberLocale)} UZS · <StatusBadge status={p.status} />
+                </span>
+                {p.status !== "paid" ? (
+                  <Button variant="secondary" className="!px-2 !py-1 text-xs" onClick={() => markPaid(p.id).catch((e) => setMsg(errMsg(e)))}>
+                    {t("payoutMarkPaid")}
+                  </Button>
+                ) : null}
+              </li>
+            ))
+          )}
         </ul>
       </section>
     </div>

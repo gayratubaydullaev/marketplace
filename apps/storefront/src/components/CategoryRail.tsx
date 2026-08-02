@@ -165,7 +165,7 @@ export function CategoryRail({
           type="button"
           aria-label="Previous"
           onClick={() => scrollByDir(-1)}
-          className="absolute start-0 top-1/2 z-10 hidden h-9 w-9 -translate-y-1/2 items-center justify-center rounded-xl border border-night/10 bg-paper/95 text-night shadow-sm transition hover:border-teal/35 hover:text-teal md:flex"
+          className="absolute start-1 top-1/2 z-10 hidden h-9 w-9 -translate-y-1/2 items-center justify-center rounded-xl border border-night/10 bg-paper/95 text-night shadow-sm transition hover:border-teal/35 hover:text-teal md:flex lg:start-2 lg:h-10 lg:w-10"
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden>
             <path d="M15 5 8 12l7 7" strokeLinecap="round" strokeLinejoin="round" />
@@ -177,7 +177,7 @@ export function CategoryRail({
           type="button"
           aria-label="Next"
           onClick={() => scrollByDir(1)}
-          className="absolute end-0 top-1/2 z-10 hidden h-9 w-9 -translate-y-1/2 items-center justify-center rounded-xl border border-night/10 bg-paper/95 text-night shadow-sm transition hover:border-teal/35 hover:text-teal md:flex"
+          className="absolute end-1 top-1/2 z-10 hidden h-9 w-9 -translate-y-1/2 items-center justify-center rounded-xl border border-night/10 bg-paper/95 text-night shadow-sm transition hover:border-teal/35 hover:text-teal md:flex lg:end-2 lg:h-10 lg:w-10"
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden>
             <path d="M9 5l7 7-7 7" strokeLinecap="round" strokeLinejoin="round" />
@@ -187,7 +187,7 @@ export function CategoryRail({
 
       <div
         ref={viewportRef}
-        className={`home-cat-rail-viewport overflow-hidden pe-4 md:px-1 ${
+        className={`home-cat-rail-viewport overflow-hidden pe-4 md:px-12 lg:px-14 ${
           dragging ? "cursor-grabbing" : "cursor-grab"
         }`}
         onPointerDown={onPointerDown}
@@ -196,7 +196,7 @@ export function CategoryRail({
       >
         <ul
           ref={trackRef}
-          className="home-cat-rail flex w-max select-none gap-2 sm:gap-3.5"
+          className="home-cat-rail flex w-max select-none gap-2 sm:gap-3 md:gap-3.5 lg:gap-4"
           style={{
             transform: "translate3d(0,0,0)",
             willChange: "transform",
@@ -214,7 +214,7 @@ export function CategoryRail({
                   title={name}
                   draggable={false}
                   onDragStart={(e) => e.preventDefault()}
-                  className="group flex w-[5.75rem] flex-col sm:w-[8.5rem]"
+                  className="group flex w-[5.75rem] flex-col sm:w-[7.25rem] md:w-[8.25rem] lg:w-[9.25rem] xl:w-[10rem]"
                 >
                   <span className="relative block aspect-square w-full overflow-hidden rounded-lg bg-surface-muted sm:rounded-xl">
                     {image ? (
@@ -222,7 +222,7 @@ export function CategoryRail({
                         src={image}
                         alt=""
                         fill
-                        sizes="120px"
+                        sizes="(max-width: 639px) 92px, (max-width: 1023px) 132px, (max-width: 1279px) 148px, 160px"
                         draggable={false}
                         className="pointer-events-none object-cover transition duration-300 group-hover:scale-[1.03]"
                       />
@@ -233,7 +233,7 @@ export function CategoryRail({
                       />
                     )}
                   </span>
-                  <span className="mt-1.5 line-clamp-2 text-center font-display text-[11px] font-bold leading-snug text-night sm:mt-2 sm:text-[13px]">
+                  <span className="mt-1.5 line-clamp-2 text-center font-display text-[11px] font-bold leading-snug text-night sm:mt-2 sm:text-[13px] lg:text-sm">
                     {name}
                   </span>
                 </Link>

@@ -36,14 +36,14 @@ func Sandbox() bool {
 
 type Provider interface {
 	Name() string
-	CreateIntent(float64, string, string) (string, string, error)
+	CreateIntent(amount float64, currency, orderID, locale string) (string, string, error)
 	VerifyWebhook([]byte, string) (string, string, error)
 }
 
 type HMACProvider struct{ NameValue, MerchantID, Secret, RedirectTemplate string }
 
 func (p HMACProvider) Name() string { return p.NameValue }
-func (p HMACProvider) CreateIntent(amount float64, currency, orderID string) (string, string, error) {
+func (p HMACProvider) CreateIntent(amount float64, currency, orderID, _ string) (string, string, error) {
 	id := p.NameValue + "_" + uuid.NewString()[:12]
 	return id, fmt.Sprintf(p.RedirectTemplate, p.MerchantID, amount, orderID, id), nil
 }
@@ -139,12 +139,12 @@ func verifyBasicOrToken(credential, merchantID, secret string) bool {
 type StripeProvider struct{ Secret, WebhookSecret string }
 
 func (p StripeProvider) Name() string { return "stripe" }
-func (p StripeProvider) CreateIntent(amount float64, currency, orderID string) (string, string, error) {
+func (p StripeProvider) CreateIntent(amount float64, currency, orderID, locale string) (string, string, error) {
 	if Sandbox() {
-		return HMACProvider{NameValue: "stripe", MerchantID: "stripe", Secret: p.Secret, RedirectTemplate: "https://checkout.stripe.com/pay/%s?amount=%.0f&order=%s&pi=%s"}.CreateIntent(amount, currency, orderID)
+		return HMACProvider{NameValue: "stripe", MerchantID: "stripe", Secret: p.Secret, RedirectTemplate: "https://checkout.stripe.com/pay/%s?amount=%.0f&order=%s&pi=%s"}.CreateIntent(amount, currency, orderID, locale)
 	}
-	success := paymentReturnURL(orderID)
-	cancel := storefrontBase() + "/uz/checkout"
+	success := paymentReturnURL(orderID, locale)
+	cancel := paymentCancelURL(locale)
 	form := url.Values{
 		"mode": {"payment"},
 		"success_url": {success + "?session_id={CHECKOUT_SESSION_ID}"},
@@ -255,7 +255,14 @@ func StripeConnectAccountID(metadata map[string]any) string {
 type PayPalProvider struct{ ClientID, ClientSecret string }
 
 func (p PayPalProvider) Name() string { return "paypal" }
-func (p PayPalProvider) CreateIntent(amount float64, currency, orderID string) (string, string, error) {
+func (p PayPalProvider) CreateIntent(amount float64, currency, orderID, locale string) (string, string, error) {
+	// Sandbox without credentials → same HTML pay page path as other PSP stubs.
+	if Sandbox() && (strings.TrimSpace(p.ClientID) == "" || strings.TrimSpace(p.ClientSecret) == "") {
+		return HMACProvider{
+			NameValue: "paypal", MerchantID: "paypal", Secret: "paypal-sandbox-secret",
+			RedirectTemplate: "https://www.sandbox.paypal.com/checkoutnow?token=%s&amount=%.0f&order=%s&pi=%s",
+		}.CreateIntent(amount, currency, orderID, locale)
+	}
 	base := "https://api-m.paypal.com"
 	if Sandbox() {
 		base = "https://api-m.sandbox.paypal.com"
@@ -273,13 +280,25 @@ func (p PayPalProvider) CreateIntent(amount float64, currency, orderID string) (
 	if tokenResp.StatusCode/100 != 2 {
 		return "", "", fmt.Errorf("PayPal access token: %s", strings.TrimSpace(string(tokenBody)))
 	}
-	var token struct{ AccessToken string `json:"access_token"` }
+	var token struct {
+		AccessToken string `json:"access_token"`
+	}
 	if json.Unmarshal(tokenBody, &token) != nil || token.AccessToken == "" {
 		return "", "", fmt.Errorf("invalid PayPal access token response")
 	}
+	returnURL := paymentReturnURL(orderID, locale)
+	cancelURL := paymentCancelURL(locale)
 	payload, _ := json.Marshal(map[string]any{
 		"intent": "CAPTURE",
-		"purchase_units": []map[string]any{{"reference_id": orderID, "amount": map[string]string{"currency_code": currency, "value": fmt.Sprintf("%.2f", amount)}}},
+		"purchase_units": []map[string]any{{
+			"reference_id": orderID,
+			"amount":       map[string]string{"currency_code": currency, "value": fmt.Sprintf("%.2f", amount)},
+		}},
+		"application_context": map[string]string{
+			"return_url": returnURL,
+			"cancel_url": cancelURL,
+			"user_action": "PAY_NOW",
+		},
 	})
 	req, _ := http.NewRequest(http.MethodPost, base+"/v2/checkout/orders", bytes.NewReader(payload))
 	req.Header.Set("Authorization", "Bearer "+token.AccessToken)
@@ -323,7 +342,7 @@ func (p PayPalProvider) VerifyWebhook(payload []byte, credential string) (string
 type BankTransferProvider struct{}
 
 func (BankTransferProvider) Name() string { return "bank_transfer" }
-func (BankTransferProvider) CreateIntent(float64, string, string) (string, string, error) {
+func (BankTransferProvider) CreateIntent(float64, string, string, string) (string, string, error) {
 	return "bank_" + uuid.NewString()[:8], "", nil
 }
 func (BankTransferProvider) VerifyWebhook([]byte, string) (string, string, error) {
@@ -335,7 +354,7 @@ func (BankTransferProvider) VerifyWebhook([]byte, string) (string, string, error
 type CashOnDeliveryProvider struct{}
 
 func (CashOnDeliveryProvider) Name() string { return "cash_on_delivery" }
-func (CashOnDeliveryProvider) CreateIntent(float64, string, string) (string, string, error) {
+func (CashOnDeliveryProvider) CreateIntent(float64, string, string, string) (string, string, error) {
 	return "cod_cash_" + uuid.NewString()[:8], "", nil
 }
 func (CashOnDeliveryProvider) VerifyWebhook([]byte, string) (string, string, error) {
@@ -345,7 +364,7 @@ func (CashOnDeliveryProvider) VerifyWebhook([]byte, string) (string, string, err
 type CardOnDeliveryProvider struct{}
 
 func (CardOnDeliveryProvider) Name() string { return "card_on_delivery" }
-func (CardOnDeliveryProvider) CreateIntent(float64, string, string) (string, string, error) {
+func (CardOnDeliveryProvider) CreateIntent(float64, string, string, string) (string, string, error) {
 	return "cod_card_" + uuid.NewString()[:8], "", nil
 }
 func (CardOnDeliveryProvider) VerifyWebhook([]byte, string) (string, string, error) {
@@ -359,4 +378,55 @@ func firstSet(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func envPresent(key string) bool {
+	return strings.TrimSpace(os.Getenv(key)) != ""
+}
+
+func envConfigured(keys ...string) (map[string]bool, bool) {
+	out := make(map[string]bool, len(keys))
+	ok := true
+	for _, key := range keys {
+		present := envPresent(key)
+		out[key] = present
+		if !present {
+			ok = false
+		}
+	}
+	return out, ok
+}
+
+// ProviderHealthReport returns sandbox flag and per-provider secret presence (never values).
+func ProviderHealthReport() map[string]any {
+	sandbox := Sandbox()
+	type entry struct {
+		Name       string          `json:"name"`
+		Configured bool            `json:"configured"`
+		Manual     bool            `json:"manual,omitempty"`
+		Env        map[string]bool `json:"env"`
+	}
+	var items []entry
+	add := func(name string, manual bool, keys ...string) {
+		env, configured := envConfigured(keys...)
+		if sandbox && !manual {
+			// In sandbox, providers boot with fallbacks even when secrets are unset.
+			configured = true
+			for _, key := range keys {
+				if !env[key] {
+					env[key] = false
+				}
+			}
+		}
+		items = append(items, entry{Name: name, Configured: configured || manual, Manual: manual, Env: env})
+	}
+	add("payme", false, "PAYME_MERCHANT_ID", "PAYME_SECRET")
+	add("click", false, "CLICK_MERCHANT_ID", "CLICK_SECRET")
+	add("uzum", false, "UZUM_MERCHANT_ID", "UZUM_SECRET")
+	add("stripe", false, "STRIPE_SECRET")
+	add("paypal", false, "PAYPAL_CLIENT_ID", "PAYPAL_CLIENT_SECRET")
+	add("bank_transfer", true)
+	add("cash_on_delivery", true)
+	add("card_on_delivery", true)
+	return map[string]any{"sandbox": sandbox, "currency": "UZS", "providers": items}
 }

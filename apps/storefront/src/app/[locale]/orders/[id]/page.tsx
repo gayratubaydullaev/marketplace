@@ -6,8 +6,8 @@ import dynamic from "next/dynamic";
 import { useParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { formatUZS, type Locale } from "@gayrat/i18n";
-import { api, productImage, type Product } from "@/lib/api";
-import { PageHeader, StatusBadge } from "@/components/PageChrome";
+import { api, apiUrl, hasClientSessionFlag, productImage, type Product } from "@/lib/api";
+import { PageHeader, StatusBadge, StatusTimeline, ErrorPanel, LoadingBlock } from "@/components/PageChrome";
 import "@gayrat/map/styles.css";
 
 const TrackingMap = dynamic(() => import("@gayrat/map").then((m) => m.TrackingMap), {
@@ -20,6 +20,7 @@ type OrderItem = {
   product_id: string;
   title: string;
   quantity: number;
+  returned_quantity?: number;
   unit_price: number;
   total_price?: number;
 };
@@ -33,6 +34,7 @@ type OrderPayload = {
     subtotal?: number;
     shipping_cost?: number;
     discount?: number;
+    tax_total?: number;
     shipping_address?: Record<string, string>;
     created_at?: string;
   };
@@ -113,6 +115,7 @@ export default function OrderDetailPage() {
   const params = useParams();
   const locale = useLocale();
   const t = useTranslations("orders");
+  const tc = useTranslations("common");
   const id = String(params.id || "");
   const [data, setData] = useState<OrderPayload>({});
   const [tracking, setTracking] = useState<Tracking | null>(null);
@@ -134,6 +137,16 @@ export default function OrderDetailPage() {
   const [cancelMsg, setCancelMsg] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [reloadKey, setReloadKey] = useState(0);
+  const [loggedIn, setLoggedIn] = useState(false);
+  const [returnReason, setReturnReason] = useState("");
+  const [returnQty, setReturnQty] = useState<Record<string, number>>({});
+  const [returnMsg, setReturnMsg] = useState("");
+  const [returnBusy, setReturnBusy] = useState(false);
+
+  useEffect(() => {
+    setLoggedIn(hasClientSessionFlag());
+  }, []);
 
   useEffect(() => {
     if (!id) return;
@@ -243,7 +256,7 @@ export default function OrderDetailPage() {
       clearInterval(poll);
       ws?.close();
     };
-  }, [id, t]);
+  }, [id, t, reloadKey]);
 
   const productIds = useMemo(
     () => [...new Set((data.items || []).map((it) => it.product_id).filter(Boolean))],
@@ -291,27 +304,68 @@ export default function OrderDetailPage() {
     }
   }
 
+  async function submitReturn() {
+    const reason = returnReason.trim();
+    if (!reason) {
+      setReturnMsg(t("returnsReason"));
+      return;
+    }
+    const lineItems = (data.items || [])
+      .filter((it) => it.id && (returnQty[it.id] ?? 0) > 0)
+      .map((it) => ({ order_item_id: it.id!, quantity: returnQty[it.id!] }));
+    const hasItemIds = (data.items || []).some((it) => it.id);
+    if (hasItemIds && lineItems.length === 0) {
+      setReturnMsg(t("returnsSelectItems"));
+      return;
+    }
+    setReturnBusy(true);
+    setReturnMsg("");
+    try {
+      await api(`/v1/orders/${id}/returns`, {
+        method: "POST",
+        body: JSON.stringify({
+          reason,
+          ...(lineItems.length > 0 ? { items: lineItems } : {}),
+        }),
+      });
+      setReturnMsg(t("returnsSuccess"));
+      setReturnReason("");
+      setReturnQty({});
+      const d = await api<OrderPayload>(`/v1/orders/${id}`);
+      setData(d);
+    } catch (err) {
+      setReturnMsg(err instanceof Error ? err.message : t("returnsError"));
+    } finally {
+      setReturnBusy(false);
+    }
+  }
+
   if (loading && !data.order) {
     return (
       <div className="mx-auto max-w-2xl animate-rise space-y-4">
-        <div className="h-8 w-48 animate-pulse rounded-lg bg-night/8" />
-        <div className="h-40 animate-pulse rounded-3xl bg-night/5" />
-        <div className="h-28 animate-pulse rounded-3xl bg-night/5" />
+        <LoadingBlock rows={3} />
       </div>
     );
   }
 
   if (error && !data.order) {
     return (
-      <div className="mx-auto max-w-2xl animate-rise py-12 text-center">
-        <p className="text-night/70">{t("loadError")}</p>
-        <p className="mt-2 text-xs break-all text-night/40">{error}</p>
-        <Link
-          href={`/${locale}/account?tab=orders`}
-          className="mt-6 inline-block rounded-xl bg-accent px-5 py-2.5 text-sm font-bold text-night"
-        >
-          {t("title")}
-        </Link>
+      <div className="mx-auto max-w-2xl animate-rise">
+        <ErrorPanel
+          title={t("loadError")}
+          description={error}
+          onRetry={() => {
+            setLoading(true);
+            setError("");
+            setReloadKey((k) => k + 1);
+          }}
+          retryLabel={tc("retry")}
+        />
+        <div className="pb-8 text-center">
+          <Link href={`/${locale}/account?tab=orders`} className="text-sm font-semibold text-teal hover:underline">
+            ← {t("title")}
+          </Link>
+        </div>
       </div>
     );
   }
@@ -320,9 +374,15 @@ export default function OrderDetailPage() {
   if (!o) return <p className="animate-rise">{t("loading")}</p>;
 
   const items = data.items || [];
-  const statusIdx = TIMELINE.indexOf(o.status as (typeof TIMELINE)[number]);
   const canCancel = ["pending", "confirmed"].includes(o.status);
   const canReview = ["delivered", "completed"].includes(o.status) && o.payment_status === "paid";
+  const canReturn =
+    loggedIn &&
+    o.payment_status === "paid" &&
+    ["shipped", "delivered", "completed"].includes(o.status);
+  const returnableItems = items.filter(
+    (it) => it.id && it.quantity - (it.returned_quantity ?? 0) > 0
+  );
   const addr = o.shipping_address || {};
   const payLabel = paymentLabel(t, o.payment_status);
 
@@ -344,9 +404,20 @@ export default function OrderDetailPage() {
               : undefined
           }
           actions={
-            <p className="text-xl font-bold tabular-nums text-night sm:text-2xl">
-              {formatUZS(o.total, locale as Locale)}
-            </p>
+            <div className="flex flex-col items-end gap-2">
+              <p className="text-xl font-bold tabular-nums text-night sm:text-2xl">
+                {formatUZS(o.total, locale as Locale)}
+              </p>
+              <a
+                href={apiUrl(`/v1/orders/${id}/invoice`)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sm font-semibold text-teal hover:underline"
+                title={t("invoiceHint")}
+              >
+                {t("invoice")} ↗
+              </a>
+            </div>
           }
         />
         <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -442,6 +513,14 @@ export default function OrderDetailPage() {
               </dd>
             </div>
           ) : null}
+          {typeof o.tax_total === "number" && o.tax_total > 0 ? (
+            <div className="flex justify-between gap-3">
+              <dt className="text-muted">{t("tax")}</dt>
+              <dd className="font-medium tabular-nums">
+                {formatUZS(o.tax_total, locale as Locale)}
+              </dd>
+            </div>
+          ) : null}
           <div className="flex justify-between gap-3 pt-1 text-base">
             <dt className="font-bold text-night">{t("total")}</dt>
             <dd className="font-bold tabular-nums text-night">
@@ -451,33 +530,91 @@ export default function OrderDetailPage() {
         </dl>
       </section>
 
+      {canReturn && returnableItems.length > 0 ? (
+        <section className="mt-4 rounded-3xl border border-night/8 bg-white p-5 sm:p-6">
+          <h2 className="text-xs font-bold uppercase tracking-wide text-muted">{t("returnsTitle")}</h2>
+          <p className="mt-2 text-sm text-muted">{t("returnsSelectItems")}</p>
+          <ul className="mt-4 space-y-3">
+            {returnableItems.map((it) => {
+              const avail = it.quantity - (it.returned_quantity ?? 0);
+              const qty = returnQty[it.id!] ?? 0;
+              const selected = qty > 0;
+              return (
+                <li
+                  key={it.id}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-night/8 px-3 py-2.5"
+                >
+                  <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-2.5">
+                    <input
+                      type="checkbox"
+                      className="mt-1"
+                      checked={selected}
+                      onChange={(e) => {
+                        const on = e.target.checked;
+                        setReturnQty((prev) => ({
+                          ...prev,
+                          [it.id!]: on ? Math.min(1, avail) : 0,
+                        }));
+                      }}
+                    />
+                    <span className="min-w-0">
+                      <span className="block text-sm font-semibold text-night">{it.title}</span>
+                      <span className="text-xs text-muted">
+                        {t("returnsAvailable", { available: avail })}
+                      </span>
+                    </span>
+                  </label>
+                  {selected ? (
+                    <label className="flex items-center gap-2 text-xs font-medium text-muted">
+                      {t("returnsQty")}
+                      <input
+                        type="number"
+                        min={1}
+                        max={avail}
+                        value={qty}
+                        onChange={(e) => {
+                          const n = Number(e.target.value);
+                          setReturnQty((prev) => ({
+                            ...prev,
+                            [it.id!]: Number.isFinite(n)
+                              ? Math.min(avail, Math.max(1, Math.floor(n)))
+                              : 1,
+                          }));
+                        }}
+                        className="w-16 rounded-lg border border-night/10 px-2 py-1 text-sm text-night"
+                      />
+                    </label>
+                  ) : null}
+                </li>
+              );
+            })}
+          </ul>
+          <label className="mt-4 block text-sm font-medium text-night">
+            {t("returnsReason")}
+            <textarea
+              className="mt-1.5 w-full rounded-xl border border-night/10 px-3 py-2.5 text-sm outline-none focus:border-accent/40"
+              rows={3}
+              value={returnReason}
+              onChange={(e) => setReturnReason(e.target.value)}
+              placeholder={t("returnsReasonPlaceholder")}
+              required
+            />
+          </label>
+          <button
+            type="button"
+            disabled={returnBusy}
+            onClick={() => submitReturn()}
+            className="mt-4 w-full rounded-xl border border-teal px-5 py-3 text-sm font-bold text-teal transition hover:bg-teal/5 disabled:opacity-50 sm:w-auto"
+          >
+            {t("returnsSubmit")}
+          </button>
+          {returnMsg ? <p className="mt-2 text-sm break-all text-muted">{returnMsg}</p> : null}
+        </section>
+      ) : null}
+
       <section className="mt-4 rounded-3xl border border-night/8 bg-white p-5 sm:p-6">
         <h2 className="text-xs font-bold uppercase tracking-wide text-muted">{t("timeline")}</h2>
-        <ol className="mt-4 flex flex-wrap gap-2">
-          {TIMELINE.map((step, i) => {
-            const done = statusIdx >= 0 && i <= statusIdx;
-            const current = o.status === step;
-            return (
-              <li
-                key={step}
-                className={`rounded-full px-3 py-1.5 text-xs font-semibold ${
-                  current
-                    ? "bg-accent text-night"
-                    : done
-                      ? "bg-accent/15 text-teal"
-                      : "bg-night/5 text-night/40"
-                }`}
-              >
-                {statusLabel(t, step)}
-              </li>
-            );
-          })}
-          {o.status === "cancelled" && (
-            <li className="rounded-full bg-rose-100 px-3 py-1.5 text-xs font-semibold text-rose-700">
-              {statusLabel(t, "cancelled")}
-            </li>
-          )}
-        </ol>
+        <StatusTimeline steps={TIMELINE} currentStatus={o.status} label={(step) => statusLabel(t, step)} />
       </section>
 
       {Object.keys(addr).length > 0 ? (

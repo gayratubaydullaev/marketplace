@@ -131,6 +131,19 @@ type SMTPTransport struct {
 	Auth smtp.Auth
 }
 
+// TransportFromEnv selects the inner delivery transport from NOTIFY_TRANSPORT (log|smtp).
+func TransportFromEnv() Transport {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("NOTIFY_TRANSPORT"))) {
+	case "smtp":
+		return NewSMTPFromEnv()
+	case "log", "":
+		return LogTransport{}
+	default:
+		log.Printf("[notify] unknown NOTIFY_TRANSPORT=%q, using log", os.Getenv("NOTIFY_TRANSPORT"))
+		return LogTransport{}
+	}
+}
+
 func NewSMTPFromEnv() Transport {
 	smtpURL := os.Getenv("SMTP_URL") // e.g. smtp://user:pass@localhost:1025
 	if smtpURL == "" {

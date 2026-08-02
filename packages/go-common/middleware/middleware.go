@@ -128,7 +128,9 @@ func CorrelationID() gin.HandlerFunc {
 }
 
 func Tenant() gin.HandlerFunc {
-	uuidRE := regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+	// Accept any UUID-shaped id (including the seeded demo tenant
+	// 00000000-0000-0000-0000-000000000001, which is not RFC version/variant compliant).
+	uuidRE := regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 	return func(c *gin.Context) {
 		path := c.Request.URL.Path
 		if path == "/health" || path == "/metrics" || strings.HasPrefix(path, "/.well-known/") {

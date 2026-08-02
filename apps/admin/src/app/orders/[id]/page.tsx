@@ -102,6 +102,11 @@ function paymentMethodKey(method: string): string {
     cash_on_delivery: "payCashOnDelivery",
     card_on_delivery: "payCardOnDelivery",
     bank_transfer: "payBankTransfer",
+    payme: "payPayme",
+    click: "payClick",
+    uzum: "payUzum",
+    stripe: "payStripe",
+    paypal: "payPaypal",
   };
   return map[method] || "";
 }
@@ -195,6 +200,22 @@ export default function OrderDetailPage() {
     await load();
   }
 
+  async function markPaid() {
+    setMsg("");
+    setOk("");
+    await api(`/v1/payments/admin/mark-paid`, { method: "POST", body: JSON.stringify({ order_id: id }) });
+    setOk(t("orderMarkPaidOk"));
+    await load();
+  }
+
+  async function confirmRefundManual() {
+    setMsg("");
+    setOk("");
+    await api(`/v1/payments/admin/confirm-refund`, { method: "POST", body: JSON.stringify({ order_id: id }) });
+    setOk(t("orderConfirmRefundOk"));
+    await load();
+  }
+
   async function saveTracking() {
     setMsg("");
     setOk("");
@@ -218,6 +239,12 @@ export default function OrderDetailPage() {
         : addr.delivery_method || "";
   const actions = nextStatuses(o.status);
   const unpaidCOD = o.payment_status !== "paid" && COD_METHODS.has(o.payment_method || "");
+  const unpaidPending =
+    o.payment_status === "unpaid" || o.payment_status === "pending" || o.payment_status === "processing";
+  const canMarkPaid = unpaidPending && !["cancelled", "refunded", "returned"].includes(o.status || "");
+  const canConfirmRefund =
+    o.payment_status === "paid" &&
+    ["payme", "click", "uzum", "paypal", "stripe"].includes(o.payment_method || "");
   const needsPayBeforeHandoff = unpaidCOD && (o.status === "shipped" || actions.includes("delivered"));
 
   return (
@@ -266,6 +293,16 @@ export default function OrderDetailPage() {
           {unpaidCOD && (
             <Button variant="primary" className="!px-3 !py-1.5 text-xs" onClick={() => collectPayment().catch((e) => setMsg(errMsg(e)))}>
               {t("orderCollectPay")}
+            </Button>
+          )}
+          {canMarkPaid && (
+            <Button variant="secondary" className="!px-3 !py-1.5 text-xs" onClick={() => markPaid().catch((e) => setMsg(errMsg(e)))}>
+              {t("orderMarkPaid")}
+            </Button>
+          )}
+          {canConfirmRefund && (
+            <Button variant="ghost" className="!px-3 !py-1.5 text-xs text-rose-700" onClick={() => confirmRefundManual().catch((e) => setMsg(errMsg(e)))}>
+              {t("orderConfirmRefund")}
             </Button>
           )}
           {actions.map((s) => {

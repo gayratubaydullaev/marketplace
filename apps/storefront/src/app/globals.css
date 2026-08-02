@@ -15,6 +15,7 @@
   --sticky-action-h: 5.25rem;
   --bottom-chrome: calc(var(--bottom-nav-h) + env(safe-area-inset-bottom, 0px));
   --bottom-with-action: calc(var(--bottom-chrome) + var(--sticky-action-h));
+  --header-offset: 5.5rem;
   --noise: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E");
 }
 
@@ -47,8 +48,29 @@ body {
   }
 }
 
+@media (min-width: 768px) {
+  :root {
+    --header-offset: 6.5rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  :root {
+    --header-offset: 8rem;
+  }
+}
+
 .site-container {
-  @apply mx-auto w-full max-w-[90rem] min-w-0 px-4 sm:px-6 lg:px-8;
+  @apply mx-auto w-full max-w-[90rem] min-w-0 px-4 sm:px-6 lg:px-8 xl:px-10 2xl:max-w-[100rem];
+}
+
+.home-page {
+  @apply flex flex-col;
+}
+
+.home-section {
+  @apply mt-4 sm:mt-8 lg:mt-10 xl:mt-12;
+  animation: fadeUp 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 @media (max-width: 767px) {
@@ -130,10 +152,6 @@ body {
 .product-card-enter {
   animation: fadeUp 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
   animation-delay: calc(var(--i, 0) * 45ms);
-}
-
-.home-section {
-  animation: fadeUp 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .home-cat-rail-viewport {

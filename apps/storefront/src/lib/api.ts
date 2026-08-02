@@ -22,6 +22,11 @@ function resolve(path: string) {
   return `${API_BASE}${p}`;
 }
 
+/** Same-origin gateway URL for downloads / new-tab links (invoice, etc.). */
+export function apiUrl(path: string): string {
+  return resolve(path);
+}
+
 /** Soft UI signal that cookies were set (not a secret). */
 export function hasClientSessionFlag(): boolean {
   return flagFor(SESSION_PREFIX);

@@ -4,7 +4,7 @@ import { apiPublic, publicTags, type Product } from "@/lib/api";
 import { ProductGrid } from "@/components/ProductGrid";
 import { Pagination } from "@/components/Pagination";
 
-const PAGE_SIZE = 12;
+const PAGE_SIZE = 24;
 
 export async function generateMetadata({
   params,

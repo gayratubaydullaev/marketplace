@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { formatUZS, type Locale } from "@gayrat/i18n";
@@ -20,10 +20,26 @@ const PAYMENTS = [
   { id: "click", labelKey: "payClick" as const },
   { id: "uzum", labelKey: "payUzum" as const },
   { id: "stripe", labelKey: "payStripe" as const },
+  { id: "paypal", labelKey: "payPaypal" as const },
   { id: "bank_transfer", labelKey: "payBank" as const },
 ] as const;
 
 const COD_PROVIDERS = new Set(["cash_on_delivery", "card_on_delivery", "bank_transfer"]);
+
+type CheckoutPreview = {
+  subtotal?: number;
+  discount?: number;
+  gift?: number;
+  shipping_cost?: number;
+  total?: number;
+};
+
+/** Prefer local line totals when server returns 0 but the UI cart still has priced items. */
+function resolveMoney(serverVal: number | undefined, localVal: number) {
+  if (typeof serverVal !== "number") return localVal;
+  if (serverVal === 0 && localVal > 0) return localVal;
+  return serverVal;
+}
 
 type Address = {
   id: string;
@@ -59,10 +75,16 @@ export default function CheckoutPage() {
   const [pin, setPin] = useState<Pin | null>(null);
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [selectedAddress, setSelectedAddress] = useState("");
+  const [preview, setPreview] = useState<CheckoutPreview>({});
   const [shippingCost, setShippingCost] = useState(15000);
   const [provider, setProvider] = useState("cash_on_delivery");
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(false);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [activeStep, setActiveStep] = useState(1);
+  const stepContactRef = useRef<HTMLElement>(null);
+  const stepDeliveryRef = useRef<HTMLElement>(null);
+  const stepPaymentRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     const has = hasClientSessionFlag();
@@ -81,23 +103,90 @@ export default function CheckoutPage() {
   }, [loggedIn]);
 
   useEffect(() => {
-    if (delivery === "pickup") {
-      setShippingCost(0);
+    if (items.length === 0) {
+      setPreview({});
       return;
     }
+    let cancelled = false;
     const goods = total();
-    if (goods <= 0) {
-      setShippingCost(0);
-      return;
-    }
     const fallback = region === "Toshkent shahri" ? 15000 : 25000;
-    api<{ shipping_cost?: number; cost?: number; total?: number }>("/v1/cart/shipping-estimate", {
-      method: "POST",
-      body: JSON.stringify({ region, district, subtotal: goods }),
-    })
-      .then((estimate) => setShippingCost(estimate.shipping_cost ?? estimate.cost ?? estimate.total ?? fallback))
-      .catch(() => setShippingCost(fallback));
+
+    (async () => {
+      setPreviewLoading(true);
+      try {
+        await syncToServer();
+        const est = await api<CheckoutPreview>("/v1/cart/checkout-preview", {
+          method: "POST",
+          body: JSON.stringify({ region: delivery === "pickup" ? "Toshkent shahri" : region }),
+        });
+        if (cancelled) return;
+        setPreview(est);
+        if (delivery === "pickup") {
+          setShippingCost(0);
+        } else {
+          setShippingCost(est.shipping_cost ?? fallback);
+        }
+      } catch {
+        if (cancelled) return;
+        if (delivery === "pickup") {
+          setShippingCost(0);
+          return;
+        }
+        if (goods <= 0) {
+          setShippingCost(0);
+          return;
+        }
+        api<{ shipping_cost?: number; cost?: number; total?: number }>("/v1/cart/shipping-estimate", {
+          method: "POST",
+          body: JSON.stringify({ region, district, subtotal: goods }),
+        })
+          .then((estimate) => {
+            if (!cancelled) {
+              setShippingCost(estimate.shipping_cost ?? estimate.cost ?? estimate.total ?? fallback);
+            }
+          })
+          .catch(() => {
+            if (!cancelled) setShippingCost(fallback);
+          });
+      } finally {
+        if (!cancelled) setPreviewLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [region, district, delivery, items.length]);
+
+  useEffect(() => {
+    const sections = [
+      { ref: stepContactRef, step: 1 },
+      { ref: stepDeliveryRef, step: 2 },
+      { ref: stepPaymentRef, step: 3 },
+    ];
+    const visible = new Map<number, number>();
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          const match = sections.find((s) => s.ref.current === entry.target);
+          if (!match) continue;
+          if (entry.isIntersecting) {
+            visible.set(match.step, entry.intersectionRatio);
+          } else {
+            visible.delete(match.step);
+          }
+        }
+        if (visible.size === 0) return;
+        const best = [...visible.entries()].sort((a, b) => b[1] - a[1])[0];
+        if (best) setActiveStep(best[0]);
+      },
+      { rootMargin: "-20% 0px -55% 0px", threshold: [0, 0.25, 0.5, 0.75, 1] }
+    );
+    for (const { ref } of sections) {
+      if (ref.current) observer.observe(ref.current);
+    }
+    return () => observer.disconnect();
+  }, [items.length]);
 
   function chooseAddress(id: string) {
     setSelectedAddress(id);
@@ -148,7 +237,7 @@ export default function CheckoutPage() {
             delivery_method: delivery,
             ...(delivery === "courier" && pin ? { lat: pin.lat, lng: pin.lng } : {}),
           },
-          shipping_cost: shippingCost,
+          shipping_cost: shipping,
           address_id: selectedAddress || undefined,
         }),
       });
@@ -158,6 +247,7 @@ export default function CheckoutPage() {
           order_id: order.id,
           provider,
           idempotency_key: `chk-${order.id}`,
+          metadata: { locale },
         }),
       });
       sessionStorage.setItem("pending_order_id", order.id);
@@ -170,8 +260,9 @@ export default function CheckoutPage() {
       } catch {
         /* ignore */
       }
-      clear();
+      // Clear cart only for COD/bank (order placed). Online PSP clears on payment-return when paid.
       if (COD_PROVIDERS.has(provider) || !intent.redirect_url) {
+        clear();
         window.location.assign(`/${locale}/orders/${order.id}`);
         return;
       }
@@ -249,25 +340,97 @@ export default function CheckoutPage() {
     { id: 3, label: t("stepPayment") },
   ];
 
+  const localSubtotal = total();
+  const subtotal = resolveMoney(preview.subtotal, localSubtotal);
+  const discount = preview.discount ?? 0;
+  const giftAmt = preview.gift ?? 0;
+  const merchandise = resolveMoney(preview.total, Math.max(0, subtotal - discount - giftAmt));
+  const shipping = delivery === "pickup" ? 0 : (preview.shipping_cost ?? shippingCost);
+  const grandTotal = merchandise + shipping;
+
+  const summaryBreakdown = (
+    <div className="space-y-1.5 text-sm">
+      <p className="flex justify-between gap-3">
+        <span className="text-muted">{t("subtotal")}</span>
+        <span className="tabular-nums">{formatUZS(subtotal, locale as Locale)}</span>
+      </p>
+      {discount > 0 ? (
+        <p className="flex justify-between gap-3 text-teal">
+          <span>{t("discount")}</span>
+          <span className="tabular-nums">−{formatUZS(discount, locale as Locale)}</span>
+        </p>
+      ) : null}
+      {giftAmt > 0 ? (
+        <p className="flex justify-between gap-3 text-teal">
+          <span>{t("gift")}</span>
+          <span className="tabular-nums">−{formatUZS(giftAmt, locale as Locale)}</span>
+        </p>
+      ) : null}
+      {discount > 0 || giftAmt > 0 ? (
+        <p className="flex justify-between gap-3 font-medium">
+          <span className="text-muted">{t("items")}</span>
+          <span className="tabular-nums">{formatUZS(merchandise, locale as Locale)}</span>
+        </p>
+      ) : null}
+      <p className="flex justify-between gap-3">
+        <span className="text-muted">{t("shipping")}</span>
+        <span className="tabular-nums">{formatUZS(shipping, locale as Locale)}</span>
+      </p>
+      <p className="text-xs leading-snug text-muted">{t("taxNote")}</p>
+      <p className="flex justify-between gap-3 border-t border-night/8 pt-2 text-base font-bold">
+        <span>{t("total")}</span>
+        <span className="tabular-nums">{formatUZS(grandTotal, locale as Locale)}</span>
+      </p>
+    </div>
+  );
+
   return (
     <div className="mx-auto max-w-2xl animate-rise pb-[calc(var(--sticky-action-h)+1rem)] lg:pb-0">
       <PageHeader title={t("title")} />
       <p className="mt-2 text-lg font-bold text-night">
-        {formatUZS(total() + shippingCost, locale as Locale)}
+        {formatUZS(grandTotal, locale as Locale)}
       </p>
 
-      <ol className="mt-6 flex items-center justify-between gap-1 text-xs sm:gap-2 sm:text-sm">
-        {steps.map((step, i) => (
-          <li key={step.id} className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2">
-            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-teal text-[11px] font-bold text-paper">
-              {step.id}
-            </span>
-            <span className="hidden truncate font-semibold text-night/80 sm:inline">{step.label}</span>
-            {i < steps.length - 1 ? (
-              <span className="ms-auto hidden h-px min-w-4 flex-1 bg-night/10 sm:block" />
-            ) : null}
-          </li>
-        ))}
+      <ol className="mt-6 flex items-center justify-between gap-1 text-xs sm:gap-2 sm:text-sm" aria-label={t("title")}>
+        {steps.map((step, i) => {
+          const done = activeStep > step.id;
+          const current = activeStep === step.id;
+          return (
+            <li key={step.id} className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2">
+              <span
+                className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[11px] font-bold transition ${
+                  current
+                    ? "bg-accent text-night ring-2 ring-accent/30"
+                    : done
+                      ? "bg-teal text-paper"
+                      : "border border-night/12 bg-white text-night/40"
+                }`}
+                aria-current={current ? "step" : undefined}
+              >
+                {done ? (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                    <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                ) : (
+                  step.id
+                )}
+              </span>
+              <span
+                className={`hidden truncate font-semibold sm:inline ${
+                  current ? "text-night" : done ? "text-teal" : "text-night/45"
+                }`}
+              >
+                {step.label}
+              </span>
+              <span className={`truncate font-semibold sm:hidden ${current ? "text-night" : "text-night/45"}`}>
+                {current ? step.label : ""}
+              </span>
+              {i < steps.length - 1 ? (
+                <span className={`ms-auto hidden h-px min-w-4 flex-1 sm:block ${done ? "bg-teal/40" : "bg-night/10"}`} />
+              ) : null}
+            </li>
+          );
+        })}
       </ol>
 
       <section className="mt-8 border-y border-night/8 py-5">
@@ -284,19 +447,16 @@ export default function CheckoutPage() {
             </li>
           ))}
         </ul>
-        <div className="mt-3 space-y-1 border-t border-night/8 pt-3 text-sm">
-          <p className="flex justify-between">
-            <span className="text-muted">{t("items")}</span>
-            <span>{formatUZS(total(), locale as Locale)}</span>
-          </p>
-          <p className="flex justify-between">
-            <span className="text-muted">{t("shipping")}</span>
-            <span>{formatUZS(shippingCost, locale as Locale)}</span>
-          </p>
-          <p className="flex justify-between pt-1 text-base font-bold">
-            <span>{t("total")}</span>
-            <span>{formatUZS(total() + shippingCost, locale as Locale)}</span>
-          </p>
+        <div className="mt-3 border-t border-night/8 pt-3">
+          {previewLoading ? (
+            <div className="space-y-2 animate-pulse">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="h-4 rounded bg-night/8" />
+              ))}
+            </div>
+          ) : (
+            summaryBreakdown
+          )}
         </div>
       </section>
 
@@ -324,7 +484,7 @@ export default function CheckoutPage() {
       </div>
 
       <form id="checkout-form" onSubmit={submit} className="mt-8 space-y-8">
-        <section>
+        <section ref={stepContactRef}>
           <h2 className="font-display text-base font-bold text-night">1. {t("stepContact")}</h2>
           <div className="mt-3 space-y-3">
             {guestMode && (
@@ -352,7 +512,7 @@ export default function CheckoutPage() {
           </div>
         </section>
 
-        <section>
+        <section ref={stepDeliveryRef}>
           <h2 className="font-display text-base font-bold text-night">2. {t("stepDelivery")}</h2>
           <fieldset className="mt-3 space-y-2">
             <legend className="sr-only">{t("deliveryMethod")}</legend>
@@ -483,11 +643,11 @@ export default function CheckoutPage() {
           )}
 
           <p className="mt-3 text-sm text-muted">
-            {t("shipping")}: {formatUZS(shippingCost, locale as Locale)}
+            {t("shipping")}: {formatUZS(shipping, locale as Locale)}
           </p>
         </section>
 
-        <section>
+        <section ref={stepPaymentRef}>
           <h2 className="font-display text-base font-bold text-night">3. {t("stepPayment")}</h2>
           <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
             {PAYMENTS.map((p) => (
@@ -528,7 +688,7 @@ export default function CheckoutPage() {
         <div className="flex w-full items-center gap-3">
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-bold text-night">
-              {formatUZS(total() + shippingCost, locale as Locale)}
+              {formatUZS(grandTotal, locale as Locale)}
             </p>
             <p className="text-[10px] text-muted">{t("trust")}</p>
           </div>

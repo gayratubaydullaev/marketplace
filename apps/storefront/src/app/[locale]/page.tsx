@@ -154,7 +154,7 @@ export default async function HomePage({
       <HomeHero brand={t("brand")} slides={heroSlides} />
 
       {categories.length > 0 ? (
-        <section className="home-section mt-3 sm:mt-8" aria-label={t("home.categoriesLead")}>
+        <section className="home-section max-sm:mt-3" aria-label={t("home.categoriesLead")}>
           <CategoryRail categories={categories} locale={locale} />
         </section>
       ) : null}

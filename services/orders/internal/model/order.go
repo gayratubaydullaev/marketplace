@@ -32,15 +32,17 @@ type Order struct {
 }
 
 type OrderReturn struct {
-	ID        string     `db:"id" json:"id"`
-	TenantID  string     `db:"tenant_id" json:"tenant_id"`
-	OrderID   string     `db:"order_id" json:"order_id"`
-	UserID    *string    `db:"user_id" json:"user_id,omitempty"`
-	Reason    string     `db:"reason" json:"reason"`
-	Status    string     `db:"status" json:"status"`
-	AdminNote *string    `db:"admin_note" json:"admin_note,omitempty"`
-	CreatedAt time.Time  `db:"created_at" json:"created_at"`
-	UpdatedAt time.Time  `db:"updated_at" json:"updated_at"`
+	ID           string          `db:"id" json:"id"`
+	TenantID     string          `db:"tenant_id" json:"tenant_id"`
+	OrderID      string          `db:"order_id" json:"order_id"`
+	UserID       *string         `db:"user_id" json:"user_id,omitempty"`
+	Reason       string          `db:"reason" json:"reason"`
+	Status       string          `db:"status" json:"status"`
+	AdminNote    *string         `db:"admin_note" json:"admin_note,omitempty"`
+	Items        json.RawMessage `db:"items" json:"items,omitempty"`
+	RefundAmount float64         `db:"refund_amount" json:"refund_amount"`
+	CreatedAt    time.Time       `db:"created_at" json:"created_at"`
+	UpdatedAt    time.Time       `db:"updated_at" json:"updated_at"`
 }
 
 type OrderItem struct {
@@ -50,6 +52,7 @@ type OrderItem struct {
 	ProductID        string  `db:"product_id" json:"product_id"`
 	Title            string  `db:"title" json:"title"`
 	Quantity         int     `db:"quantity" json:"quantity"`
+	ReturnedQuantity int     `db:"returned_quantity" json:"returned_quantity"`
 	UnitPrice        float64 `db:"unit_price" json:"unit_price"`
 	TotalPrice       float64 `db:"total_price" json:"total_price"`
 	CommissionRate   float64 `db:"commission_rate" json:"commission_rate"`

@@ -35,11 +35,13 @@ func main() {
 	}
 	tokenMgr := commonauth.NewManager(cfg.JWTSecret, cfg.JWTAccessTTLMinutes, cfg.JWTRefreshTTLDays)
 
-	smtp := service.NewSMTPFromEnv()
-	transport := service.Transport(service.OutboxTransport{DB: database, Inner: smtp})
+	inner := service.TransportFromEnv()
+	transport := service.Transport(service.OutboxTransport{DB: database, Inner: inner})
+	if database != nil {
+		go service.DrainOutbox(database, inner)
+	}
 	if database != nil {
 		go consumeEvents(cfg.KafkaBrokers, database, transport)
-		go service.DrainOutbox(database, smtp)
 	}
 
 	shutdown, _ := otelx.Init(cfg.ServiceName)
@@ -128,6 +130,29 @@ func main() {
 				return
 			}
 			httpx.OK(c, gin.H{"updated": true})
+		})
+		v1.POST("/test-send", middleware.RequireRoles(commonauth.RoleTenantAdmin, commonauth.RoleManager), func(c *gin.Context) {
+			var body struct {
+				To      string `json:"to" binding:"required"`
+				Body    string `json:"body" binding:"required"`
+				Channel string `json:"channel"`
+				Subject string `json:"subject"`
+			}
+			if err := c.ShouldBindJSON(&body); err != nil {
+				httpx.BadRequest(c, err.Error())
+				return
+			}
+			if body.Channel == "" {
+				body.Channel = "email"
+			}
+			if body.Subject == "" {
+				body.Subject = "Gayrat test notification"
+			}
+			if err := transport.Send(body.Channel, body.To, body.Subject, body.Body); err != nil {
+				httpx.BadRequest(c, err.Error())
+				return
+			}
+			httpx.OK(c, gin.H{"queued": true, "channel": body.Channel, "to": body.To})
 		})
 		v1.POST("/send", middleware.RequireRoles(commonauth.RoleTenantAdmin, commonauth.RoleManager), func(c *gin.Context) {
 			var body struct {

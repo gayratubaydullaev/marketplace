@@ -4,6 +4,13 @@ const config: Config = {
   content: ["./src/**/*.{ts,tsx}", "../../packages/ui/src/**/*.{ts,tsx}"],
   theme: {
     extend: {
+      maxWidth: {
+        site: "90rem",
+        "site-2xl": "100rem",
+      },
+      spacing: {
+        "header-offset": "var(--header-offset)",
+      },
       colors: {
         night: "#0b1f24",
         teal: {

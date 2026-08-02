@@ -85,6 +85,7 @@ function AccountInner() {
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
+  const [ordersError, setOrdersError] = useState("");
   const [addressForm, setAddressForm] = useState<AddressForm>(emptyAddressForm);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showAddressForm, setShowAddressForm] = useState(false);
@@ -120,13 +121,17 @@ function AccountInner() {
 
   const loadOrders = useCallback(async () => {
     setOrdersLoading(true);
+    setOrdersError("");
     try {
       const data = await api<{ items: Order[] }>("/v1/orders");
       setOrders(data.items || []);
+    } catch (err) {
+      setOrders([]);
+      setOrdersError(err instanceof Error ? err.message : to("loadError"));
     } finally {
       setOrdersLoading(false);
     }
-  }, []);
+  }, [to]);
 
   useEffect(() => {
     const tabParam = searchParams.get("tab");
@@ -137,9 +142,7 @@ function AccountInner() {
 
   useEffect(() => {
     if (!hasClientSessionFlag()) {
-      loadOrders()
-        .catch(() => setOrders([]))
-        .finally(() => setBootstrapping(false));
+      loadOrders().finally(() => setBootstrapping(false));
       return;
     }
     Promise.all([
@@ -152,7 +155,7 @@ function AccountInner() {
         });
       }),
       loadAddresses().catch(() => undefined),
-      loadOrders().catch(() => undefined),
+      loadOrders(),
     ])
       .catch(() => undefined)
       .finally(() => setBootstrapping(false));
@@ -859,6 +862,8 @@ function AccountInner() {
             orders={orders}
             loading={ordersLoading}
             emptyTitle={t("noOrders")}
+            error={ordersError || undefined}
+            onRetry={ordersError ? () => void loadOrders() : undefined}
           />
         </section>
       ) : null}

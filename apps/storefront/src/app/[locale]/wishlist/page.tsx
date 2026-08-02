@@ -114,7 +114,13 @@ export default function WishlistPage() {
       <div className="animate-rise py-6">
         <PageHeader title={t("title")} />
         <div className="mt-8">
-          <EmptyState title={t("empty")} actionHref={`/${locale}/products`} actionLabel={t("browse")} variant="wishlist" />
+          <EmptyState
+            title={t("empty")}
+            description={t("emptyHint")}
+            actionHref={`/${locale}/products`}
+            actionLabel={t("browse")}
+            variant="wishlist"
+          />
         </div>
       </div>
     );
@@ -123,7 +129,7 @@ export default function WishlistPage() {
   return (
     <div className="animate-rise">
       <PageHeader title={t("title")} subtitle={`${items.length}`} />
-      <div className="mt-8 grid grid-cols-2 gap-x-2.5 gap-y-6 sm:gap-x-4 sm:gap-y-8 lg:grid-cols-4 xl:grid-cols-5">
+      <div className="mt-8 grid grid-cols-2 gap-x-2.5 gap-y-6 sm:gap-x-4 sm:gap-y-8 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
         {items.map((item) => (
           <article key={item.id} className="group flex flex-col">
             <div className="relative overflow-hidden rounded-2xl bg-surface-muted">

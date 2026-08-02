@@ -60,6 +60,7 @@ func main() {
 	v1.POST("/:id/refund", middleware.JWT(tokens, false), middleware.RequireRoles(commonauth.RoleTenantAdmin, commonauth.RoleManager), orders.Refund)
 	v1.GET("/:id/tracking", middleware.JWT(tokens, true), orders.Tracking)
 	v1.PUT("/:id/tracking", middleware.JWT(tokens, false), middleware.RequireRoles(commonauth.RoleTenantAdmin, commonauth.RoleManager, commonauth.RoleVendor), orders.SetTracking)
+	v1.GET("/:id/invoice", middleware.JWT(tokens, true), orders.Invoice)
 	v1.POST("/:id/returns", middleware.JWT(tokens, false), middleware.RequireRoles(commonauth.RoleCustomer), orders.CreateReturn)
 	v1.GET("/:id/returns", middleware.JWT(tokens, false), orders.Returns)
 	admin := r.Group("/v1/admin/returns", middleware.JWT(tokens, false), middleware.RequireRoles(commonauth.RoleTenantAdmin, commonauth.RoleManager))

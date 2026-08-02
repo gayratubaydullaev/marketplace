@@ -4,11 +4,12 @@ import { apiPublic, publicTags, type Product } from "@/lib/api";
 import { getCategories, getSearchFacets } from "@/lib/catalog";
 import { buildFilterHref, countActiveFilters, type FilterState } from "@/lib/filters";
 import { ProductGrid } from "@/components/ProductGrid";
+import { CatalogError } from "@/components/CatalogError";
 import { Pagination } from "@/components/Pagination";
 import { FilterSheet } from "@/components/FilterSheet";
 import { ActiveFilterChips, CatalogFilters } from "@/components/CatalogFilters";
 
-const PAGE_SIZE = 12;
+const PAGE_SIZE = 24;
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string; slug: string }> }) {
   const { locale, slug } = await params;
@@ -49,6 +50,7 @@ export default async function CategoryPage({
 
   let products: Product[] = [];
   let total = 0;
+  let loadError = false;
   let categoryName = slug;
   let parentSlug: string | null = null;
   let parentName: string | null = null;
@@ -92,6 +94,7 @@ export default async function CategoryPage({
       }));
   } catch {
     products = [];
+    loadError = true;
   }
 
   const values: FilterState = {
@@ -106,7 +109,7 @@ export default async function CategoryPage({
   const activeCount = countActiveFilters(values, { ignoreSort: true });
 
   return (
-    <div className="animate-rise lg:grid lg:grid-cols-[240px_1fr] lg:gap-10">
+    <div className="animate-rise lg:grid lg:grid-cols-[minmax(12.5rem,15rem)_minmax(0,1fr)] lg:gap-8 xl:grid-cols-[minmax(14rem,16rem)_minmax(0,1fr)] xl:gap-12">
       <FilterSheet activeCount={activeCount} resultCount={total} clearHref={basePath}>
         <CatalogFilters
           locale={locale}
@@ -176,7 +179,7 @@ export default async function CategoryPage({
             </Link>
           ))}
         </div>
-        <ProductGrid products={products} locale={locale} columns={5} />
+        {loadError ? <CatalogError /> : <ProductGrid products={products} locale={locale} columns={4} />}
         <Pagination
           locale={locale}
           basePath={basePath}

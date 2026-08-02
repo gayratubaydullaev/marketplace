@@ -55,6 +55,7 @@ func main() {
 
 	v1 := r.Group("/v1/search")
 	{
+		v1.GET("/health", func(c *gin.Context) { searchHealth(c, esURL) })
 		v1.GET("", func(c *gin.Context) { search(c, database, esURL) })
 		v1.GET("/suggest", func(c *gin.Context) { suggest(c, database, esURL) })
 		v1.GET("/popular", func(c *gin.Context) { popularSearches(c, database) })
@@ -72,6 +73,30 @@ func main() {
 
 func withTenant(c *gin.Context, database *sqlx.DB, fn func(tx *sqlx.Tx) error) error {
 	return db.WithTenant(database, middleware.GetTenantID(c), fn)
+}
+
+func searchHealth(c *gin.Context, esURL string) {
+	esAvailable := false
+	if esURL != "" {
+		req, err := http.NewRequest(http.MethodGet, strings.TrimRight(esURL, "/")+"/_cluster/health", nil)
+		if err == nil {
+			client := &http.Client{Timeout: 2 * time.Second}
+			if resp, err := client.Do(req); err == nil {
+				esAvailable = resp.StatusCode < 300
+				resp.Body.Close()
+			}
+		}
+	}
+	backend := "postgres"
+	if esAvailable {
+		backend = "elasticsearch"
+	}
+	httpx.OK(c, gin.H{
+		"status":          "ok",
+		"search_backend":  backend,
+		"elasticsearch":   gin.H{"available": esAvailable, "url_configured": esURL != ""},
+		"postgres_fallback": true,
+	})
 }
 
 func ensureIndex(esURL string) error {

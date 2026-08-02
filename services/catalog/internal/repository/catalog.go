@@ -490,7 +490,7 @@ func (r *Catalog) CreateProduct(id, tenantID string, body model.CreateProductReq
 }
 
 func (r *Catalog) UpdateProduct(id, tenantID string, body map[string]any) error {
-	allowed := []string{"translations", "price", "compare_at_price", "inventory_quantity", "status", "is_featured", "seo", "attributes", "images", "category_id"}
+	allowed := []string{"translations", "price", "compare_at_price", "inventory_quantity", "inventory_policy", "status", "is_featured", "seo", "attributes", "images", "category_id"}
 	sets := []string{}
 	args := []any{}
 	for _, key := range allowed {
@@ -595,6 +595,52 @@ func (r *Catalog) ListVariants(productID string) ([]model.Variant, error) {
 		return tx.Select(&variants, `SELECT id, tenant_id, product_id, sku, title, attributes, price, inventory_quantity, image_url, status FROM product_variants WHERE product_id=$1 ORDER BY created_at ASC`, productID)
 	})
 	return variants, err
+}
+
+func (r *Catalog) UpdateVariant(tenantID, productID, variantID string, body model.UpdateVariantRequest) error {
+	return r.withTenant(tenantID, func(tx *sqlx.Tx) error {
+		var exists string
+		if err := tx.Get(&exists, `SELECT id::text FROM product_variants WHERE id=$1 AND product_id=$2 AND tenant_id=$3`, variantID, productID, tenantID); err != nil {
+			return err
+		}
+		if body.Title != nil {
+			if _, err := tx.Exec(`UPDATE product_variants SET title=$1 WHERE id=$2`, *body.Title, variantID); err != nil {
+				return err
+			}
+		}
+		if body.Price != nil {
+			if _, err := tx.Exec(`UPDATE product_variants SET price=$1 WHERE id=$2`, *body.Price, variantID); err != nil {
+				return err
+			}
+		}
+		if body.InventoryQuantity != nil {
+			if _, err := tx.Exec(`UPDATE product_variants SET inventory_quantity=$1 WHERE id=$2`, *body.InventoryQuantity, variantID); err != nil {
+				return err
+			}
+			// Keep product aggregate inventory in sync with sum of variants when possible.
+			_, _ = tx.Exec(`
+				UPDATE products SET inventory_quantity = COALESCE((
+					SELECT SUM(inventory_quantity) FROM product_variants WHERE product_id=$1
+				), inventory_quantity), updated_at=NOW()
+				WHERE id=$1 AND tenant_id=$2`, productID, tenantID)
+		}
+		if body.ImageURL != nil {
+			if _, err := tx.Exec(`UPDATE product_variants SET image_url=$1 WHERE id=$2`, *body.ImageURL, variantID); err != nil {
+				return err
+			}
+		}
+		if body.Status != nil {
+			if _, err := tx.Exec(`UPDATE product_variants SET status=$1 WHERE id=$2`, *body.Status, variantID); err != nil {
+				return err
+			}
+		}
+		if body.SKU != nil {
+			if _, err := tx.Exec(`UPDATE product_variants SET sku=$1 WHERE id=$2`, *body.SKU, variantID); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 func (r *Catalog) CreateBulkProduct(id, tenantID string, product model.BulkProductRequest) error {

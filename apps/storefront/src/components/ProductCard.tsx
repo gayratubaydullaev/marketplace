@@ -46,6 +46,7 @@ export function ProductCard({
   const [loading, setLoading] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [variants, setVariants] = useState<Variant[]>([]);
+  const [variantOos, setVariantOos] = useState(false);
   const rootRef = useRef<HTMLElement>(null);
 
   const name = productName(product, locale);
@@ -59,7 +60,7 @@ export function ProductCard({
   const images = productImages(product);
   const img = images[hovered && images.length > 1 ? Math.min(imgIndex, images.length - 1) : 0];
   const stock = product.inventory_quantity;
-  const outOfStock = typeof stock === "number" && stock <= 0;
+  const outOfStock = variantOos || (typeof stock === "number" && stock <= 0);
   const compare = productCompareAt(product);
   const discount = productDiscountPercent(product);
   const rating = typeof product.rating === "number" ? product.rating : null;
@@ -118,7 +119,14 @@ export function ProductCard({
       }
 
       if (list.length > 0) {
-        setVariants(list);
+        const inStock = list.filter(
+          (v) => typeof v.inventory_quantity !== "number" || v.inventory_quantity > 0
+        );
+        if (inStock.length === 0) {
+          setVariantOos(true);
+          return;
+        }
+        setVariants(inStock);
         setModalOpen(true);
         return;
       }
@@ -170,7 +178,7 @@ export function ProductCard({
                 src={img}
                 alt={name}
                 fill
-                sizes="(max-width: 639px) 50vw, (max-width: 1023px) 33vw, (max-width: 1279px) 25vw, 20vw"
+                sizes="(max-width: 639px) 50vw, (max-width: 1023px) 33vw, (max-width: 1279px) 20vw, (max-width: 1535px) 18vw, 14vw"
                 priority={priority || index < 6}
                 loading={priority || index < 6 ? "eager" : "lazy"}
                 className={`object-cover ${
@@ -212,7 +220,9 @@ export function ProductCard({
                         ? "bg-teal text-paper"
                         : badge.kind === "hit"
                           ? "bg-saffron text-night"
-                          : "bg-night/80 text-paper";
+                          : badge.kind === "low"
+                            ? "bg-saffron/90 text-night"
+                            : "bg-night/80 text-paper";
                   return (
                     <span
                       key={badge.kind}
@@ -228,6 +238,10 @@ export function ProductCard({
             {outOfStock ? (
               <span className="absolute bottom-3 start-3 rounded bg-night/75 px-2 py-1 text-[11px] font-semibold text-white">
                 {t("outOfStock")}
+              </span>
+            ) : badges.some((b) => b.kind === "low") ? (
+              <span className="absolute bottom-3 start-3 rounded bg-saffron/95 px-2 py-1 text-[11px] font-semibold text-night">
+                {t("badgeLowStock")}
               </span>
             ) : null}
           </div>

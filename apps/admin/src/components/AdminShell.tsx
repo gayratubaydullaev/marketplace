@@ -33,6 +33,7 @@ function useAdminNavGroups(): NavGroup[] {
       items: [
         { href: "/orders", label: t("navOrders") },
         { href: "/returns", label: t("navReturns") },
+        { href: "/moderation", label: t("navModeration") },
         { href: "/vendors", label: t("navVendors") },
         { href: "/couriers", label: t("navCouriers") },
         { href: "/deliveries", label: t("navDeliveries") },

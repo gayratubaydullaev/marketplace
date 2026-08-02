@@ -85,8 +85,57 @@ func (h *PaymentHandler) paymeMerchantAPI(c *gin.Context) {
 			"result": gin.H{"transaction": payment.ID, "perform_time": service.NowMS(), "state": 2},
 			"id":     rpc.ID,
 		})
-	case "CheckTransaction", "CancelTransaction", "GetStatement":
-		c.JSON(http.StatusOK, gin.H{"result": gin.H{"state": 2, "transaction": ""}, "id": rpc.ID})
+	case "CheckTransaction":
+		key := service.PaymeAccountOrderID(rpc.Params)
+		paymeID := service.PaymeTransactionID(rpc.Params)
+		payment, err := h.Service.Repo.FindPaymeAccount(firstNonEmpty(key, paymeID))
+		if err != nil && paymeID != "" {
+			payment, err = h.Service.Repo.FindByProviderID(paymeID)
+		}
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{"error": gin.H{"code": -31003, "message": "Transaction not found"}, "id": rpc.ID})
+			return
+		}
+		state := 1
+		if payment.Status == "succeeded" {
+			state = 2
+		} else if payment.Status == "refunded" || payment.Status == "cancelled" {
+			state = -1
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"result": gin.H{
+				"create_time":  service.NowMS(),
+				"perform_time": service.NowMS(),
+				"cancel_time":  0,
+				"transaction":  payment.ID,
+				"state":        state,
+				"reason":       nil,
+			},
+			"id": rpc.ID,
+		})
+	case "CancelTransaction":
+		key := service.PaymeAccountOrderID(rpc.Params)
+		paymeID := service.PaymeTransactionID(rpc.Params)
+		payment, err := h.Service.Repo.FindPaymeAccount(firstNonEmpty(key, paymeID))
+		if err != nil && paymeID != "" {
+			payment, err = h.Service.Repo.FindByProviderID(paymeID)
+		}
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{"error": gin.H{"code": -31003, "message": "Transaction not found"}, "id": rpc.ID})
+			return
+		}
+		if payment.Status == "succeeded" {
+			if err := h.Service.ConfirmRefundManual(c.Request.Context(), payment.OrderID, payment.TenantID); err != nil {
+				c.JSON(http.StatusOK, gin.H{"error": gin.H{"code": -31007, "message": err.Error()}, "id": rpc.ID})
+				return
+			}
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"result": gin.H{"transaction": payment.ID, "cancel_time": service.NowMS(), "state": -1},
+			"id":     rpc.ID,
+		})
+	case "GetStatement":
+		c.JSON(http.StatusOK, gin.H{"result": gin.H{"transactions": []any{}}, "id": rpc.ID})
 	default:
 		c.JSON(http.StatusOK, gin.H{"error": gin.H{"code": -32601, "message": "Method not found"}, "id": rpc.ID})
 	}

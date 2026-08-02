@@ -134,7 +134,7 @@ export function PromoBanner({ slides }: { slides: HeroSlide[] }) {
           </>
         ) : null}
 
-        <div className="relative aspect-[5/2] w-full max-h-[min(28dvh,11rem)] select-none sm:aspect-[3/2] sm:max-h-[20rem] md:max-h-[22rem]">
+        <div className="relative aspect-[5/2] w-full max-h-[min(28dvh,11rem)] select-none sm:aspect-[21/9] sm:max-h-[18rem] md:max-h-[20rem] lg:max-h-[22rem] xl:max-h-[24rem]">
           {list.map((item, i) => {
             const isActive = i === active;
             const near =

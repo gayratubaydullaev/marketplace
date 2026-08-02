@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@gayrat/ui";
 import { api, errMsg, logout } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
-import { Msg } from "@/components/ui";
+import { EmptyState, Msg } from "@/components/ui";
 import { emitShiftChange, money } from "@/lib/status";
 
 type Courier = {
@@ -361,7 +361,9 @@ export default function ProfilePage() {
 
       <h2 className="mt-6 font-semibold">{t("profilePayouts")}</h2>
       {payouts.length === 0 ? (
-        <p className="mt-2 text-sm text-slate-500">{t("profileNoPayouts")}</p>
+        <div className="mt-2">
+          <EmptyState text={t("profileNoPayouts")} />
+        </div>
       ) : (
         <ul className="mt-2 space-y-2">
           {payouts.slice(0, 5).map((p) => (

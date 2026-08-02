@@ -43,6 +43,7 @@ func (h *Handler) Register(r *gin.Engine) {
 	v1.PUT("/products/:id", middleware.JWT(h.TokenMgr, false), middleware.RequireRoles(commonauth.RoleVendor, commonauth.RoleTenantAdmin, commonauth.RoleManager), h.updateProduct)
 	v1.DELETE("/products/:id", middleware.JWT(h.TokenMgr, false), middleware.RequireRoles(commonauth.RoleVendor, commonauth.RoleTenantAdmin), h.archiveProduct)
 	v1.POST("/products/:id/variants", middleware.JWT(h.TokenMgr, false), middleware.RequireRoles(commonauth.RoleVendor, commonauth.RoleTenantAdmin, commonauth.RoleManager), h.createVariant)
+	v1.PUT("/products/:id/variants/:variantId", middleware.JWT(h.TokenMgr, false), middleware.RequireRoles(commonauth.RoleVendor, commonauth.RoleTenantAdmin, commonauth.RoleManager), h.updateVariant)
 	v1.GET("/products/id/:id/variants", h.listVariants)
 	v1.POST("/products/bulk", middleware.JWT(h.TokenMgr, false), middleware.RequireRoles(commonauth.RoleTenantAdmin, commonauth.RoleVendor), h.bulkCreate)
 	v1.POST("/products/import/csv", middleware.JWT(h.TokenMgr, false), middleware.RequireRoles(commonauth.RoleTenantAdmin, commonauth.RoleVendor), h.importCSV)
@@ -281,6 +282,10 @@ func (h *Handler) createProduct(c *gin.Context) {
 		httpx.BadRequest(c, "new products must start in draft status")
 		return
 	}
+	if body.Price <= 0 {
+		httpx.BadRequest(c, "price must be greater than zero")
+		return
+	}
 	if body.SEO == nil {
 		body.SEO = json.RawMessage(`{}`)
 	}
@@ -432,6 +437,36 @@ func (h *Handler) createVariant(c *gin.Context) {
 func (h *Handler) listVariants(c *gin.Context) {
 	items, _ := h.repo().ListVariants(c.Param("id"))
 	httpx.OK(c, gin.H{"items": items})
+}
+
+func (h *Handler) updateVariant(c *gin.Context) {
+	var body model.UpdateVariantRequest
+	if err := c.ShouldBindJSON(&body); err != nil {
+		httpx.BadRequest(c, err.Error())
+		return
+	}
+	product, err := h.repo().GetProductByID(middleware.GetTenantID(c), c.Param("id"))
+	if repository.IsNoRows(err) {
+		httpx.NotFound(c, "product not found")
+		return
+	}
+	if err != nil {
+		httpx.Internal(c, err.Error())
+		return
+	}
+	if !h.vendorCanMutateProduct(c, &product) {
+		httpx.Forbidden(c, "not your product")
+		return
+	}
+	if err := h.repo().UpdateVariant(middleware.GetTenantID(c), c.Param("id"), c.Param("variantId"), body); err != nil {
+		if repository.IsNoRows(err) {
+			httpx.NotFound(c, "variant not found")
+			return
+		}
+		httpx.BadRequest(c, err.Error())
+		return
+	}
+	httpx.OK(c, gin.H{"id": c.Param("variantId"), "updated": true})
 }
 
 func (h *Handler) bulkCreate(c *gin.Context) {
@@ -704,7 +739,7 @@ func (h *Handler) publish(c *gin.Context, topic, key string, message any) {
 }
 
 func hasAllowedProductField(body map[string]any) bool {
-	for _, key := range []string{"translations", "price", "compare_at_price", "inventory_quantity", "status", "is_featured", "seo", "attributes", "images", "category_id"} {
+	for _, key := range []string{"translations", "price", "compare_at_price", "inventory_quantity", "inventory_policy", "status", "is_featured", "seo", "attributes", "images", "category_id"} {
 		if _, ok := body[key]; ok {
 			return true
 		}

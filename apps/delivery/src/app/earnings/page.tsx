@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, errMsg } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
 import { StatusBadge } from "@/components/StatusBadge";
-import { EmptyState, Msg } from "@/components/ui";
+import { EmptyState, KpiCard, Msg } from "@/components/ui";
 import { usePoll } from "@/hooks/usePoll";
 import { money } from "@/lib/status";
 
@@ -108,23 +108,33 @@ export default function EarningsPage() {
 
       {summary ? (
         <div className="mt-4 grid grid-cols-2 gap-3">
-          <Stat label={t("earnToday")} value={money(summary.earned_today, cur, numberLocale)} sub={t("earnTrips", { n: summary.completed_today })} accent />
-          <Stat label={t("earnWeek")} value={money(summary.earned_week, cur, numberLocale)} sub={t("earnTrips", { n: summary.completed_week })} />
-          <Stat label={t("earnMonth")} value={money(summary.earned_month, cur, numberLocale)} sub={t("earnTrips", { n: summary.completed_month })} />
-          <Stat label={t("earnUnpaid")} value={money(summary.earned_unpaid, cur, numberLocale)} sub={t("earnUnpaidHint")} warn />
+          <KpiCard
+            label={t("earnToday")}
+            value={money(summary.earned_today, cur, numberLocale)}
+            hint={t("earnTrips", { n: summary.completed_today })}
+          />
+          <KpiCard
+            label={t("earnWeek")}
+            value={money(summary.earned_week, cur, numberLocale)}
+            hint={t("earnTrips", { n: summary.completed_week })}
+          />
+          <KpiCard
+            label={t("earnMonth")}
+            value={money(summary.earned_month, cur, numberLocale)}
+            hint={t("earnTrips", { n: summary.completed_month })}
+          />
+          <KpiCard
+            label={t("earnUnpaid")}
+            value={money(summary.earned_unpaid, cur, numberLocale)}
+            hint={t("earnUnpaidHint")}
+          />
         </div>
       ) : null}
 
       {summary ? (
         <div className="mt-3 grid grid-cols-2 gap-3">
-          <div className="rounded-2xl border bg-white p-3">
-            <p className="text-[10px] font-bold uppercase text-slate-400">{t("earnPayoutPending")}</p>
-            <p className="mt-1 text-lg font-bold">{money(summary.payout_pending, cur, numberLocale)}</p>
-          </div>
-          <div className="rounded-2xl border bg-white p-3">
-            <p className="text-[10px] font-bold uppercase text-slate-400">{t("earnPayoutPaid")}</p>
-            <p className="mt-1 text-lg font-bold text-emerald-700">{money(summary.payout_paid, cur, numberLocale)}</p>
-          </div>
+          <KpiCard label={t("earnPayoutPending")} value={money(summary.payout_pending, cur, numberLocale)} />
+          <KpiCard label={t("earnPayoutPaid")} value={money(summary.payout_paid, cur, numberLocale)} />
         </div>
       ) : null}
 
@@ -163,7 +173,9 @@ export default function EarningsPage() {
 
       <h2 className="mt-6 font-semibold">{t("profilePayouts")}</h2>
       {payouts.length === 0 && !loading ? (
-        <p className="mt-2 text-sm text-slate-500">{t("profileNoPayouts")}</p>
+        <div className="mt-2">
+          <EmptyState text={t("profileNoPayouts")} />
+        </div>
       ) : null}
       {payouts.length > 0 ? (
         <ul className="mt-2 space-y-2">
@@ -180,32 +192,6 @@ export default function EarningsPage() {
           ))}
         </ul>
       ) : null}
-    </div>
-  );
-}
-
-function Stat({
-  label,
-  value,
-  sub,
-  accent,
-  warn,
-}: {
-  label: string;
-  value: string;
-  sub?: string;
-  accent?: boolean;
-  warn?: boolean;
-}) {
-  return (
-    <div
-      className={`rounded-2xl border p-3 shadow-sm ${
-        accent ? "border-teal/30 bg-teal/5" : warn ? "border-amber-200 bg-amber-50" : "bg-white"
-      }`}
-    >
-      <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{label}</p>
-      <p className="mt-1 text-base font-bold leading-tight text-night sm:text-lg">{value}</p>
-      {sub ? <p className="mt-1 text-[11px] text-slate-500">{sub}</p> : null}
     </div>
   );
 }
